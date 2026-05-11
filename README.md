@@ -47,6 +47,13 @@ in the matching Vercel environment.
 - `npm run db:generate` creates Drizzle migration files from `src/db/schema.ts`.
 - `npm run db:migrate` applies migrations.
 - `npm run db:studio` opens Drizzle Studio.
+- `npm run db:prod:migrate` applies committed migrations to the production
+  database from `.env.prod` without changing your shell or local `.env`.
+- `npm run db:prod:studio` opens Drizzle Studio against the production database.
+
+`db:generate` is usually the right command during development because migration
+files should be generated from source schema changes and committed. Production
+should only run committed migrations through `db:prod:migrate`.
 
 ## Service Notes
 
