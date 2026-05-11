@@ -50,6 +50,24 @@ type EnableBankingSyncMetadata = {
   };
 };
 
+type ConnectionMetadata = Record<string, unknown> & {
+  enableBanking?: {
+    initialTransactionSyncCompleted?: boolean;
+    initialTransactionSyncCompletedAt?: string;
+  };
+};
+
+type TransactionMetadata = Record<string, unknown> & {
+  providerDescription?: string;
+  userEdits?: {
+    descriptionEdited?: boolean;
+    merchantNameEdited?: boolean;
+    originalDescription?: string;
+    originalMerchantName?: string | null;
+    updatedAt?: string;
+  };
+};
+
 function dateDaysBefore(date: Date, days: number) {
   const result = new Date(date);
   result.setDate(result.getDate() - days);
@@ -64,12 +82,6 @@ function toCents(amount: string | number | null | undefined) {
 
 function fromCents(cents: number) {
   return (cents / 100).toFixed(2);
-}
-
-function dateBefore(date: string) {
-  const parsed = new Date(`${date}T00:00:00Z`);
-  parsed.setUTCDate(parsed.getUTCDate() - 1);
-  return parsed.toISOString().slice(0, 10);
 }
 
 function transactionParamsKey(params: TransactionSyncParams) {
@@ -156,7 +168,11 @@ async function getOrCreateTransactionParams(
     }
   }
 
-  const params: TransactionSyncParams = connection.lastSyncedAt
+  const connectionMetadata = (connection.metadata ?? {}) as ConnectionMetadata;
+  const hasCompletedInitialSync = Boolean(
+    connectionMetadata.enableBanking?.initialTransactionSyncCompleted,
+  );
+  const params: TransactionSyncParams = connection.lastSyncedAt && hasCompletedInitialSync
     ? {
         strategy: "default",
         dateFrom: dateDaysBefore(connection.lastSyncedAt, 7),
@@ -186,6 +202,20 @@ async function getOrCreateTransactionParams(
   }
 
   return params;
+}
+
+function transactionMetadataWithProviderPayload(
+  raw: Record<string, unknown> | undefined,
+  providerDescription: string,
+  existingMetadata?: Record<string, unknown> | null,
+): TransactionMetadata {
+  const metadata = (existingMetadata ?? {}) as TransactionMetadata;
+
+  return {
+    ...(raw ?? {}),
+    userEdits: metadata.userEdits,
+    providerDescription,
+  };
 }
 
 async function updateSyncRunProgress(syncRunId: string | undefined, progress: SyncProgress) {
@@ -358,7 +388,7 @@ async function reconcileAccountBalance(input: {
       sourceTransactionId: offsetSourceTransactionId,
       amount: fromCents(offsetCents),
       currency: input.currency,
-      date: dateBefore(earliestDate),
+      date: earliestDate,
       merchantName: "Opening balance adjustment",
       normalizedMerchantName: "opening balance adjustment",
       description: "Opening balance adjustment",
@@ -618,7 +648,12 @@ export async function syncEnableBankingConnection(
             metadata: transaction.raw,
           };
           const [existing] = await db
-            .select({ id: transactions.id })
+            .select({
+              id: transactions.id,
+              description: transactions.description,
+              merchantName: transactions.merchantName,
+              metadata: transactions.metadata,
+            })
             .from(transactions)
             .where(
               and(
@@ -630,16 +665,45 @@ export async function syncEnableBankingConnection(
             .limit(1);
 
           if (existing) {
+            const existingMetadata = (existing.metadata ??
+              {}) as TransactionMetadata;
+            const description = existingMetadata.userEdits?.descriptionEdited
+              ? existing.description
+              : transaction.description;
+            const merchantName = existingMetadata.userEdits?.merchantNameEdited
+              ? existing.merchantName
+              : transaction.merchantName;
+
             await db
               .update(transactions)
-              .set({ ...values, updatedAt: new Date() })
+              .set({
+                ...values,
+                description,
+                merchantName,
+                normalizedMerchantName: normalizeMerchant(
+                  merchantName ?? description,
+                ),
+                searchText: `${description} ${merchantName ?? ""}`,
+                metadata: transactionMetadataWithProviderPayload(
+                  transaction.raw,
+                  transaction.description,
+                  existing.metadata,
+                ),
+                updatedAt: new Date(),
+              })
               .where(eq(transactions.id, existing.id));
             continue;
           }
 
           const [createdTransaction] = await db
             .insert(transactions)
-            .values(values)
+            .values({
+              ...values,
+              metadata: transactionMetadataWithProviderPayload(
+                transaction.raw,
+                transaction.description,
+              ),
+            })
             .returning();
 
           importedTransactions.push(createdTransaction);
@@ -676,12 +740,22 @@ export async function syncEnableBankingConnection(
       await updateSyncRunProgress(options.syncRunId, progress);
     }
 
+    const connectionMetadata = (connection.metadata ?? {}) as ConnectionMetadata;
+
     await db
       .update(ingestionConnections)
       .set({
         lastSyncedAt: new Date(),
         status: "connected",
         rateLimitedUntil: null,
+        metadata: {
+          ...connectionMetadata,
+          enableBanking: {
+            ...(connectionMetadata.enableBanking ?? {}),
+            initialTransactionSyncCompleted: true,
+            initialTransactionSyncCompletedAt: new Date().toISOString(),
+          },
+        },
         updatedAt: new Date(),
       })
       .where(eq(ingestionConnections.id, connectionId));

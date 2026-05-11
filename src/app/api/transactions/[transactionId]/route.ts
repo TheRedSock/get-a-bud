@@ -9,6 +9,16 @@ import { normalizeMerchant } from "@/lib/finance/categorization";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { updateTransactionSchema } from "@/lib/finance/validation";
 
+type TransactionMetadata = Record<string, unknown> & {
+  userEdits?: {
+    descriptionEdited?: boolean;
+    merchantNameEdited?: boolean;
+    originalDescription?: string;
+    originalMerchantName?: string | null;
+    updatedAt?: string;
+  };
+};
+
 export const PATCH = withApiHandler(
   "transactions.update",
   async (
@@ -82,18 +92,36 @@ export const PATCH = withApiHandler(
     }
 
     const nextDescription =
-      transaction.source === "manual" && transactionInput.description !== undefined
+      transactionInput.description !== undefined
         ? transactionInput.description
         : transaction.description;
     const nextMerchantName =
       transactionInput.merchantName !== undefined
         ? transactionInput.merchantName
         : transaction.merchantName;
+    const metadata = (transaction.metadata ?? {}) as TransactionMetadata;
+    const userEdits = { ...(metadata.userEdits ?? {}) };
     const values: Partial<typeof transactions.$inferInsert> = {
+      description: nextDescription,
       updatedAt: new Date(),
       searchText: `${nextDescription} ${nextMerchantName ?? ""}`,
       normalizedMerchantName: normalizeMerchant(nextMerchantName ?? nextDescription),
     };
+
+    if (
+      transaction.source !== "manual" &&
+      transactionInput.description !== undefined &&
+      transactionInput.description !== transaction.description
+    ) {
+      userEdits.descriptionEdited = true;
+      userEdits.originalDescription =
+        userEdits.originalDescription ?? transaction.description;
+      userEdits.updatedAt = new Date().toISOString();
+      values.metadata = {
+        ...metadata,
+        userEdits,
+      };
+    }
 
     if (transactionInput.categoryId !== undefined) {
       values.categoryId = transactionInput.categoryId;
@@ -101,6 +129,20 @@ export const PATCH = withApiHandler(
 
     if (transactionInput.merchantName !== undefined) {
       values.merchantName = transactionInput.merchantName;
+
+      if (
+        transaction.source !== "manual" &&
+        transactionInput.merchantName !== transaction.merchantName
+      ) {
+        userEdits.merchantNameEdited = true;
+        userEdits.originalMerchantName =
+          userEdits.originalMerchantName ?? transaction.merchantName;
+        userEdits.updatedAt = new Date().toISOString();
+        values.metadata = {
+          ...metadata,
+          userEdits,
+        };
+      }
     }
 
     if (transactionInput.notes !== undefined) {
@@ -114,7 +156,6 @@ export const PATCH = withApiHandler(
     if (transactionInput.excludedFromBudget !== undefined) {
       values.excludedFromBudget = transactionInput.excludedFromBudget;
     }
-
     if (transaction.source === "manual") {
       if (transactionInput.accountId !== undefined) {
         values.accountId = transactionInput.accountId;
@@ -130,10 +171,6 @@ export const PATCH = withApiHandler(
 
       if (transactionInput.date !== undefined) {
         values.date = transactionInput.date;
-      }
-
-      if (transactionInput.description !== undefined) {
-        values.description = transactionInput.description;
       }
     }
 

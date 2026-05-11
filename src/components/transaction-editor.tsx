@@ -29,6 +29,7 @@ type TransactionEditorProps = {
     categoryId: string | null;
     status: TransactionStatus;
     excludedFromBudget: boolean;
+    accountName: string;
   };
 };
 
@@ -56,6 +57,7 @@ export function TransactionEditor({
 
     try {
       const payload: Record<string, unknown> = {
+        description,
         merchantName: merchantName.trim() || null,
         notes: notes.trim() || null,
         categoryId: categoryId || null,
@@ -64,7 +66,6 @@ export function TransactionEditor({
       };
 
       if (isManual) {
-        payload.description = description;
         payload.amount = amount;
         payload.date = date;
       }
@@ -96,14 +97,13 @@ export function TransactionEditor({
             </Label>
             <Input
               id={`transaction-description-${transaction.id}`}
-              disabled={!isManual}
               value={description}
               onChange={(event) => setDescription(event.target.value)}
             />
             {!isManual ? (
               <p className="text-xs text-muted-foreground">
-                Bank descriptions stay unchanged; use merchant, category and notes
-                for your own cleanup.
+                The original bank label is kept in metadata for future import
+                learning.
               </p>
             ) : null}
           </div>
@@ -211,7 +211,7 @@ export function TransactionEditor({
           {transaction.merchantName ?? transaction.description}
         </p>
         <p className="text-sm text-muted-foreground">
-          {transaction.date} · {transaction.source.replace("_", " ")}
+          {transaction.date} · {transaction.accountName}
         </p>
         {transaction.notes ? (
           <p className="mt-1 text-sm text-muted-foreground">{transaction.notes}</p>

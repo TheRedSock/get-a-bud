@@ -1,5 +1,6 @@
 import { Search } from "lucide-react";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import Link from "next/link";
 
 import { BankSyncPanel } from "@/components/bank-sync-panel";
 import { TransactionEditor } from "@/components/transaction-editor";
@@ -8,22 +9,60 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { db } from "@/db";
-import { categories, transactions } from "@/db/schema";
+import { categories, financialAccounts, transactions } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
 
-export default async function TransactionsPage() {
+type TransactionsPageProps = {
+  searchParams?: Promise<{
+    accountId?: string;
+  }>;
+};
+
+export default async function TransactionsPage({
+  searchParams,
+}: TransactionsPageProps = {}) {
   const household = await getActiveHousehold();
-  const [rows, categoryRows] = await Promise.all([
+  const resolvedSearchParams = await searchParams;
+  const selectedAccountId = resolvedSearchParams?.accountId;
+  const [rows, categoryRows, accountRows] = await Promise.all([
     db
-      .select()
+      .select({
+        id: transactions.id,
+        source: transactions.source,
+        amount: transactions.amount,
+        currency: transactions.currency,
+        date: transactions.date,
+        merchantName: transactions.merchantName,
+        description: transactions.description,
+        notes: transactions.notes,
+        categoryId: transactions.categoryId,
+        status: transactions.status,
+        excludedFromBudget: transactions.excludedFromBudget,
+        accountName: financialAccounts.name,
+      })
       .from(transactions)
-      .where(eq(transactions.householdId, household.householdId))
+      .innerJoin(
+        financialAccounts,
+        eq(financialAccounts.id, transactions.accountId),
+      )
+      .where(
+        selectedAccountId
+          ? and(
+              eq(transactions.householdId, household.householdId),
+              eq(transactions.accountId, selectedAccountId),
+            )
+          : eq(transactions.householdId, household.householdId),
+      )
       .orderBy(desc(transactions.date))
       .limit(100),
     db
       .select({ id: categories.id, name: categories.name })
       .from(categories)
       .where(eq(categories.householdId, household.householdId)),
+    db
+      .select({ id: financialAccounts.id, name: financialAccounts.name })
+      .from(financialAccounts)
+      .where(eq(financialAccounts.householdId, household.householdId)),
   ]);
 
   return (
@@ -36,6 +75,27 @@ export default async function TransactionsPage() {
           <div className="relative">
             <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input className="pl-10" placeholder="Search by merchant, note or category" />
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              asChild
+              size="sm"
+              variant={selectedAccountId ? "outline" : "secondary"}
+            >
+              <Link href="/transactions">All accounts</Link>
+            </Button>
+            {accountRows.map((account) => (
+              <Button
+                key={account.id}
+                asChild
+                size="sm"
+                variant={selectedAccountId === account.id ? "secondary" : "outline"}
+              >
+                <Link href={`/transactions?accountId=${account.id}`}>
+                  {account.name}
+                </Link>
+              </Button>
+            ))}
           </div>
           {rows.length ? (
             rows.map((transaction) => (

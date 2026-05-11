@@ -46,7 +46,9 @@ sync loop follows `continuation_key` until completion and records progress in
 `sync_runs.metadata` so the UI can recover running or rate-limited state after a
 refresh. Continuation keys are scoped to the sync run and exact transaction
 request parameters so stale cursors are not replayed with a new date window or
-fetch strategy.
+fetch strategy. A connection only moves to incremental date-window sync after a
+completed initial transaction import records that baseline in connection
+metadata.
 
 Displayed account balances are ledger-derived. If the available transaction
 history does not add up to the provider-reported balance, the sync maintains an

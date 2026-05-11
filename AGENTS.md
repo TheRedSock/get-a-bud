@@ -20,6 +20,9 @@ background workflows in `src/inngest`.
   following `continuation_key` until it is absent, even when a page contains no
   transactions. Continuation keys are scoped to the current sync run and request
   parameter set; never seed a new run from an old provider account cursor.
+- Do not switch Enable Banking to incremental date-window sync until a completed
+  initial `strategy=longest` transaction sync has been recorded on the connection
+  metadata.
 - Treat `ASPSP_RATE_LIMIT_EXCEEDED` or HTTP 429 as a paused sync. Record progress
   and retry after the provider retry time or a six-hour fallback.
 
