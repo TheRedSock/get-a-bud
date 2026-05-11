@@ -39,6 +39,13 @@ type SyncProgress = {
 type EnableBankingSyncMetadata = {
   enableBanking?: {
     transactionParams?: TransactionSyncParams;
+    accountCursors?: Record<
+      string,
+      {
+        continuationKey: string;
+        paramsKey: string;
+      }
+    >;
     progress?: SyncProgress;
   };
 };
@@ -63,6 +70,15 @@ function dateBefore(date: string) {
   const parsed = new Date(`${date}T00:00:00Z`);
   parsed.setUTCDate(parsed.getUTCDate() - 1);
   return parsed.toISOString().slice(0, 10);
+}
+
+function transactionParamsKey(params: TransactionSyncParams) {
+  return JSON.stringify({
+    dateFrom: params.dateFrom ?? null,
+    dateTo: params.dateTo ?? null,
+    strategy: params.strategy,
+    transactionStatus: params.transactionStatus,
+  });
 }
 
 async function resolvePrivateKey(connection: typeof ingestionConnections.$inferSelect) {
@@ -193,6 +209,64 @@ async function updateSyncRunProgress(syncRunId: string | undefined, progress: Sy
       },
     })
     .where(eq(syncRuns.id, syncRunId));
+}
+
+async function getRunAccountCursor(input: {
+  syncRunId?: string;
+  providerAccountId: string;
+  params: TransactionSyncParams;
+}) {
+  if (!input.syncRunId) {
+    return undefined;
+  }
+
+  const metadata = await getRunMetadata(input.syncRunId);
+  const cursor =
+    metadata.enableBanking?.accountCursors?.[input.providerAccountId];
+
+  if (!cursor || cursor.paramsKey !== transactionParamsKey(input.params)) {
+    return undefined;
+  }
+
+  return cursor.continuationKey;
+}
+
+async function updateRunAccountCursor(input: {
+  syncRunId?: string;
+  providerAccountId: string;
+  params: TransactionSyncParams;
+  continuationKey?: string;
+}) {
+  if (!input.syncRunId) {
+    return;
+  }
+
+  const metadata = await getRunMetadata(input.syncRunId);
+  const accountCursors = {
+    ...(metadata.enableBanking?.accountCursors ?? {}),
+  };
+
+  if (input.continuationKey) {
+    accountCursors[input.providerAccountId] = {
+      continuationKey: input.continuationKey,
+      paramsKey: transactionParamsKey(input.params),
+    };
+  } else {
+    delete accountCursors[input.providerAccountId];
+  }
+
+  await db
+    .update(syncRuns)
+    .set({
+      metadata: {
+        ...metadata,
+        enableBanking: {
+          ...(metadata.enableBanking ?? {}),
+          accountCursors,
+        },
+      },
+    })
+    .where(eq(syncRuns.id, input.syncRunId));
 }
 
 async function reconcileAccountBalance(input: {
@@ -502,7 +576,11 @@ export async function syncEnableBankingConnection(
           .where(eq(financialAccounts.id, financialAccountId));
       }
 
-      let continuationKey = linkedProviderAccount.syncCursor ?? undefined;
+      let continuationKey = await getRunAccountCursor({
+        syncRunId: options.syncRunId,
+        providerAccountId: account.providerAccountId,
+        params: transactionParams,
+      });
       let hasMorePages = true;
 
       while (hasMorePages) {
@@ -578,6 +656,12 @@ export async function syncEnableBankingConnection(
             updatedAt: new Date(),
           })
           .where(eq(providerAccounts.id, linkedProviderAccount.id));
+        await updateRunAccountCursor({
+          syncRunId: options.syncRunId,
+          providerAccountId: account.providerAccountId,
+          params: transactionParams,
+          continuationKey,
+        });
         await updateSyncRunProgress(options.syncRunId, progress);
       }
 

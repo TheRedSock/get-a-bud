@@ -44,7 +44,9 @@ then fetches transactions with Enable Banking pagination semantics. Initial
 imports use `strategy=longest`; later syncs use a recent default window. The
 sync loop follows `continuation_key` until completion and records progress in
 `sync_runs.metadata` so the UI can recover running or rate-limited state after a
-refresh.
+refresh. Continuation keys are scoped to the sync run and exact transaction
+request parameters so stale cursors are not replayed with a new date window or
+fetch strategy.
 
 Displayed account balances are ledger-derived. If the available transaction
 history does not add up to the provider-reported balance, the sync maintains an
