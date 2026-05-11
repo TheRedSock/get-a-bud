@@ -1,0 +1,292 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@font-face {
+  font-family: "Mona Sans";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-wdth-opsz-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: normal;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-Italic-wdth-opsz-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: italic;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Width";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-wdth-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: normal;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Width";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-Italic-wdth-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: italic;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Optical";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-opsz-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: normal;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Optical";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-Italic-opsz-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: italic;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Unified";
+  src: url("../assets/fonts/mona-sans/MonaSansVF-wdth-wght-opsz-ital.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-style: oblique 0deg 12deg;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Display";
+  src: url("../assets/fonts/mona-sans/MonaSansDisplay-Regular.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Mona Sans Display";
+  src: url("../assets/fonts/mona-sans/MonaSansDisplay-SemiBold.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Mona Sans Condensed";
+  src: url("../assets/fonts/mona-sans/MonaSansCondensed-Regular.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Mona Sans Condensed";
+  src: url("../assets/fonts/mona-sans/MonaSansCondensed-SemiBold.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Mona Sans Expanded";
+  src: url("../assets/fonts/mona-sans/MonaSansExpanded-Regular.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Mona Sans Expanded";
+  src: url("../assets/fonts/mona-sans/MonaSansExpanded-SemiBold.woff2")
+    format("woff2");
+  font-display: swap;
+  font-weight: 600;
+}
+
+@font-face {
+  font-family: "Mona Sans Mono";
+  src: url("../assets/fonts/mona-sans/MonaSansMonoVF-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-weight: 200 900;
+}
+
+@font-face {
+  font-family: "Mona Sans Mono Width";
+  src: url("../assets/fonts/mona-sans/MonaSansMonoVF-wdth-wght.woff2")
+    format("woff2-variations");
+  font-display: swap;
+  font-stretch: 75% 125%;
+  font-weight: 200 900;
+}
+
+:root {
+  color-scheme: light;
+  --background: oklch(0.985 0.01 250);
+  --foreground: oklch(0.19 0.025 260);
+  --card: oklch(1 0 0 / 0.82);
+  --card-foreground: var(--foreground);
+  --popover: oklch(1 0 0);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.55 0.19 255);
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.93 0.018 250);
+  --secondary-foreground: oklch(0.24 0.03 260);
+  --muted: oklch(0.93 0.012 250);
+  --muted-foreground: oklch(0.52 0.03 260);
+  --accent: oklch(0.91 0.055 185);
+  --accent-foreground: oklch(0.19 0.025 260);
+  --destructive: oklch(0.58 0.22 25);
+  --border: oklch(0.88 0.018 250);
+  --input: oklch(0.88 0.018 250);
+  --ring: var(--primary);
+  --radius: 1.25rem;
+  --app-font: "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --display-font: "Mona Sans Display", "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --compact-font: "Mona Sans Condensed", "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --wide-font: "Mona Sans Expanded", "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono-font: "Mona Sans Mono", ui-monospace, monospace;
+  --chart-1: oklch(0.65 0.18 255);
+  --chart-2: oklch(0.7 0.17 165);
+  --chart-3: oklch(0.72 0.18 75);
+  --chart-4: oklch(0.64 0.2 330);
+  --chart-5: oklch(0.67 0.18 25);
+  --chart-6: oklch(0.62 0.16 285);
+  --chart-7: oklch(0.6 0.15 205);
+  --chart-8: oklch(0.78 0.14 135);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.14 0.025 260);
+  --foreground: oklch(0.96 0.012 250);
+  --card: oklch(0.2 0.035 260 / 0.72);
+  --card-foreground: var(--foreground);
+  --popover: oklch(0.18 0.03 260);
+  --popover-foreground: var(--foreground);
+  --primary: oklch(0.72 0.18 255);
+  --primary-foreground: oklch(0.12 0.02 260);
+  --secondary: oklch(0.25 0.035 260);
+  --secondary-foreground: oklch(0.95 0.012 250);
+  --muted: oklch(0.25 0.03 260);
+  --muted-foreground: oklch(0.72 0.03 255);
+  --accent: oklch(0.3 0.08 190);
+  --accent-foreground: oklch(0.96 0.012 250);
+  --destructive: oklch(0.68 0.2 25);
+  --border: oklch(1 0 0 / 0.11);
+  --input: oklch(1 0 0 / 0.14);
+  --ring: var(--primary);
+  --chart-1: oklch(0.72 0.18 255);
+  --chart-2: oklch(0.76 0.17 165);
+  --chart-3: oklch(0.78 0.17 75);
+  --chart-4: oklch(0.73 0.19 330);
+  --chart-5: oklch(0.72 0.17 25);
+  --chart-6: oklch(0.73 0.16 285);
+  --chart-7: oklch(0.72 0.14 205);
+  --chart-8: oklch(0.8 0.15 135);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --font-sans: var(--app-font);
+  --font-mono: var(--mono-font);
+  --font-display: var(--display-font);
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+}
+
+* {
+  border-color: var(--border);
+}
+
+body {
+  min-height: 100vh;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--app-font);
+  font-optical-sizing: auto;
+  font-feature-settings: "rlig" 1, "calt" 1;
+}
+
+::selection {
+  background: color-mix(in oklch, var(--primary), transparent 65%);
+}
+
+.theme-ember {
+  --primary: oklch(0.68 0.2 35);
+  --accent: oklch(0.72 0.14 75);
+  --chart-1: oklch(0.68 0.2 35);
+  --chart-2: oklch(0.78 0.14 75);
+  --chart-3: oklch(0.64 0.16 15);
+}
+
+.theme-mint {
+  --primary: oklch(0.7 0.17 165);
+  --accent: oklch(0.78 0.13 205);
+  --chart-1: oklch(0.7 0.17 165);
+  --chart-2: oklch(0.78 0.13 205);
+  --chart-3: oklch(0.72 0.18 255);
+}
+
+h1,
+h2,
+h3,
+.font-display {
+  font-family: var(--display-font);
+}
+
+.font-compact {
+  font-family: var(--compact-font);
+}
+
+.font-wide {
+  font-family: var(--wide-font);
+}
+
+.font-data,
+.tabular-nums {
+  font-family: var(--mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+.landing-grid {
+  background-image:
+    linear-gradient(to right, color-mix(in oklch, var(--border), transparent 55%) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklch, var(--border), transparent 55%) 1px, transparent 1px);
+  background-size: 4rem 4rem;
+  mask-image: linear-gradient(to bottom, black, transparent 72%);
+}
