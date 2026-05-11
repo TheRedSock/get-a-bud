@@ -65,6 +65,30 @@ export const syncBankConnection = inngest.createFunction(
         syncEnableBankingConnection(connectionId, { syncRunId: run.id }),
       );
 
+      if (result.continuationRequired) {
+        await step.run("checkpoint-sync-run", () =>
+          db
+            .update(syncRuns)
+            .set({
+              status: "running",
+              finishedAt: null,
+              importedAccounts:
+                result.progress?.importedAccounts ?? result.accounts.length,
+              importedTransactions:
+                result.progress?.importedTransactions ??
+                result.transactions.length,
+            })
+            .where(eq(syncRuns.id, run.id)),
+        );
+
+        await step.sendEvent("continue-bank-sync", {
+          name: "bank.connection.sync",
+          data: { connectionId, runId: run.id },
+        });
+
+        return result;
+      }
+
       if (result.rateLimitedUntil) {
         await step.run("pause-rate-limited-sync-run", () =>
           db

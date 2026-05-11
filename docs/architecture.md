@@ -48,7 +48,9 @@ refresh. Continuation keys are scoped to the sync run and exact transaction
 request parameters so stale cursors are not replayed with a new date window or
 fetch strategy. A connection only moves to incremental date-window sync after a
 completed initial transaction import records that baseline in connection
-metadata.
+metadata. Long imports are checkpointed after a bounded page/time budget and
+continued by a follow-up Inngest event using the same `sync_runs` row, avoiding
+serverless function timeouts while preserving progress.
 
 Displayed account balances are ledger-derived. If the available transaction
 history does not add up to the provider-reported balance, the sync maintains an

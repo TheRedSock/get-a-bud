@@ -39,6 +39,7 @@ type SyncProgress = {
 type EnableBankingSyncMetadata = {
   enableBanking?: {
     transactionParams?: TransactionSyncParams;
+    completedAccountIds?: string[];
     accountCursors?: Record<
       string,
       {
@@ -49,6 +50,9 @@ type EnableBankingSyncMetadata = {
     progress?: SyncProgress;
   };
 };
+
+const DEFAULT_SYNC_PAGE_BUDGET = 10;
+const DEFAULT_SYNC_TIME_BUDGET_MS = 3 * 60 * 1000;
 
 type ConnectionMetadata = Record<string, unknown> & {
   enableBanking?: {
@@ -153,6 +157,28 @@ async function getRunMetadata(syncRunId: string) {
     .limit(1);
 
   return (run?.metadata ?? {}) as EnableBankingSyncMetadata;
+}
+
+async function getRunProgress(syncRunId?: string): Promise<SyncProgress> {
+  if (!syncRunId) {
+    return {
+      importedAccounts: 0,
+      importedTransactions: 0,
+      pagesFetched: 0,
+    };
+  }
+
+  const metadata = await getRunMetadata(syncRunId);
+  const progress = metadata.enableBanking?.progress;
+
+  return {
+    importedAccounts: progress?.importedAccounts ?? 0,
+    importedTransactions: progress?.importedTransactions ?? 0,
+    pagesFetched: progress?.pagesFetched ?? 0,
+    currentAccountId: progress?.currentAccountId,
+    currentAccountName: progress?.currentAccountName,
+    rateLimitedUntil: progress?.rateLimitedUntil,
+  };
 }
 
 async function getOrCreateTransactionParams(
@@ -297,6 +323,45 @@ async function updateRunAccountCursor(input: {
       },
     })
     .where(eq(syncRuns.id, input.syncRunId));
+}
+
+async function markRunAccountCompleted(input: {
+  syncRunId?: string;
+  providerAccountId: string;
+}) {
+  if (!input.syncRunId) {
+    return;
+  }
+
+  const metadata = await getRunMetadata(input.syncRunId);
+  const completedAccountIds = new Set(
+    metadata.enableBanking?.completedAccountIds ?? [],
+  );
+
+  completedAccountIds.add(input.providerAccountId);
+
+  await db
+    .update(syncRuns)
+    .set({
+      metadata: {
+        ...metadata,
+        enableBanking: {
+          ...(metadata.enableBanking ?? {}),
+          completedAccountIds: [...completedAccountIds],
+        },
+      },
+    })
+    .where(eq(syncRuns.id, input.syncRunId));
+}
+
+async function getRunCompletedAccountIds(syncRunId?: string) {
+  if (!syncRunId) {
+    return new Set<string>();
+  }
+
+  const metadata = await getRunMetadata(syncRunId);
+
+  return new Set(metadata.enableBanking?.completedAccountIds ?? []);
 }
 
 async function reconcileAccountBalance(input: {
@@ -446,8 +511,16 @@ async function reconcileAccountBalance(input: {
 
 export async function syncEnableBankingConnection(
   connectionId: string,
-  options: { syncRunId?: string } = {},
+  options: {
+    syncRunId?: string;
+    maxPages?: number;
+    maxDurationMs?: number;
+  } = {},
 ): Promise<IngestionSyncResult> {
+  const invocationStartedAt = Date.now();
+  const maxPages = options.maxPages ?? DEFAULT_SYNC_PAGE_BUDGET;
+  const maxDurationMs = options.maxDurationMs ?? DEFAULT_SYNC_TIME_BUDGET_MS;
+  let pagesFetchedThisInvocation = 0;
   const [connection] = await db
     .select()
     .from(ingestionConnections)
@@ -476,11 +549,11 @@ export async function syncEnableBankingConnection(
     connection,
     options.syncRunId,
   );
-  const progress: SyncProgress = {
-    importedAccounts: 0,
-    importedTransactions: 0,
-    pagesFetched: 0,
-  };
+  const progress = await getRunProgress(options.syncRunId);
+  const completedAccountIds = await getRunCompletedAccountIds(options.syncRunId);
+  const shouldPauseInvocation = () =>
+    pagesFetchedThisInvocation >= maxPages ||
+    Date.now() - invocationStartedAt >= maxDurationMs;
 
   try {
     const session = await client.getSession(connection.consentSessionId, psuHeaders);
@@ -505,6 +578,10 @@ export async function syncEnableBankingConnection(
       };
 
       if (!accountId) {
+        continue;
+      }
+
+      if (completedAccountIds.has(accountId)) {
         continue;
       }
 
@@ -627,6 +704,7 @@ export async function syncEnableBankingConnection(
         );
 
         progress.pagesFetched += 1;
+        pagesFetchedThisInvocation += 1;
 
         for (const transaction of normalizedTransactions) {
           const values = {
@@ -727,6 +805,24 @@ export async function syncEnableBankingConnection(
           continuationKey,
         });
         await updateSyncRunProgress(options.syncRunId, progress);
+
+        if (hasMorePages && shouldPauseInvocation()) {
+          return {
+            accounts,
+            transactions: importedTransactions.map((transaction) => ({
+              providerTransactionId: transaction.sourceTransactionId ?? transaction.id,
+              providerAccountId: transaction.accountId,
+              amount: transaction.amount,
+              currency: transaction.currency,
+              date: transaction.date,
+              merchantName: transaction.merchantName ?? undefined,
+              description: transaction.description,
+              raw: transaction.metadata ?? undefined,
+            })),
+            continuationRequired: true,
+            progress,
+          };
+        }
       }
 
       progress.importedAccounts += 1;
@@ -737,7 +833,30 @@ export async function syncEnableBankingConnection(
         currency: account.currency,
         reportedBalance,
       });
+      completedAccountIds.add(account.providerAccountId);
+      await markRunAccountCompleted({
+        syncRunId: options.syncRunId,
+        providerAccountId: account.providerAccountId,
+      });
       await updateSyncRunProgress(options.syncRunId, progress);
+
+      if (shouldPauseInvocation()) {
+        return {
+          accounts,
+          transactions: importedTransactions.map((transaction) => ({
+            providerTransactionId: transaction.sourceTransactionId ?? transaction.id,
+            providerAccountId: transaction.accountId,
+            amount: transaction.amount,
+            currency: transaction.currency,
+            date: transaction.date,
+            merchantName: transaction.merchantName ?? undefined,
+            description: transaction.description,
+            raw: transaction.metadata ?? undefined,
+          })),
+          continuationRequired: true,
+          progress,
+        };
+      }
     }
 
     const connectionMetadata = (connection.metadata ?? {}) as ConnectionMetadata;

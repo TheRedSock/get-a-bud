@@ -23,6 +23,9 @@ background workflows in `src/inngest`.
 - Do not switch Enable Banking to incremental date-window sync until a completed
   initial `strategy=longest` transaction sync has been recorded on the connection
   metadata.
+- Keep bank sync work below serverless invocation limits by checkpointing long
+  imports in `sync_runs.metadata` and enqueueing continuation events instead of
+  looping over all pages in one function call.
 - Treat `ASPSP_RATE_LIMIT_EXCEEDED` or HTTP 429 as a paused sync. Record progress
   and retry after the provider retry time or a six-hour fallback.
 

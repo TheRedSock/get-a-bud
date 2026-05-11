@@ -25,6 +25,7 @@ export type IngestionSyncResult = {
   transactions: NormalizedTransaction[];
   nextCursor?: string;
   rateLimitedUntil?: Date;
+  continuationRequired?: boolean;
   progress?: {
     importedAccounts: number;
     importedTransactions: number;
