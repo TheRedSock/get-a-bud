@@ -102,6 +102,7 @@ export function EnableBankingCard({
   const {
     getRunForConnection,
     isConnectionSyncing,
+    loadLatestRuns,
     queueSync,
     trackRunById,
   } = useBankSyncRuns();
@@ -127,10 +128,11 @@ export function EnableBankingCard({
         response,
       );
       setConnections(body.connections);
+      void loadLatestRuns(body.connections);
     } catch (error) {
       showErrorToast("Could not load bank connections", error);
     }
-  }, []);
+  }, [loadLatestRuns]);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {

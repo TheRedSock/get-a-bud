@@ -6,6 +6,22 @@ ingestion in `src/lib/ingestion`, Enable Banking specifics in
 `src/lib/ingestion/enable-banking`, durable schema in `src/db/schema.ts`, and
 background workflows in `src/inngest`.
 
+## Ledger and Ingestion Invariants
+
+- Keep user-editable account metadata on `financial_accounts` separate from
+  provider identity and raw payload data on `provider_accounts`.
+- Do not let users edit bank-owned transaction facts for synced rows, including
+  amount, currency, account and date. User enrichment such as category, merchant,
+  notes, status and budget exclusion may be editable.
+- Imported account balances must be derived from transactions. If provider
+  history is incomplete, maintain a ledger offset transaction rather than writing
+  an unexplained balance directly.
+- Enable Banking transaction pagination must keep request parameters stable while
+  following `continuation_key` until it is absent, even when a page contains no
+  transactions.
+- Treat `ASPSP_RATE_LIMIT_EXCEEDED` or HTTP 429 as a paused sync. Record progress
+  and retry after the provider retry time or a six-hour fallback.
+
 ## Error Handling
 
 - Use `AppError` factories from `src/lib/errors/catalog.ts` for expected

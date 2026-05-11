@@ -22,6 +22,25 @@ export const createAccountSchema = z.object({
   institutionName: z.string().max(120).optional(),
 });
 
+export const updateAccountSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  kind: z
+    .enum([
+      "checking",
+      "savings",
+      "credit_card",
+      "cash",
+      "investment",
+      "loan",
+      "mortgage",
+      "property",
+      "other",
+    ])
+    .optional(),
+  institutionName: z.string().max(120).nullable().optional(),
+  isArchived: z.coerce.boolean().optional(),
+});
+
 export const createTransactionSchema = z.object({
   accountId: z.string().min(1),
   categoryId: z.string().min(1).optional(),
@@ -31,6 +50,19 @@ export const createTransactionSchema = z.object({
   merchantName: z.string().max(160).optional(),
   description: z.string().min(1).max(300),
   notes: z.string().max(1000).optional(),
+});
+
+export const updateTransactionSchema = z.object({
+  accountId: z.string().min(1).optional(),
+  categoryId: z.string().min(1).nullable().optional(),
+  amount: z.coerce.number().optional(),
+  currency: currencySchema.optional(),
+  date: z.string().min(8).optional(),
+  merchantName: z.string().max(160).nullable().optional(),
+  description: z.string().min(1).max(300).optional(),
+  notes: z.string().max(1000).nullable().optional(),
+  status: z.enum(["pending", "posted", "excluded"]).optional(),
+  excludedFromBudget: z.coerce.boolean().optional(),
 });
 
 export const createCategorySchema = z.object({

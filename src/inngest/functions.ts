@@ -62,17 +62,47 @@ export const syncBankConnection = inngest.createFunction(
 
     try {
       const result = await step.run("sync-enable-banking", () =>
-        syncEnableBankingConnection(connectionId),
+        syncEnableBankingConnection(connectionId, { syncRunId: run.id }),
       );
+
+      if (result.rateLimitedUntil) {
+        await step.run("pause-rate-limited-sync-run", () =>
+          db
+            .update(syncRuns)
+            .set({
+              status: "rate_limited",
+              finishedAt: null,
+              importedAccounts:
+                result.progress?.importedAccounts ?? result.accounts.length,
+              importedTransactions:
+                result.progress?.importedTransactions ??
+                result.transactions.length,
+            })
+            .where(eq(syncRuns.id, run.id)),
+        );
+
+        await step.sleepUntil(
+          "wait-for-bank-rate-limit",
+          result.rateLimitedUntil,
+        );
+        await step.sendEvent("retry-rate-limited-sync", {
+          name: "bank.connection.sync",
+          data: { connectionId, runId: run.id },
+        });
+
+        return result;
+      }
 
       await step.run("finish-sync-run", () =>
         db
           .update(syncRuns)
           .set({
-            status: result.rateLimitedUntil ? "rate_limited" : "succeeded",
+            status: "succeeded",
             finishedAt: new Date(),
-            importedAccounts: result.accounts.length,
-            importedTransactions: result.transactions.length,
+            importedAccounts:
+              result.progress?.importedAccounts ?? result.accounts.length,
+            importedTransactions:
+              result.progress?.importedTransactions ?? result.transactions.length,
           })
           .where(eq(syncRuns.id, run.id)),
       );

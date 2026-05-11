@@ -9,6 +9,21 @@ import { notFoundError, providerError, validationError } from "@/lib/errors/cata
 import { getActiveHousehold } from "@/lib/finance/household";
 
 function serializeRun(run: typeof syncRuns.$inferSelect) {
+  const metadata = run.metadata as
+    | {
+        enableBanking?: {
+          progress?: {
+            importedAccounts?: number;
+            importedTransactions?: number;
+            pagesFetched?: number;
+            currentAccountId?: string;
+            currentAccountName?: string;
+            rateLimitedUntil?: string;
+          };
+        };
+      }
+    | null;
+
   return {
     id: run.id,
     connectionId: run.connectionId,
@@ -19,6 +34,7 @@ function serializeRun(run: typeof syncRuns.$inferSelect) {
     importedTransactions: run.importedTransactions,
     errorCode: run.errorCode,
     errorMessage: run.errorMessage,
+    progress: metadata?.enableBanking?.progress ?? null,
   };
 }
 

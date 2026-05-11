@@ -138,13 +138,17 @@ export async function GET(request: Request) {
           lastAuthorizedAt: new Date().toISOString(),
           aspsp: session.aspsp,
           psuType: session.psu_type,
-          authorizedAccounts: session.accounts?.map((account) => ({
-            uid: account.uid,
-            identificationHash: account.identification_hash,
-            name: account.name,
-            details: account.details,
-            currency: account.currency,
-          })),
+          authorizedAccounts: session.accounts?.map((account) =>
+            typeof account === "string"
+              ? { uid: account }
+              : {
+                  uid: account.uid,
+                  identificationHash: account.identification_hash,
+                  name: account.name,
+                  details: account.details,
+                  currency: account.currency,
+                },
+          ),
         },
         updatedAt: new Date(),
       })

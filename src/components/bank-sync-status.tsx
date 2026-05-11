@@ -25,6 +25,14 @@ export type SyncRun = {
   importedTransactions: number;
   errorCode: string | null;
   errorMessage: string | null;
+  progress: {
+    importedAccounts?: number;
+    importedTransactions?: number;
+    pagesFetched?: number;
+    currentAccountId?: string;
+    currentAccountName?: string;
+    rateLimitedUntil?: string;
+  } | null;
 };
 
 type ConnectionRef = {
@@ -33,6 +41,10 @@ type ConnectionRef = {
 
 function isActiveRun(run: SyncRun | null | undefined) {
   return run?.status === "queued" || run?.status === "running";
+}
+
+function isBlockedRun(run: SyncRun | null | undefined) {
+  return run?.status === "rate_limited";
 }
 
 function terminalMessage(run: SyncRun) {
@@ -45,10 +57,30 @@ function terminalMessage(run: SyncRun) {
   }
 
   if (run.status === "rate_limited") {
-    return "The bank asked us to slow down. Try again later.";
+    const retryAt = run.progress?.rateLimitedUntil
+      ? new Date(run.progress.rateLimitedUntil).toLocaleString()
+      : "later";
+
+    return `The bank asked us to slow down. Sync will resume ${retryAt}.`;
   }
 
   return run.errorMessage ?? "The sync failed before it completed.";
+}
+
+function progressMessage(run: SyncRun) {
+  const accounts = run.progress?.importedAccounts ?? run.importedAccounts;
+  const transactions =
+    run.progress?.importedTransactions ?? run.importedTransactions;
+  const pages = run.progress?.pagesFetched ?? 0;
+  const currentAccount = run.progress?.currentAccountName;
+  const prefix =
+    run.status === "rate_limited"
+      ? "Paused by bank rate limiting."
+      : "Importing accounts and transactions.";
+
+  return `${prefix} ${accounts} account${accounts === 1 ? "" : "s"} checked, ${transactions} new transaction${transactions === 1 ? "" : "s"} imported, ${pages} page${pages === 1 ? "" : "s"} fetched${
+    currentAccount ? `, currently on ${currentAccount}` : ""
+  }.`;
 }
 
 export function useBankSyncRuns() {
@@ -60,6 +92,10 @@ export function useBankSyncRuns() {
 
   const activeRuns = useMemo(
     () => Object.values(runsByConnectionId).filter(isActiveRun),
+    [runsByConnectionId],
+  );
+  const blockedRuns = useMemo(
+    () => Object.values(runsByConnectionId).filter(isBlockedRun),
     [runsByConnectionId],
   );
 
@@ -133,6 +169,39 @@ export function useBankSyncRuns() {
     }
   }, []);
 
+  const loadLatestRuns = useCallback(
+    async (connections: ConnectionRef[]) => {
+      const loadedRuns = await Promise.all(
+        connections.map(async (connection) => {
+          try {
+            const response = await fetch(
+              `/api/integrations/enable-banking/${connection.id}/sync`,
+              { cache: "no-store" },
+            );
+            const body = await parseApiResponse<{ run: SyncRun | null }>(response);
+
+            return body.run;
+          } catch {
+            return null;
+          }
+        }),
+      );
+
+      setRunsByConnectionId((current) => {
+        const next = { ...current };
+
+        for (const run of loadedRuns) {
+          if (run?.connectionId && (isActiveRun(run) || isBlockedRun(run))) {
+            next[run.connectionId] = run;
+          }
+        }
+
+        return next;
+      });
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!activeRuns.length) {
       return;
@@ -148,6 +217,22 @@ export function useBankSyncRuns() {
 
     return () => window.clearInterval(intervalId);
   }, [activeRuns, pollRun]);
+
+  useEffect(() => {
+    if (!blockedRuns.length) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      for (const run of blockedRuns) {
+        if (run.connectionId) {
+          void pollRun(run.connectionId, run.id);
+        }
+      }
+    }, 60000);
+
+    return () => window.clearInterval(intervalId);
+  }, [blockedRuns, pollRun]);
 
   useEffect(() => {
     for (const run of Object.values(runsByConnectionId)) {
@@ -177,7 +262,9 @@ export function useBankSyncRuns() {
   return {
     getRunForConnection: (connectionId: string) => runsByConnectionId[connectionId],
     isConnectionSyncing: (connectionId: string) =>
-      isActiveRun(runsByConnectionId[connectionId]),
+      isActiveRun(runsByConnectionId[connectionId]) ||
+      isBlockedRun(runsByConnectionId[connectionId]),
+    loadLatestRuns,
     pollRun,
     queueSync,
     trackRunById,
@@ -190,6 +277,7 @@ export function SyncRunStatus({ run }: { run: SyncRun | null | undefined }) {
   }
 
   const isActive = isActiveRun(run);
+  const isBlocked = isBlockedRun(run);
 
   return (
     <div className="mt-3 rounded-2xl bg-secondary/50 p-3 text-sm">
@@ -201,9 +289,7 @@ export function SyncRunStatus({ run }: { run: SyncRun | null | undefined }) {
         <Badge>{run.status}</Badge>
       </div>
       <p className="mt-2 text-muted-foreground">
-        {isActive
-          ? "Importing accounts and transactions in the background."
-          : terminalMessage(run)}
+        {isActive || isBlocked ? progressMessage(run) : terminalMessage(run)}
       </p>
     </div>
   );

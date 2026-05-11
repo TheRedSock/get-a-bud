@@ -9,15 +9,17 @@ describe("Enable Banking mapping", () => {
       mapEnableBankingAccount({
         uid: "account-1",
         name: "Main account",
+        details: "Everyday spending",
         currency: "NOK",
         balance: { amount: "123.45", currency: "NOK" },
+        cash_account_type: "SVGS",
       }),
     ).toMatchObject({
       providerAccountId: "account-1",
-      name: "Main account",
+      name: "Everyday spending",
       currency: "NOK",
       balance: "123.45",
-      kind: "checking",
+      kind: "savings",
     });
   });
 
@@ -32,7 +34,8 @@ describe("Enable Banking mapping", () => {
       mapEnableBankingTransaction(
         {
           transaction_id: "txn-1",
-          amount: { amount: "-100", currency: "NOK" },
+          transaction_amount: { amount: "100", currency: "NOK" },
+          credit_debit_indicator: "DBIT",
           booking_date: "2026-05-10",
           remittance_information: ["Groceries"],
         },
@@ -41,10 +44,29 @@ describe("Enable Banking mapping", () => {
     ).toMatchObject({
       providerTransactionId: "txn-1",
       providerAccountId: "account-1",
-      amount: "-100",
+      amount: "-100.00",
       currency: "NOK",
       date: "2026-05-10",
       description: "Groceries",
+    });
+  });
+
+  it("keeps credited transaction amounts positive", () => {
+    expect(
+      mapEnableBankingTransaction(
+        {
+          transaction_id: "txn-2",
+          transaction_amount: { amount: "420.1", currency: "NOK" },
+          credit_debit_indicator: "CRDT",
+          value_date: "2026-05-11",
+          bank_transaction_code: { description: "Incoming transfer" },
+        },
+        "account-1",
+      ),
+    ).toMatchObject({
+      amount: "420.10",
+      currency: "NOK",
+      description: "Incoming transfer",
     });
   });
 });

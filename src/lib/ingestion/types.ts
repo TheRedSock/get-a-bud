@@ -4,6 +4,7 @@ export type NormalizedAccount = {
   currency: string;
   balance: string;
   kind?: "checking" | "savings" | "credit_card" | "investment" | "loan" | "other";
+  institutionName?: string;
   raw?: Record<string, unknown>;
 };
 
@@ -24,6 +25,12 @@ export type IngestionSyncResult = {
   transactions: NormalizedTransaction[];
   nextCursor?: string;
   rateLimitedUntil?: Date;
+  progress?: {
+    importedAccounts: number;
+    importedTransactions: number;
+    pagesFetched: number;
+    currentAccountName?: string;
+  };
 };
 
 export interface BankIngestionAdapter {

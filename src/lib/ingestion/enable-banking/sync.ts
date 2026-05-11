@@ -5,6 +5,7 @@ import {
   financialAccounts,
   ingestionConnections,
   providerAccounts,
+  syncRuns,
   transactions,
 } from "@/db/schema";
 import { normalizeMerchant } from "@/lib/finance/categorization";
@@ -19,10 +20,49 @@ import type { IngestionSyncResult } from "@/lib/ingestion/types";
 import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
 
-function dateDaysAgo(days: number) {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date.toISOString().slice(0, 10);
+type TransactionSyncParams = {
+  dateFrom?: string;
+  dateTo?: string;
+  strategy: "default" | "longest";
+  transactionStatus: "BOOK";
+};
+
+type SyncProgress = {
+  importedAccounts: number;
+  importedTransactions: number;
+  pagesFetched: number;
+  currentAccountId?: string;
+  currentAccountName?: string;
+  rateLimitedUntil?: string;
+};
+
+type EnableBankingSyncMetadata = {
+  enableBanking?: {
+    transactionParams?: TransactionSyncParams;
+    progress?: SyncProgress;
+  };
+};
+
+function dateDaysBefore(date: Date, days: number) {
+  const result = new Date(date);
+  result.setDate(result.getDate() - days);
+  return result.toISOString().slice(0, 10);
+}
+
+function toCents(amount: string | number | null | undefined) {
+  const parsed = Number(amount ?? 0);
+
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
+}
+
+function fromCents(cents: number) {
+  return (cents / 100).toFixed(2);
+}
+
+function dateBefore(date: string) {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  parsed.setUTCDate(parsed.getUTCDate() - 1);
+  return parsed.toISOString().slice(0, 10);
 }
 
 async function resolvePrivateKey(connection: typeof ingestionConnections.$inferSelect) {
@@ -60,15 +100,249 @@ function firstBalanceAmount(
 ) {
   const balance = response.balances?.[0];
 
+  return balance?.balance_amount?.amount ?? balance?.amount?.amount;
+}
+
+function sessionAccountId(
+  account: string | { uid?: string; id?: string; account_id?: string | unknown },
+) {
+  if (typeof account === "string") {
+    return account;
+  }
+
   return (
-    balance?.balance_amount?.amount ??
-    balance?.amount?.amount ??
-    "0"
+    account.uid ??
+    account.id ??
+    (typeof account.account_id === "string" ? account.account_id : undefined)
   );
+}
+
+async function getRunMetadata(syncRunId: string) {
+  const [run] = await db
+    .select({ metadata: syncRuns.metadata })
+    .from(syncRuns)
+    .where(eq(syncRuns.id, syncRunId))
+    .limit(1);
+
+  return (run?.metadata ?? {}) as EnableBankingSyncMetadata;
+}
+
+async function getOrCreateTransactionParams(
+  connection: typeof ingestionConnections.$inferSelect,
+  syncRunId?: string,
+): Promise<TransactionSyncParams> {
+  if (syncRunId) {
+    const metadata = await getRunMetadata(syncRunId);
+    const existing = metadata.enableBanking?.transactionParams;
+
+    if (existing) {
+      return existing;
+    }
+  }
+
+  const params: TransactionSyncParams = connection.lastSyncedAt
+    ? {
+        strategy: "default",
+        dateFrom: dateDaysBefore(connection.lastSyncedAt, 7),
+        dateTo: new Date().toISOString().slice(0, 10),
+        transactionStatus: "BOOK",
+      }
+    : {
+        strategy: "longest",
+        transactionStatus: "BOOK",
+      };
+
+  if (syncRunId) {
+    const metadata = await getRunMetadata(syncRunId);
+
+    await db
+      .update(syncRuns)
+      .set({
+        metadata: {
+          ...metadata,
+          enableBanking: {
+            ...(metadata.enableBanking ?? {}),
+            transactionParams: params,
+          },
+        },
+      })
+      .where(eq(syncRuns.id, syncRunId));
+  }
+
+  return params;
+}
+
+async function updateSyncRunProgress(syncRunId: string | undefined, progress: SyncProgress) {
+  if (!syncRunId) {
+    return;
+  }
+
+  const metadata = await getRunMetadata(syncRunId);
+
+  await db
+    .update(syncRuns)
+    .set({
+      importedAccounts: progress.importedAccounts,
+      importedTransactions: progress.importedTransactions,
+      metadata: {
+        ...metadata,
+        enableBanking: {
+          ...(metadata.enableBanking ?? {}),
+          progress,
+        },
+      },
+    })
+    .where(eq(syncRuns.id, syncRunId));
+}
+
+async function reconcileAccountBalance(input: {
+  householdId: string;
+  financialAccountId: string;
+  providerAccountId: string;
+  currency: string;
+  reportedBalance?: string;
+}) {
+  const offsetSourceTransactionId = `enable-banking-opening-balance:${input.providerAccountId}`;
+  const rows = await db
+    .select()
+    .from(transactions)
+    .where(eq(transactions.accountId, input.financialAccountId));
+  const existingOffset = rows.find(
+    (transaction) => transaction.sourceTransactionId === offsetSourceTransactionId,
+  );
+  const nonOffsetRows = rows.filter(
+    (transaction) => transaction.sourceTransactionId !== offsetSourceTransactionId,
+  );
+  const manualTransactions = nonOffsetRows.filter(
+    (transaction) => transaction.source === "manual",
+  );
+  const transactionSumCents = nonOffsetRows.reduce(
+    (sum, transaction) => sum + toCents(transaction.amount),
+    0,
+  );
+  const reportedBalanceCents =
+    input.reportedBalance === undefined ? undefined : toCents(input.reportedBalance);
+  const offsetCents =
+    reportedBalanceCents === undefined
+      ? 0
+      : reportedBalanceCents - transactionSumCents;
+  const earliestDate =
+    nonOffsetRows
+      .map((transaction) => transaction.date)
+      .sort((left, right) => left.localeCompare(right))[0] ??
+    new Date().toISOString().slice(0, 10);
+  const balanceMetadata = {
+    source: "transactions",
+    reportedBalance: input.reportedBalance,
+    transactionSum: fromCents(transactionSumCents),
+    offsetAmount: fromCents(offsetCents),
+    manualTransactionsPresent: manualTransactions.length > 0,
+    manualTransactionCount: manualTransactions.length,
+    discrepancy: offsetCents !== 0,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (reportedBalanceCents === undefined) {
+    const calculatedBalance = fromCents(
+      rows.reduce((sum, transaction) => sum + toCents(transaction.amount), 0),
+    );
+    const [account] = await db
+      .select({ metadata: financialAccounts.metadata })
+      .from(financialAccounts)
+      .where(eq(financialAccounts.id, input.financialAccountId))
+      .limit(1);
+    const metadata = account?.metadata ?? {};
+    const existingBalanceMetadata =
+      typeof metadata.balance === "object" && metadata.balance
+        ? (metadata.balance as Record<string, unknown>)
+        : {};
+
+    await db
+      .update(financialAccounts)
+      .set({
+        currentBalance: calculatedBalance,
+        metadata: {
+          ...metadata,
+          balance: {
+            ...existingBalanceMetadata,
+            ...balanceMetadata,
+            balanceUnavailable: true,
+            calculatedBalance,
+          },
+        },
+        updatedAt: new Date(),
+      })
+      .where(eq(financialAccounts.id, input.financialAccountId));
+    return;
+  }
+
+  if (offsetCents !== 0) {
+    const values = {
+      householdId: input.householdId,
+      accountId: input.financialAccountId,
+      source: "enable_banking" as const,
+      sourceTransactionId: offsetSourceTransactionId,
+      amount: fromCents(offsetCents),
+      currency: input.currency,
+      date: dateBefore(earliestDate),
+      merchantName: "Opening balance adjustment",
+      normalizedMerchantName: "opening balance adjustment",
+      description: "Opening balance adjustment",
+      searchText: "Opening balance adjustment",
+      metadata: {
+        kind: "opening_balance_offset",
+        provider: "enable_banking",
+        ...balanceMetadata,
+      },
+    };
+
+    if (existingOffset) {
+      await db
+        .update(transactions)
+        .set({ ...values, updatedAt: new Date() })
+        .where(eq(transactions.id, existingOffset.id));
+    } else {
+      await db.insert(transactions).values(values);
+    }
+  } else if (existingOffset) {
+    await db.delete(transactions).where(eq(transactions.id, existingOffset.id));
+  }
+
+  const calculatedBalance =
+    reportedBalanceCents === undefined
+      ? fromCents(transactionSumCents)
+      : fromCents(reportedBalanceCents);
+  const [account] = await db
+    .select({ metadata: financialAccounts.metadata })
+    .from(financialAccounts)
+    .where(eq(financialAccounts.id, input.financialAccountId))
+    .limit(1);
+  const metadata = account?.metadata ?? {};
+  const existingBalanceMetadata =
+    typeof metadata.balance === "object" && metadata.balance
+      ? (metadata.balance as Record<string, unknown>)
+      : {};
+
+  await db
+    .update(financialAccounts)
+    .set({
+      currentBalance: calculatedBalance,
+      metadata: {
+        ...metadata,
+        balance: {
+          ...existingBalanceMetadata,
+          ...balanceMetadata,
+          calculatedBalance,
+        },
+      },
+      updatedAt: new Date(),
+    })
+    .where(eq(financialAccounts.id, input.financialAccountId));
 }
 
 export async function syncEnableBankingConnection(
   connectionId: string,
+  options: { syncRunId?: string } = {},
 ): Promise<IngestionSyncResult> {
   const [connection] = await db
     .select()
@@ -94,17 +368,29 @@ export async function syncEnableBankingConnection(
     baseUrl: process.env.ENABLE_BANKING_BASE_URL,
   });
   const psuHeaders = getStoredPsuHeaders(connection.metadata);
+  const transactionParams = await getOrCreateTransactionParams(
+    connection,
+    options.syncRunId,
+  );
+  const progress: SyncProgress = {
+    importedAccounts: 0,
+    importedTransactions: 0,
+    pagesFetched: 0,
+  };
 
   try {
     const session = await client.getSession(connection.consentSessionId, psuHeaders);
     const sessionAccounts = session.accounts_data?.length
       ? session.accounts_data
-      : (session.accounts ?? []).map((uid) => ({ uid }));
+      : session.accounts ?? [];
     const accounts = [];
     const importedTransactions = [];
 
     for (const sessionAccount of sessionAccounts) {
-      const sessionAccountRecord = sessionAccount as {
+      const accountId = sessionAccountId(sessionAccount);
+      const sessionAccountRecord = (
+        typeof sessionAccount === "string" ? { uid: sessionAccount } : sessionAccount
+      ) as {
         uid?: string;
         id?: string;
         currency?: string;
@@ -113,7 +399,6 @@ export async function syncEnableBankingConnection(
           currency?: string;
         };
       };
-      const accountId = sessionAccountRecord.uid ?? sessionAccountRecord.id;
 
       if (!accountId) {
         continue;
@@ -139,17 +424,24 @@ export async function syncEnableBankingConnection(
           return undefined;
         }),
       ]);
+      const reportedBalance =
+        (balances ? firstBalanceAmount(balances) : undefined) ??
+        details.balance?.amount ??
+        sessionAccountRecord.balance?.amount;
       const account = mapEnableBankingAccount({
         ...details,
         uid: accountId,
-        balance: balances
+        balance: reportedBalance
           ? {
-              amount: firstBalanceAmount(balances),
+              amount: reportedBalance,
               currency: details.currency ?? sessionAccountRecord.currency,
             }
           : details.balance ?? sessionAccountRecord.balance,
       });
       accounts.push(account);
+      progress.currentAccountId = account.providerAccountId;
+      progress.currentAccountName = account.name;
+      await updateSyncRunProgress(options.syncRunId, progress);
 
       const [linkedProviderAccount] = await db
         .insert(providerAccounts)
@@ -158,7 +450,7 @@ export async function syncEnableBankingConnection(
           providerAccountId: account.providerAccountId,
           providerAccountName: account.name,
           currency: account.currency,
-          lastBalance: account.balance,
+          lastBalance: reportedBalance ?? null,
           raw: account.raw,
         })
         .onConflictDoUpdate({
@@ -169,7 +461,7 @@ export async function syncEnableBankingConnection(
           set: {
             providerAccountName: account.name,
             currency: account.currency,
-            lastBalance: account.balance,
+            lastBalance: reportedBalance ?? null,
             raw: account.raw,
             updatedAt: new Date(),
           },
@@ -186,9 +478,14 @@ export async function syncEnableBankingConnection(
             name: account.name,
             kind: account.kind ?? "checking",
             currency: account.currency,
-            currentBalance: account.balance,
+            currentBalance: "0",
             isManual: false,
-            institutionName: "Enable Banking",
+            institutionName:
+              account.institutionName ?? session.aspsp?.name ?? "Enable Banking",
+            metadata: {
+              provider: "enable_banking",
+              providerAccountId: account.providerAccountId,
+            },
           })
           .returning();
 
@@ -201,47 +498,33 @@ export async function syncEnableBankingConnection(
       } else {
         await db
           .update(financialAccounts)
-          .set({ currentBalance: account.balance, updatedAt: new Date() })
+          .set({ currency: account.currency, updatedAt: new Date() })
           .where(eq(financialAccounts.id, financialAccountId));
       }
 
-      const transactionResponse = await client.getTransactions({
-        accountId: account.providerAccountId,
-        dateFrom: dateDaysAgo(90),
-        dateTo: new Date().toISOString().slice(0, 10),
-        continuationKey: linkedProviderAccount.syncCursor ?? undefined,
-        psuHeaders,
-      });
+      let continuationKey = linkedProviderAccount.syncCursor ?? undefined;
+      let hasMorePages = true;
 
-      const normalizedTransactions = (
-        transactionResponse.transactions ?? []
-      ).map((transaction) =>
-        mapEnableBankingTransaction(transaction, account.providerAccountId),
-      );
+      while (hasMorePages) {
+        const transactionResponse = await client.getTransactions({
+          accountId: account.providerAccountId,
+          ...transactionParams,
+          continuationKey,
+          psuHeaders,
+        });
+        const normalizedTransactions = (
+          transactionResponse.transactions ?? []
+        ).map((transaction) =>
+          mapEnableBankingTransaction(transaction, account.providerAccountId),
+        );
 
-      for (const transaction of normalizedTransactions) {
-        const [existing] = await db
-          .select({ id: transactions.id })
-          .from(transactions)
-          .where(
-            and(
-              eq(transactions.source, "enable_banking"),
-              eq(transactions.sourceTransactionId, transaction.providerTransactionId),
-              eq(transactions.accountId, financialAccountId),
-            ),
-          )
-          .limit(1);
+        progress.pagesFetched += 1;
 
-        if (existing) {
-          continue;
-        }
-
-        const [createdTransaction] = await db
-          .insert(transactions)
-          .values({
+        for (const transaction of normalizedTransactions) {
+          const values = {
             householdId: connection.householdId,
             accountId: financialAccountId,
-            source: "enable_banking",
+            source: "enable_banking" as const,
             sourceTransactionId: transaction.providerTransactionId,
             amount: transaction.amount,
             currency: transaction.currency,
@@ -255,24 +538,68 @@ export async function syncEnableBankingConnection(
               transaction.merchantName ?? ""
             }`,
             metadata: transaction.raw,
-          })
-          .returning();
+          };
+          const [existing] = await db
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(
+                eq(transactions.source, "enable_banking"),
+                eq(transactions.sourceTransactionId, transaction.providerTransactionId),
+                eq(transactions.accountId, financialAccountId),
+              ),
+            )
+            .limit(1);
 
-        importedTransactions.push(createdTransaction);
+          if (existing) {
+            await db
+              .update(transactions)
+              .set({ ...values, updatedAt: new Date() })
+              .where(eq(transactions.id, existing.id));
+            continue;
+          }
+
+          const [createdTransaction] = await db
+            .insert(transactions)
+            .values(values)
+            .returning();
+
+          importedTransactions.push(createdTransaction);
+          progress.importedTransactions += 1;
+        }
+
+        continuationKey = transactionResponse.continuation_key ?? undefined;
+        hasMorePages = Boolean(continuationKey);
+
+        await db
+          .update(providerAccounts)
+          .set({
+            syncCursor: continuationKey ?? null,
+            updatedAt: new Date(),
+          })
+          .where(eq(providerAccounts.id, linkedProviderAccount.id));
+        await updateSyncRunProgress(options.syncRunId, progress);
       }
 
-      await db
-        .update(providerAccounts)
-        .set({
-          syncCursor: transactionResponse.continuation_key,
-          updatedAt: new Date(),
-        })
-        .where(eq(providerAccounts.id, linkedProviderAccount.id));
+      progress.importedAccounts += 1;
+      await reconcileAccountBalance({
+        householdId: connection.householdId,
+        financialAccountId,
+        providerAccountId: account.providerAccountId,
+        currency: account.currency,
+        reportedBalance,
+      });
+      await updateSyncRunProgress(options.syncRunId, progress);
     }
 
     await db
       .update(ingestionConnections)
-      .set({ lastSyncedAt: new Date(), status: "connected", updatedAt: new Date() })
+      .set({
+        lastSyncedAt: new Date(),
+        status: "connected",
+        rateLimitedUntil: null,
+        updatedAt: new Date(),
+      })
       .where(eq(ingestionConnections.id, connectionId));
 
     return {
@@ -287,14 +614,19 @@ export async function syncEnableBankingConnection(
         description: transaction.description,
         raw: transaction.metadata ?? undefined,
       })),
+      progress,
     };
   } catch (error) {
     if (error instanceof EnableBankingRateLimitError) {
+      const retryAt =
+        error.retryAt ?? new Date(Date.now() + 6 * 60 * 60 * 1000);
+      progress.rateLimitedUntil = retryAt.toISOString();
+      await updateSyncRunProgress(options.syncRunId, progress);
       await db
         .update(ingestionConnections)
         .set({
           status: "rate_limited",
-          rateLimitedUntil: error.retryAt,
+          rateLimitedUntil: retryAt,
           updatedAt: new Date(),
         })
         .where(eq(ingestionConnections.id, connectionId));
@@ -302,7 +634,8 @@ export async function syncEnableBankingConnection(
       return {
         accounts: [],
         transactions: [],
-        rateLimitedUntil: error.retryAt,
+        rateLimitedUntil: retryAt,
+        progress,
       };
     }
 

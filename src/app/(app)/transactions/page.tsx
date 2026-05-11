@@ -2,24 +2,29 @@ import { Search } from "lucide-react";
 import { desc, eq } from "drizzle-orm";
 
 import { BankSyncPanel } from "@/components/bank-sync-panel";
-import { Badge } from "@/components/ui/badge";
+import { TransactionEditor } from "@/components/transaction-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { db } from "@/db";
-import { transactions } from "@/db/schema";
+import { categories, transactions } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
 
 export default async function TransactionsPage() {
   const household = await getActiveHousehold();
-  const rows = await db
-    .select()
-    .from(transactions)
-    .where(eq(transactions.householdId, household.householdId))
-    .orderBy(desc(transactions.date))
-    .limit(100);
+  const [rows, categoryRows] = await Promise.all([
+    db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.householdId, household.householdId))
+      .orderBy(desc(transactions.date))
+      .limit(100),
+    db
+      .select({ id: categories.id, name: categories.name })
+      .from(categories)
+      .where(eq(categories.householdId, household.householdId)),
+  ]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
@@ -34,25 +39,11 @@ export default async function TransactionsPage() {
           </div>
           {rows.length ? (
             rows.map((transaction) => (
-              <div
+              <TransactionEditor
                 key={transaction.id}
-                className="flex flex-col gap-3 rounded-3xl border bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <div>
-                  <p className="font-semibold">
-                    {transaction.merchantName ?? transaction.description}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {transaction.date} · {transaction.source.replace("_", " ")}
-                  </p>
-                </div>
-                <div className="flex items-center justify-between gap-4 sm:justify-end">
-                  <Badge>{transaction.status}</Badge>
-                  <p className="min-w-24 text-right font-semibold">
-                    {formatMoney(Number(transaction.amount))}
-                  </p>
-                </div>
-              </div>
+                categories={categoryRows}
+                transaction={transaction}
+              />
             ))
           ) : (
             <div className="rounded-3xl border border-dashed bg-background/40 p-8 text-center">

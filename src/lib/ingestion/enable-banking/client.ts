@@ -51,12 +51,29 @@ type EnableBankingTransaction = {
     amount?: string;
     currency?: string;
   };
+  transaction_amount?: {
+    amount?: string;
+    currency?: string;
+  };
+  credit_debit_indicator?: "CRDT" | "DBIT" | "OTHR" | string;
+  status?: string;
   booking_date?: string;
   value_date?: string;
+  transaction_date?: string;
   creditor?: { name?: string };
   debtor?: { name?: string };
   remittance_information?: string[];
   merchant?: { name?: string };
+  note?: string | null;
+  bank_transaction_code?: {
+    description?: string;
+    code?: string;
+    sub_code?: string;
+  } | null;
+  balance_after_transaction?: {
+    amount?: string;
+    currency?: string;
+  } | null;
 };
 
 export class EnableBankingRateLimitError extends Error {
@@ -143,7 +160,7 @@ export class EnableBankingClient {
   async authorizeSession(code: string) {
     return this.request<{
       session_id: string;
-      accounts?: EnableBankingAccount[];
+      accounts?: Array<string | EnableBankingAccount>;
       access?: {
         valid_until?: string;
       };
@@ -189,18 +206,33 @@ export class EnableBankingClient {
 
   async getTransactions(input: {
     accountId: string;
-    dateFrom: string;
-    dateTo: string;
+    dateFrom?: string;
+    dateTo?: string;
     continuationKey?: string;
+    strategy?: "default" | "longest";
+    transactionStatus?: string;
     psuHeaders?: PsuHeaders;
   }) {
-    const params = new URLSearchParams({
-      date_from: input.dateFrom,
-      date_to: input.dateTo,
-    });
+    const params = new URLSearchParams();
+
+    if (input.dateFrom) {
+      params.set("date_from", input.dateFrom);
+    }
+
+    if (input.dateTo) {
+      params.set("date_to", input.dateTo);
+    }
 
     if (input.continuationKey) {
       params.set("continuation_key", input.continuationKey);
+    }
+
+    if (input.strategy) {
+      params.set("strategy", input.strategy);
+    }
+
+    if (input.transactionStatus) {
+      params.set("transaction_status", input.transactionStatus);
     }
 
     return this.request<{
@@ -240,7 +272,7 @@ export class EnableBankingClient {
       const retryAfter = response.headers.get("retry-after");
       const retryAt = retryAfter
         ? new Date(Date.now() + Number(retryAfter) * 1000)
-        : undefined;
+        : new Date(Date.now() + 6 * 60 * 60 * 1000);
       throw new EnableBankingRateLimitError(retryAt);
     }
 
@@ -266,6 +298,22 @@ export class EnableBankingClient {
   }
 }
 
+function accountKindFromCashAccountType(cashAccountType?: string) {
+  switch (cashAccountType) {
+    case "SVGS":
+      return "savings" as const;
+    case "CARD":
+      return "credit_card" as const;
+    case "LOAN":
+      return "loan" as const;
+    case "CACC":
+    case "TRAN":
+      return "checking" as const;
+    default:
+      return "checking" as const;
+  }
+}
+
 export function mapEnableBankingAccount(account: EnableBankingAccount) {
   const providerAccountId =
     (typeof account.account_id === "string" ? account.account_id : undefined) ??
@@ -280,12 +328,28 @@ export function mapEnableBankingAccount(account: EnableBankingAccount) {
 
   return {
     providerAccountId,
-    name: account.name ?? account.details ?? "Enable Banking account",
+    name: account.details ?? account.name ?? "Enable Banking account",
     currency: account.balance?.currency ?? account.currency ?? "NOK",
     balance: account.balance?.amount ?? "0",
-    kind: "checking" as const,
+    kind: accountKindFromCashAccountType(account.cash_account_type),
+    institutionName: account.account_servicer?.name,
     raw: account as Record<string, unknown>,
   };
+}
+
+function signedAmount(
+  amount: string | undefined,
+  indicator: EnableBankingTransaction["credit_debit_indicator"],
+) {
+  const numericAmount = Number(amount ?? 0);
+
+  if (!Number.isFinite(numericAmount)) {
+    return "0.00";
+  }
+
+  const signed = indicator === "DBIT" ? -Math.abs(numericAmount) : numericAmount;
+
+  return signed.toFixed(2);
 }
 
 export function mapEnableBankingTransaction(
@@ -303,19 +367,23 @@ export function mapEnableBankingTransaction(
 
   const description =
     transaction.remittance_information?.join(" ") ??
+    transaction.note ??
+    transaction.bank_transaction_code?.description ??
     transaction.merchant?.name ??
     transaction.creditor?.name ??
     transaction.debtor?.name ??
     "Imported transaction";
+  const amount = transaction.transaction_amount ?? transaction.amount;
 
   return {
     providerTransactionId,
     providerAccountId,
-    amount: transaction.amount?.amount ?? "0",
-    currency: transaction.amount?.currency ?? "NOK",
+    amount: signedAmount(amount?.amount, transaction.credit_debit_indicator),
+    currency: amount?.currency ?? "NOK",
     date:
       transaction.booking_date ??
       transaction.value_date ??
+      transaction.transaction_date ??
       new Date().toISOString().slice(0, 10),
     merchantName: transaction.merchant?.name ?? transaction.creditor?.name,
     description,

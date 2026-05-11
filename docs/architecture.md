@@ -27,16 +27,30 @@ flowchart LR
 ## MVP Data Flow
 
 Manual API routes and Enable Banking sync both create `financial_accounts` and
-`transactions`. Categorization rules can be applied after import, and budget
-views read from the same transaction table.
+`transactions`. Account display metadata remains user editable even when an
+account is provider-linked, while provider IDs, raw payloads and bank-owned
+transaction facts stay tied to the ingestion layer. Categorization rules can be
+applied after import, and budget views read from the same transaction table.
 
-The dashboard and public `/demo` route currently use demo data for reliable
-first-run visual testing. Backend routes and database tables are in place for
-live persistence once the UI forms are connected.
+The authenticated dashboard reads live ledger data. The public `/demo` route
+uses demo data for reliable first-run visual testing.
 
 Enable Banking now follows the full authorization lifecycle: encrypted user
 credentials, `POST /auth`, server-stored hashed state, `/api/callback`,
 `POST /sessions`, server-side session storage and Inngest sync.
+
+Sync resolves account IDs from the session, fetches account details and balances,
+then fetches transactions with Enable Banking pagination semantics. Initial
+imports use `strategy=longest`; later syncs use a recent default window. The
+sync loop follows `continuation_key` until completion and records progress in
+`sync_runs.metadata` so the UI can recover running or rate-limited state after a
+refresh.
+
+Displayed account balances are ledger-derived. If the available transaction
+history does not add up to the provider-reported balance, the sync maintains an
+opening balance adjustment transaction and records reconciliation metadata on the
+account. Manual transactions on synced accounts are flagged because they may
+affect the ledger/provider reconciliation.
 
 ## Cross-Cutting Error Flow
 

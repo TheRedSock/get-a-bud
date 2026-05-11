@@ -23,7 +23,12 @@ type ConnectionSummary = {
 export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const { getRunForConnection, isConnectionSyncing, queueSync } = useBankSyncRuns();
+  const {
+    getRunForConnection,
+    isConnectionSyncing,
+    loadLatestRuns,
+    queueSync,
+  } = useBankSyncRuns();
 
   const loadConnections = useCallback(async () => {
     setLoading(true);
@@ -37,12 +42,13 @@ export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
         connections: ConnectionSummary[];
       }>(response);
       setConnections(body.connections);
+      void loadLatestRuns(body.connections);
     } catch (error) {
       showErrorToast("Could not load bank connections", error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadLatestRuns]);
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -53,7 +59,9 @@ export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
   }, [loadConnections]);
 
   const connectedConnections = connections.filter(
-    (connection) => connection.hasConsentSession && connection.status === "connected",
+    (connection) =>
+      connection.hasConsentSession &&
+      (connection.status === "connected" || connection.status === "rate_limited"),
   );
 
   return (
