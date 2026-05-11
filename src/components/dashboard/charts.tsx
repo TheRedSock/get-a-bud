@@ -15,8 +15,24 @@ import {
   YAxis,
 } from "recharts";
 
-import { balanceData, cashFlowData, spendingData } from "@/lib/demo-data";
 import { formatMoney } from "@/lib/utils";
+
+type CashFlowPoint = {
+  month: string;
+  income: number;
+  expenses: number;
+};
+
+type SpendingPoint = {
+  name: string;
+  value: number;
+  color: string;
+};
+
+type BalancePoint = {
+  day: string;
+  balance: number;
+};
 
 const tooltipStyle = {
   border: "1px solid var(--border)",
@@ -25,10 +41,10 @@ const tooltipStyle = {
   color: "var(--popover-foreground)",
 };
 
-export function CashFlowChart() {
+export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={260}>
-      <BarChart data={cashFlowData}>
+      <BarChart data={data}>
         <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="month" stroke="var(--muted-foreground)" fontSize={12} />
         <YAxis
@@ -47,19 +63,19 @@ export function CashFlowChart() {
   );
 }
 
-export function SpendingPieChart() {
+export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <PieChart>
         <Pie
-          data={spendingData}
+          data={data}
           dataKey="value"
           nameKey="name"
           innerRadius={62}
           outerRadius={92}
           paddingAngle={4}
         >
-          {spendingData.map((entry) => (
+          {data.map((entry) => (
             <Cell key={entry.name} fill={entry.color} />
           ))}
         </Pie>
@@ -72,10 +88,10 @@ export function SpendingPieChart() {
   );
 }
 
-export function BalanceTrendChart() {
+export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
   return (
     <ResponsiveContainer width="100%" height={220}>
-      <AreaChart data={balanceData}>
+      <AreaChart data={data}>
         <defs>
           <linearGradient id="balanceGradient" x1="0" x2="0" y1="0" y2="1">
             <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.42} />

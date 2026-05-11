@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
-import { ingestionConnections } from "@/db/schema";
+import { ingestionConnections, syncRuns } from "@/db/schema";
 import { inngest } from "@/inngest/client";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
 import {
@@ -148,13 +148,45 @@ export async function GET(request: Request) {
       })
       .where(eq(ingestionConnections.id, connection.id));
 
-    await inngest.send({
-      name: "bank.connection.sync",
-      data: { connectionId: connection.id },
-    });
+    const [run] = await db
+      .insert(syncRuns)
+      .values({
+        connectionId: connection.id,
+        provider: "enable_banking",
+        status: "queued",
+      })
+      .returning();
+
+    try {
+      await inngest.send({
+        name: "bank.connection.sync",
+        data: { connectionId: connection.id, runId: run.id },
+      });
+    } catch (queueError) {
+      const message =
+        queueError instanceof Error ? queueError.message : "Could not queue sync";
+
+      console.error("Enable Banking initial sync queue failed", {
+        connectionId: connection.id,
+        runId: run.id,
+        error: queueError,
+      });
+
+      await db
+        .update(syncRuns)
+        .set({
+          status: "failed",
+          finishedAt: new Date(),
+          errorMessage: message,
+        })
+        .where(eq(syncRuns.id, run.id));
+    }
 
     return NextResponse.redirect(
-      new URL("/settings/integrations?enable_banking=connected", url.origin),
+      new URL(
+        `/settings/integrations?enable_banking=connected&sync_run=${run.id}`,
+        url.origin,
+      ),
     );
   } catch (sessionError) {
     await db

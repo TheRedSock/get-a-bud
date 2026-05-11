@@ -25,40 +25,79 @@ export const syncBankConnection = inngest.createFunction(
   },
   async ({ event, step }) => {
     const connectionId = event.data.connectionId as string;
+    const runId = typeof event.data.runId === "string" ? event.data.runId : undefined;
 
-    const [run] = await step.run("create-sync-run", () =>
-      db
+    const run = await step.run("prepare-sync-run", async () => {
+      if (runId) {
+        const [existingRun] = await db
+          .update(syncRuns)
+          .set({
+            status: "running",
+            startedAt: new Date(),
+            finishedAt: null,
+            errorCode: null,
+            errorMessage: null,
+          })
+          .where(eq(syncRuns.id, runId))
+          .returning();
+
+        if (existingRun) {
+          return existingRun;
+        }
+      }
+
+      const [createdRun] = await db
         .insert(syncRuns)
         .values({
           connectionId,
           provider: "enable_banking",
           status: "running",
         })
-        .returning(),
-    );
+        .returning();
 
-    const result = await step.run("sync-enable-banking", () =>
-      syncEnableBankingConnection(connectionId),
-    );
-
-    await step.run("finish-sync-run", () =>
-      db
-        .update(syncRuns)
-        .set({
-          status: result.rateLimitedUntil ? "rate_limited" : "succeeded",
-          finishedAt: new Date(),
-          importedAccounts: result.accounts.length,
-          importedTransactions: result.transactions.length,
-        })
-        .where(eq(syncRuns.id, run.id)),
-    );
-
-    await step.sendEvent("categorize-imported-transactions", {
-      name: "transactions.categorize",
-      data: { connectionId },
+      return createdRun;
     });
 
-    return result;
+    try {
+      const result = await step.run("sync-enable-banking", () =>
+        syncEnableBankingConnection(connectionId),
+      );
+
+      await step.run("finish-sync-run", () =>
+        db
+          .update(syncRuns)
+          .set({
+            status: result.rateLimitedUntil ? "rate_limited" : "succeeded",
+            finishedAt: new Date(),
+            importedAccounts: result.accounts.length,
+            importedTransactions: result.transactions.length,
+          })
+          .where(eq(syncRuns.id, run.id)),
+      );
+
+      await step.sendEvent("categorize-imported-transactions", {
+        name: "transactions.categorize",
+        data: { connectionId },
+      });
+
+      return result;
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unknown bank sync error";
+
+      await step.run("fail-sync-run", () =>
+        db
+          .update(syncRuns)
+          .set({
+            status: "failed",
+            finishedAt: new Date(),
+            errorMessage: message,
+          })
+          .where(eq(syncRuns.id, run.id)),
+      );
+
+      throw error;
+    }
   },
 );
 

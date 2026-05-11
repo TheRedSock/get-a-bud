@@ -1,4 +1,5 @@
 import { ArrowUpRight, CalendarClock, Landmark, Wallet } from "lucide-react";
+import { desc, eq } from "drizzle-orm";
 
 import {
   BalanceTrendChart,
@@ -8,20 +9,122 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { accounts, bills, budgetRows, transactions } from "@/lib/demo-data";
+import { db } from "@/db";
+import {
+  budgets,
+  financialAccounts,
+  recurringBills,
+  transactions,
+} from "@/db/schema";
+import {
+  accounts as demoAccounts,
+  balanceData as demoBalanceData,
+  bills as demoBills,
+  budgetRows as demoBudgetRows,
+  cashFlowData as demoCashFlowData,
+  spendingData as demoSpendingData,
+  transactions as demoTransactions,
+} from "@/lib/demo-data";
+import { getActiveHousehold } from "@/lib/finance/household";
 import { formatMoney } from "@/lib/utils";
 
-const summaryCards = [
-  { label: "Current balance", value: 118400, icon: Wallet, helper: "+12.5% after payday" },
-  { label: "Remaining budget", value: 23900, icon: Landmark, helper: "18 days left" },
-  { label: "Upcoming bills", value: 20599, icon: CalendarClock, helper: "4 expected" },
-];
+type DashboardPageProps = {
+  demo?: boolean;
+};
 
-export default function DashboardPage() {
+const monthFormatter = new Intl.DateTimeFormat("en", { month: "short" });
+
+function buildCashFlowData(rows: Array<{ date: string; amount: string }>) {
+  const grouped = new Map<string, { month: string; income: number; expenses: number }>();
+
+  for (const row of rows) {
+    const date = new Date(`${row.date}T00:00:00`);
+    const month = monthFormatter.format(date);
+    const amount = Number(row.amount);
+    const current = grouped.get(month) ?? { month, income: 0, expenses: 0 };
+
+    if (amount >= 0) {
+      current.income += amount;
+    } else {
+      current.expenses += Math.abs(amount);
+    }
+
+    grouped.set(month, current);
+  }
+
+  return [...grouped.values()];
+}
+
+function buildSpendingData(rows: Array<{ source: string; amount: string }>) {
+  const colors = [
+    "var(--chart-1)",
+    "var(--chart-2)",
+    "var(--chart-3)",
+    "var(--chart-4)",
+    "var(--chart-5)",
+  ];
+  const grouped = new Map<string, number>();
+
+  for (const row of rows) {
+    const amount = Number(row.amount);
+    if (amount >= 0) continue;
+    const label = row.source === "enable_banking" ? "Bank imports" : "Manual";
+    grouped.set(label, (grouped.get(label) ?? 0) + Math.abs(amount));
+  }
+
+  return [...grouped.entries()].map(([name, value], index) => ({
+    name,
+    value,
+    color: colors[index % colors.length],
+  }));
+}
+
+function buildBalanceData(accounts: Array<{ currentBalance: string }>) {
+  const balance = accounts.reduce(
+    (sum, account) => sum + Number(account.currentBalance),
+    0,
+  );
+
+  return balance ? [{ day: "Now", balance }] : [];
+}
+
+export default async function DashboardPage({ demo = false }: DashboardPageProps = {}) {
+  const data = demo
+    ? {
+        accounts: demoAccounts,
+        transactions: demoTransactions,
+        budgetRows: demoBudgetRows,
+        bills: demoBills,
+        cashFlowData: demoCashFlowData,
+        spendingData: demoSpendingData,
+        balanceData: demoBalanceData,
+        summaryCards: [
+          {
+            label: "Current balance",
+            value: 118400,
+            icon: Wallet,
+            helper: "+12.5% after payday",
+          },
+          {
+            label: "Remaining budget",
+            value: 23900,
+            icon: Landmark,
+            helper: "18 days left",
+          },
+          {
+            label: "Upcoming bills",
+            value: 20599,
+            icon: CalendarClock,
+            helper: "4 expected",
+          },
+        ],
+      }
+    : await getLiveDashboardData();
+
   return (
     <div className="grid gap-6">
       <section className="grid gap-4 md:grid-cols-3">
-        {summaryCards.map((card) => {
+        {data.summaryCards.map((card) => {
           const Icon = card.icon;
 
           return (
@@ -51,7 +154,11 @@ export default function DashboardPage() {
             <CardTitle>Cash flow</CardTitle>
           </CardHeader>
           <CardContent>
-            <CashFlowChart />
+            {data.cashFlowData.length ? (
+              <CashFlowChart data={data.cashFlowData} />
+            ) : (
+              <EmptyDashboardState message="Transactions will shape this chart after your first sync or manual entry." />
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -59,7 +166,11 @@ export default function DashboardPage() {
             <CardTitle>Spending mix</CardTitle>
           </CardHeader>
           <CardContent>
-            <SpendingPieChart />
+            {data.spendingData.length ? (
+              <SpendingPieChart data={data.spendingData} />
+            ) : (
+              <EmptyDashboardState message="No spending data yet." />
+            )}
           </CardContent>
         </Card>
       </section>
@@ -70,7 +181,11 @@ export default function DashboardPage() {
             <CardTitle>Balance trend</CardTitle>
           </CardHeader>
           <CardContent>
-            <BalanceTrendChart />
+            {data.balanceData.length ? (
+              <BalanceTrendChart data={data.balanceData} />
+            ) : (
+              <EmptyDashboardState message="Connect or add accounts to see balances." />
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -78,7 +193,8 @@ export default function DashboardPage() {
             <CardTitle>Budget health</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {budgetRows.map((row) => (
+            {data.budgetRows.length ? (
+              data.budgetRows.map((row) => (
               <div key={row.name}>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span>{row.name}</span>
@@ -86,9 +202,14 @@ export default function DashboardPage() {
                     {formatMoney(row.spent)} / {formatMoney(row.allocated)}
                   </span>
                 </div>
-                <Progress value={(row.spent / row.allocated) * 100} />
+                <Progress
+                  value={row.allocated ? (row.spent / row.allocated) * 100 : 0}
+                />
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyDashboardState message="Create a budget to track category health." />
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -96,7 +217,8 @@ export default function DashboardPage() {
             <CardTitle>Upcoming bills</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {bills.map((bill) => (
+            {data.bills.length ? (
+              data.bills.map((bill) => (
               <div
                 key={bill.name}
                 className="flex items-center justify-between rounded-2xl bg-secondary/50 p-3"
@@ -110,7 +232,10 @@ export default function DashboardPage() {
                   <p className="text-xs text-muted-foreground">{bill.status}</p>
                 </div>
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyDashboardState message="Recurring bills will appear after they are detected or added." />
+            )}
           </CardContent>
         </Card>
       </section>
@@ -121,7 +246,8 @@ export default function DashboardPage() {
             <CardTitle>Accounts</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {accounts.map((account) => (
+            {data.accounts.length ? (
+              data.accounts.map((account) => (
               <div
                 key={account.name}
                 className="flex items-center justify-between rounded-2xl border bg-background/40 p-4"
@@ -135,7 +261,10 @@ export default function DashboardPage() {
                   <p className="text-sm text-muted-foreground">{account.trend}</p>
                 </div>
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyDashboardState message="No accounts yet." />
+            )}
           </CardContent>
         </Card>
         <Card>
@@ -143,7 +272,8 @@ export default function DashboardPage() {
             <CardTitle>Recent transactions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3">
-            {transactions.map((transaction) => (
+            {data.transactions.length ? (
+              data.transactions.map((transaction) => (
               <div
                 key={`${transaction.merchant}-${transaction.date}`}
                 className="flex items-center justify-between rounded-2xl border bg-background/40 p-4"
@@ -156,10 +286,107 @@ export default function DashboardPage() {
                 </div>
                 <p className="font-semibold">{formatMoney(transaction.amount)}</p>
               </div>
-            ))}
+              ))
+            ) : (
+              <EmptyDashboardState message="No transactions yet." />
+            )}
           </CardContent>
         </Card>
       </section>
     </div>
   );
+}
+
+function EmptyDashboardState({ message }: { message: string }) {
+  return (
+    <div className="grid min-h-40 place-items-center rounded-3xl border border-dashed bg-background/40 p-6 text-center text-sm text-muted-foreground">
+      {message}
+    </div>
+  );
+}
+
+async function getLiveDashboardData() {
+  const household = await getActiveHousehold();
+  const [accountRows, transactionRows, budgetRows, billRows] = await Promise.all([
+    db
+      .select()
+      .from(financialAccounts)
+      .where(eq(financialAccounts.householdId, household.householdId)),
+    db
+      .select()
+      .from(transactions)
+      .where(eq(transactions.householdId, household.householdId))
+      .orderBy(desc(transactions.date))
+      .limit(50),
+    db.select().from(budgets).where(eq(budgets.householdId, household.householdId)),
+    db
+      .select()
+      .from(recurringBills)
+      .where(eq(recurringBills.householdId, household.householdId)),
+  ]);
+  const currentBalance = accountRows.reduce(
+    (sum, account) => sum + Number(account.currentBalance),
+    0,
+  );
+  const spending = transactionRows
+    .filter((transaction) => Number(transaction.amount) < 0)
+    .reduce((sum, transaction) => sum + Math.abs(Number(transaction.amount)), 0);
+
+  return {
+    accounts: accountRows.map((account) => ({
+      name: account.name,
+      kind: account.kind,
+      balance: Number(account.currentBalance),
+      trend: account.isManual ? "Manual" : account.institutionName ?? "Synced",
+    })),
+    transactions: transactionRows.slice(0, 8).map((transaction) => ({
+      merchant: transaction.merchantName ?? transaction.description,
+      category: transaction.source.replace("_", " "),
+      amount: Number(transaction.amount),
+      date: transaction.date,
+    })),
+    budgetRows: budgetRows.map((budget) => ({
+      name: budget.name,
+      spent: 0,
+      allocated: 0,
+    })),
+    bills: billRows.map((bill) => ({
+      name: bill.name,
+      due: bill.nextDueDate ?? "No due date",
+      amount: Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+      status: bill.isActive ? "Active" : "Paused",
+    })),
+    cashFlowData: buildCashFlowData(transactionRows),
+    spendingData: buildSpendingData(transactionRows),
+    balanceData: buildBalanceData(accountRows),
+    summaryCards: [
+      {
+        label: "Current balance",
+        value: currentBalance,
+        icon: Wallet,
+        helper: accountRows.length
+          ? `${accountRows.length} account${accountRows.length === 1 ? "" : "s"}`
+          : "No accounts connected",
+      },
+      {
+        label: "Month spending",
+        value: spending,
+        icon: Landmark,
+        helper: transactionRows.length
+          ? `${transactionRows.length} recent transaction${
+              transactionRows.length === 1 ? "" : "s"
+            }`
+          : "No transactions yet",
+      },
+      {
+        label: "Upcoming bills",
+        value: billRows.reduce(
+          (sum, bill) => sum + Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+          0,
+        ),
+        icon: CalendarClock,
+        helper: `${billRows.length} expected`,
+      },
+    ],
+  };
 }

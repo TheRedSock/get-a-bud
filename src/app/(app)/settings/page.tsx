@@ -4,10 +4,28 @@ import { EnableBankingCard } from "@/components/settings/enable-banking-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function SettingsPage() {
+type SettingsPageProps = {
+  searchParams?: Promise<{
+    enable_banking?: string | string[];
+    sync_run?: string | string[];
+  }>;
+};
+
+export default async function SettingsPage({ searchParams }: SettingsPageProps = {}) {
+  const resolvedSearchParams = await searchParams;
+  const enableBankingResult = Array.isArray(resolvedSearchParams?.enable_banking)
+    ? resolvedSearchParams?.enable_banking[0]
+    : resolvedSearchParams?.enable_banking;
+  const syncRunId = Array.isArray(resolvedSearchParams?.sync_run)
+    ? resolvedSearchParams?.sync_run[0]
+    : resolvedSearchParams?.sync_run;
+
   return (
     <div className="grid gap-6 xl:grid-cols-2">
-      <EnableBankingCard />
+      <EnableBankingCard
+        callbackResult={enableBankingResult}
+        initialSyncRunId={syncRunId}
+      />
 
       <div className="grid gap-6">
         <Card>

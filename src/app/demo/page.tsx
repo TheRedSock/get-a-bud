@@ -37,7 +37,7 @@ export default function DemoPage() {
             responsiveness and styling before wiring a live account.
           </p>
         </div>
-        <DashboardPage />
+        <DashboardPage demo />
       </section>
     </main>
   );

@@ -1,9 +1,13 @@
 "use client";
 
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import {
+  SyncRunStatus,
+  useBankSyncRuns,
+} from "@/components/bank-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,16 +48,68 @@ const initialFormState: FormState = {
   validDays: "90",
 };
 
-export function EnableBankingCard() {
+const callbackMessages: Record<
+  string,
+  { title: string; description: string; tone: "success" | "error" | "info" }
+> = {
+  connected: {
+    title: "Bank connected",
+    description:
+      "Enable Banking returned a valid session. The initial account and transaction sync has been queued.",
+    tone: "success",
+  },
+  denied: {
+    title: "Bank authorization denied",
+    description: "The bank did not grant consent for this connection.",
+    tone: "error",
+  },
+  session_failed: {
+    title: "Could not create bank session",
+    description: "The bank redirect succeeded, but the session exchange failed.",
+    tone: "error",
+  },
+  invalid_state: {
+    title: "Bank callback could not be verified",
+    description: "The authorization state did not match this household.",
+    tone: "error",
+  },
+  expired: {
+    title: "Bank authorization expired",
+    description: "Start the connection again to create a fresh authorization state.",
+    tone: "error",
+  },
+};
+
+export function EnableBankingCard({
+  callbackResult,
+  initialSyncRunId,
+}: {
+  callbackResult?: string;
+  initialSyncRunId?: string;
+}) {
   const [form, setForm] = useState<FormState>(initialFormState);
   const [connections, setConnections] = useState<ConnectionSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const trackedInitialSyncRunId = useRef<string | null>(null);
+  const {
+    getRunForConnection,
+    isConnectionSyncing,
+    queueSync,
+    trackRunById,
+  } = useBankSyncRuns();
+  const callbackMessage = useMemo(
+    () =>
+      callbackResult
+        ? callbackMessages[callbackResult] ?? {
+            title: "Bank callback received",
+            description: `Enable Banking returned status: ${callbackResult}.`,
+            tone: "info" as const,
+          }
+        : null,
+    [callbackResult],
+  );
 
-  useEffect(() => {
-    void loadConnections();
-  }, []);
-
-  async function loadConnections() {
+  const loadConnections = useCallback(async () => {
     const response = await fetch("/api/integrations/enable-banking", {
       cache: "no-store",
     });
@@ -66,7 +122,56 @@ export function EnableBankingCard() {
       connections: ConnectionSummary[];
     };
     setConnections(body.connections);
-  }
+  }, []);
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      void loadConnections();
+    });
+
+    return () => window.cancelAnimationFrame(frameId);
+  }, [loadConnections]);
+
+  useEffect(() => {
+    if (
+      !initialSyncRunId ||
+      !connections.length ||
+      trackedInitialSyncRunId.current === initialSyncRunId
+    ) {
+      return;
+    }
+
+    trackedInitialSyncRunId.current = initialSyncRunId;
+    void trackRunById(connections, initialSyncRunId);
+  }, [
+    connections,
+    initialSyncRunId,
+    trackRunById,
+  ]);
+
+  useEffect(() => {
+    if (!callbackMessage) {
+      return;
+    }
+
+    if (callbackMessage.tone === "success") {
+      toast.success(callbackMessage.title, {
+        description: callbackMessage.description,
+      });
+      return;
+    }
+
+    if (callbackMessage.tone === "error") {
+      toast.error(callbackMessage.title, {
+        description: callbackMessage.description,
+      });
+      return;
+    }
+
+    toast.info(callbackMessage.title, {
+      description: callbackMessage.description,
+    });
+  }, [callbackMessage]);
 
   function updateForm(key: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -126,27 +231,27 @@ export function EnableBankingCard() {
     }
   }
 
-  async function sync(connectionId: string) {
-    const response = await fetch(
-      `/api/integrations/enable-banking/${connectionId}/sync`,
-      { method: "POST" },
-    );
-
-    if (!response.ok) {
-      toast.error("Could not queue sync");
-      return;
-    }
-
-    toast.success("Sync queued");
-    await loadConnections();
-  }
-
   return (
     <Card>
       <CardHeader>
         <CardTitle>Enable Banking</CardTitle>
       </CardHeader>
       <CardContent className="grid gap-5">
+        {callbackMessage ? (
+          <div
+            className={
+              callbackMessage.tone === "success"
+                ? "rounded-3xl border border-primary/30 bg-primary/10 p-4"
+                : "rounded-3xl border bg-background/60 p-4"
+            }
+          >
+            <p className="font-semibold">{callbackMessage.title}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {callbackMessage.description}
+            </p>
+          </div>
+        ) : null}
+
         <div className="rounded-3xl bg-secondary/60 p-5">
           <KeyRound className="mb-3 size-5 text-primary" />
           <p className="font-semibold">Secure bank authorization flow</p>
@@ -279,15 +384,22 @@ export function EnableBankingCard() {
                 </div>
                 <div className="mt-4 flex gap-2">
                   <Button
-                    disabled={!connection.hasConsentSession}
+                    disabled={
+                      !connection.hasConsentSession ||
+                      isConnectionSyncing(connection.id)
+                    }
                     size="sm"
                     type="button"
                     variant="outline"
-                    onClick={() => sync(connection.id)}
+                    onClick={() => void queueSync(connection.id)}
                   >
+                    {isConnectionSyncing(connection.id) ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : null}
                     Sync now
                   </Button>
                 </div>
+                <SyncRunStatus run={getRunForConnection(connection.id)} />
               </div>
             ))}
           </div>
