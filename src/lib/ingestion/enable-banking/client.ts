@@ -3,6 +3,7 @@ import {
   toEnableBankingPsuHeaders,
   type PsuHeaders,
 } from "@/lib/ingestion/enable-banking/psu-headers";
+import { providerError } from "@/lib/errors/catalog";
 
 type EnableBankingClientOptions = {
   applicationId: string;
@@ -245,7 +246,20 @@ export class EnableBankingClient {
 
     if (!response.ok) {
       const message = await response.text();
-      throw new Error(`Enable Banking request failed: ${response.status} ${message}`);
+      throw providerError(
+        `Enable Banking request failed: ${response.status} ${message}`,
+        {
+          status: response.status >= 500 ? 502 : 400,
+          userMessage:
+            "Enable Banking rejected the request. Check the bank details and try again.",
+          context: {
+            provider: "enable_banking",
+            path,
+            status: response.status,
+            responseBody: message,
+          },
+        },
+      );
     }
 
     return response.json() as Promise<T>;
@@ -259,7 +273,9 @@ export function mapEnableBankingAccount(account: EnableBankingAccount) {
     account.id;
 
   if (!providerAccountId) {
-    throw new Error("Enable Banking account is missing an id");
+    throw providerError("Enable Banking account is missing an id", {
+      context: { provider: "enable_banking", payload: account },
+    });
   }
 
   return {
@@ -280,7 +296,9 @@ export function mapEnableBankingTransaction(
     transaction.entry_reference ?? transaction.transaction_id ?? transaction.uid;
 
   if (!providerTransactionId) {
-    throw new Error("Enable Banking transaction is missing an id");
+    throw providerError("Enable Banking transaction is missing an id", {
+      context: { provider: "enable_banking", payload: transaction },
+    });
   }
 
   const description =

@@ -16,6 +16,7 @@ import {
 } from "@/lib/ingestion/enable-banking/client";
 import type { PsuHeaders } from "@/lib/ingestion/enable-banking/psu-headers";
 import type { IngestionSyncResult } from "@/lib/ingestion/types";
+import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
 
 function dateDaysAgo(days: number) {
@@ -121,8 +122,22 @@ export async function syncEnableBankingConnection(
       const [details, balances] = await Promise.all([
         client
           .getAccountDetails(accountId, psuHeaders)
-          .catch(() => sessionAccountRecord),
-        client.getAccountBalances(accountId, psuHeaders).catch(() => undefined),
+          .catch((error) => {
+            logger.warn("Enable Banking account details fallback used", {
+              connectionId,
+              accountId,
+              error,
+            });
+            return sessionAccountRecord;
+          }),
+        client.getAccountBalances(accountId, psuHeaders).catch((error) => {
+          logger.warn("Enable Banking account balance unavailable", {
+            connectionId,
+            accountId,
+            error,
+          });
+          return undefined;
+        }),
       ]);
       const account = mapEnableBankingAccount({
         ...details,

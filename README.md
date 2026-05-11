@@ -44,6 +44,9 @@ in the matching Vercel environment.
 - `npm run build` builds the app.
 - `npm run typecheck` runs TypeScript.
 - `npm run lint` runs Next linting.
+- `npm run test` runs the Vitest suite once.
+- `npm run test:watch` runs Vitest in watch mode.
+- `npm run test:coverage` runs tests with V8 coverage.
 - `npm run db:generate` creates Drizzle migration files from `src/db/schema.ts`.
 - `npm run db:migrate` applies migrations.
 - `npm run db:studio` opens Drizzle Studio.

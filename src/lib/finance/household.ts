@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { households, memberships } from "@/db/schema";
 import { requireUser } from "@/lib/auth/session";
+import { forbiddenError, notFoundError } from "@/lib/errors/catalog";
 
 export async function getActiveHousehold() {
   const user = await requireUser();
@@ -21,7 +22,9 @@ export async function getActiveHousehold() {
     .limit(1);
 
   if (!membership) {
-    throw new Error("No household found for current user");
+    throw notFoundError("No household found for your account.", {
+      userId: user.id,
+    });
   }
 
   return membership;
@@ -39,7 +42,7 @@ export async function assertHouseholdAccess(householdId: string) {
     .limit(1);
 
   if (!membership) {
-    throw new Error("You do not have access to this household");
+    throw forbiddenError("You do not have access to this household.");
   }
 
   return membership;

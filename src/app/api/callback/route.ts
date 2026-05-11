@@ -9,6 +9,8 @@ import {
   hashAuthorizationState,
   safeCompareStateHash,
 } from "@/lib/ingestion/enable-banking/state";
+import { providerError } from "@/lib/errors/catalog";
+import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
 
 function getPrivateKey(connection: typeof ingestionConnections.$inferSelect) {
@@ -157,6 +159,8 @@ export async function GET(request: Request) {
       })
       .returning();
 
+    let syncQueued = true;
+
     try {
       await inngest.send({
         name: "bank.connection.sync",
@@ -166,12 +170,6 @@ export async function GET(request: Request) {
       const message =
         queueError instanceof Error ? queueError.message : "Could not queue sync";
 
-      console.error("Enable Banking initial sync queue failed", {
-        connectionId: connection.id,
-        runId: run.id,
-        error: queueError,
-      });
-
       await db
         .update(syncRuns)
         .set({
@@ -180,11 +178,24 @@ export async function GET(request: Request) {
           errorMessage: message,
         })
         .where(eq(syncRuns.id, run.id));
+
+      syncQueued = false;
+      logger.exception(
+        providerError(message, {
+          cause: queueError,
+          userMessage:
+            "The bank was connected, but the initial sync could not be queued.",
+          context: { connectionId: connection.id, runId: run.id },
+          status: 500,
+        }),
+      );
     }
 
     return NextResponse.redirect(
       new URL(
-        `/settings/integrations?enable_banking=connected&sync_run=${run.id}`,
+        `/settings/integrations?enable_banking=${
+          syncQueued ? "connected" : "connected_sync_failed"
+        }&sync_run=${run.id}`,
         url.origin,
       ),
     );
@@ -208,6 +219,20 @@ export async function GET(request: Request) {
         updatedAt: new Date(),
       })
       .where(eq(ingestionConnections.id, connection.id));
+
+    logger.exception(
+      providerError(
+        sessionError instanceof Error
+          ? sessionError.message
+          : "Unknown Enable Banking session exchange error",
+        {
+          cause: sessionError,
+          userMessage: "The bank redirect succeeded, but the session exchange failed.",
+          context: { connectionId: connection.id },
+          status: 502,
+        },
+      ),
+    );
 
     return NextResponse.redirect(
       new URL("/settings/integrations?enable_banking=session_failed", url.origin),

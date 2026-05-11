@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { parseApiResponse } from "@/lib/api-client";
+import { showErrorToast } from "@/lib/toast-errors";
 
 type ConnectionSummary = {
   id: string;
@@ -78,6 +80,12 @@ const callbackMessages: Record<
     description: "Start the connection again to create a fresh authorization state.",
     tone: "error",
   },
+  connected_sync_failed: {
+    title: "Bank connected, sync not queued",
+    description:
+      "The bank connection was saved, but the first sync could not be queued. Try Sync now.",
+    tone: "error",
+  },
 };
 
 export function EnableBankingCard({
@@ -114,14 +122,14 @@ export function EnableBankingCard({
       cache: "no-store",
     });
 
-    if (!response.ok) {
-      return;
+    try {
+      const body = await parseApiResponse<{ connections: ConnectionSummary[] }>(
+        response,
+      );
+      setConnections(body.connections);
+    } catch (error) {
+      showErrorToast("Could not load bank connections", error);
     }
-
-    const body = (await response.json()) as {
-      connections: ConnectionSummary[];
-    };
-    setConnections(body.connections);
   }, []);
 
   useEffect(() => {
@@ -192,13 +200,9 @@ export function EnableBankingCard({
         }),
       });
 
-      if (!connectionResponse.ok) {
-        throw new Error("Could not save Enable Banking credentials");
-      }
-
-      const { connection } = (await connectionResponse.json()) as {
+      const { connection } = await parseApiResponse<{
         connection: { id: string };
-      };
+      }>(connectionResponse);
       const authResponse = await fetch(
         `/api/integrations/enable-banking/${connection.id}/auth`,
         {
@@ -214,19 +218,16 @@ export function EnableBankingCard({
         },
       );
 
-      if (!authResponse.ok) {
-        throw new Error("Could not start Enable Banking authorization");
-      }
-
-      const { redirectUrl } = (await authResponse.json()) as {
+      const { redirectUrl } = await parseApiResponse<{
         redirectUrl: string;
-      };
+      }>(authResponse);
       window.location.assign(redirectUrl);
     } catch (error) {
-      toast.error("Enable Banking connection failed", {
-        description:
-          error instanceof Error ? error.message : "Please check the details.",
-      });
+      showErrorToast(
+        "Enable Banking connection failed",
+        error,
+        "Please check the details.",
+      );
       setLoading(false);
     }
   }

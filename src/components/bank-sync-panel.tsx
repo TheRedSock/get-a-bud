@@ -8,6 +8,8 @@ import { SyncRunStatus, useBankSyncRuns } from "@/components/bank-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseApiResponse } from "@/lib/api-client";
+import { showErrorToast } from "@/lib/toast-errors";
 
 type ConnectionSummary = {
   id: string;
@@ -31,14 +33,12 @@ export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
         cache: "no-store",
       });
 
-      if (!response.ok) {
-        return;
-      }
-
-      const body = (await response.json()) as {
+      const body = await parseApiResponse<{
         connections: ConnectionSummary[];
-      };
+      }>(response);
       setConnections(body.connections);
+    } catch (error) {
+      showErrorToast("Could not load bank connections", error);
     } finally {
       setLoading(false);
     }

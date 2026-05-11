@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { liabilities } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createLiabilitySchema } from "@/lib/finance/validation";
 
-export async function GET() {
+export const GET = withApiHandler("liabilities.list", async () => {
   const household = await getActiveHousehold();
   const rows = await db
     .select()
@@ -14,34 +15,30 @@ export async function GET() {
     .where(eq(liabilities.householdId, household.householdId));
 
   return NextResponse.json({ liabilities: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("liabilities.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = createLiabilitySchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid liability payload" },
-      { status: 400 },
-    );
-  }
+  const liabilityInput = await validateJsonBody(
+    request,
+    createLiabilitySchema,
+    "Please provide a valid liability name and balance.",
+  );
 
   const [liability] = await db
     .insert(liabilities)
     .values({
       householdId: household.householdId,
-      name: parsed.data.name,
-      kind: parsed.data.kind,
-      currency: parsed.data.currency,
-      currentBalance: parsed.data.currentBalance.toFixed(2),
-      interestRate: parsed.data.interestRate?.toFixed(4),
-      minimumPayment: parsed.data.minimumPayment?.toFixed(2),
-      dueDay: parsed.data.dueDay,
-      notes: parsed.data.notes,
+      name: liabilityInput.name,
+      kind: liabilityInput.kind,
+      currency: liabilityInput.currency,
+      currentBalance: liabilityInput.currentBalance.toFixed(2),
+      interestRate: liabilityInput.interestRate?.toFixed(4),
+      minimumPayment: liabilityInput.minimumPayment?.toFixed(2),
+      dueDay: liabilityInput.dueDay,
+      notes: liabilityInput.notes,
     })
     .returning();
 
   return NextResponse.json({ liability }, { status: 201 });
-}
+});

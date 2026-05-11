@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { recurringBills } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 
 const billSchema = z.object({
@@ -16,7 +17,7 @@ const billSchema = z.object({
   nextDueDate: z.string().min(8).optional(),
 });
 
-export async function GET() {
+export const GET = withApiHandler("bills.list", async () => {
   const household = await getActiveHousehold();
   const rows = await db
     .select()
@@ -25,28 +26,27 @@ export async function GET() {
     .orderBy(asc(recurringBills.nextDueDate));
 
   return NextResponse.json({ bills: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("bills.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = billSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid bill payload" }, { status: 400 });
-  }
+  const billInput = await validateJsonBody(
+    request,
+    billSchema,
+    "Please provide a valid bill name, merchant pattern and cadence.",
+  );
 
   const [bill] = await db
     .insert(recurringBills)
     .values({
       householdId: household.householdId,
-      name: parsed.data.name,
-      merchantPattern: parsed.data.merchantPattern,
-      cadence: parsed.data.cadence,
-      expectedAmount: parsed.data.expectedAmount?.toFixed(2),
-      nextDueDate: parsed.data.nextDueDate,
+      name: billInput.name,
+      merchantPattern: billInput.merchantPattern,
+      cadence: billInput.cadence,
+      expectedAmount: billInput.expectedAmount?.toFixed(2),
+      nextDueDate: billInput.nextDueDate,
     })
     .returning();
 
   return NextResponse.json({ bill }, { status: 201 });
-}
+});

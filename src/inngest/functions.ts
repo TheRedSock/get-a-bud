@@ -11,6 +11,8 @@ import {
 import { detectCategory } from "@/lib/finance/categorization";
 import { syncEnableBankingConnection } from "@/lib/ingestion/enable-banking/sync";
 import { inngest } from "@/inngest/client";
+import { unexpectedError } from "@/lib/errors/catalog";
+import { logger } from "@/lib/logger";
 
 const bankConnectionSyncEvent = eventType("bank.connection.sync");
 const categorizeTransactionsEvent = eventType("transactions.categorize");
@@ -94,6 +96,14 @@ export const syncBankConnection = inngest.createFunction(
             errorMessage: message,
           })
           .where(eq(syncRuns.id, run.id)),
+      );
+
+      logger.exception(
+        unexpectedError(error, {
+          operation: "inngest.syncBankConnection",
+          connectionId,
+          runId: run.id,
+        }),
       );
 
       throw error;

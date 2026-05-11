@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { ingestionConnections } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { encryptSecret } from "@/lib/security/encryption";
 
@@ -13,7 +14,7 @@ const connectionSchema = z.object({
   pemPrivateKey: z.string().min(100),
 });
 
-export async function GET() {
+export const GET = withApiHandler("enableBanking.connections.list", async () => {
   const household = await getActiveHousehold();
   const rows = await db
     .select({
@@ -38,38 +39,37 @@ export async function GET() {
       hasConsentSession: Boolean(consentSessionId),
     })),
   });
-}
+});
 
-export async function POST(request: Request) {
-  const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = connectionSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid Enable Banking connection payload" },
-      { status: 400 },
+export const POST = withApiHandler(
+  "enableBanking.connections.create",
+  async (request) => {
+    const household = await getActiveHousehold();
+    const connectionInput = await validateJsonBody(
+      request,
+      connectionSchema,
+      "Please provide an Enable Banking application ID and PEM private key.",
     );
-  }
 
-  const encrypted = encryptSecret(parsed.data.pemPrivateKey);
+    const encrypted = encryptSecret(connectionInput.pemPrivateKey);
 
-  const [connection] = await db
-    .insert(ingestionConnections)
-    .values({
-      householdId: household.householdId,
-      provider: "enable_banking",
-      displayName: parsed.data.displayName,
-      externalApplicationId: parsed.data.applicationId,
-      encryptedPrivateKey: encrypted.ciphertext,
-      encryptedPrivateKeyIv: encrypted.iv,
-      encryptedPrivateKeyTag: encrypted.tag,
-      status: "needs_authorization",
-      metadata: {
-        credentialsUpdatedAt: new Date().toISOString(),
-      },
-    })
-    .returning();
+    const [connection] = await db
+      .insert(ingestionConnections)
+      .values({
+        householdId: household.householdId,
+        provider: "enable_banking",
+        displayName: connectionInput.displayName,
+        externalApplicationId: connectionInput.applicationId,
+        encryptedPrivateKey: encrypted.ciphertext,
+        encryptedPrivateKeyIv: encrypted.iv,
+        encryptedPrivateKeyTag: encrypted.tag,
+        status: "needs_authorization",
+        metadata: {
+          credentialsUpdatedAt: new Date().toISOString(),
+        },
+      })
+      .returning();
 
-  return NextResponse.json({ connection }, { status: 201 });
-}
+    return NextResponse.json({ connection }, { status: 201 });
+  },
+);

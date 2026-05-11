@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { financialAccounts } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createAccountSchema } from "@/lib/finance/validation";
 
-export async function GET() {
+export const GET = withApiHandler("accounts.list", async () => {
   const household = await getActiveHousehold();
   const accounts = await db
     .select()
@@ -14,29 +15,28 @@ export async function GET() {
     .where(eq(financialAccounts.householdId, household.householdId));
 
   return NextResponse.json({ accounts });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("accounts.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = createAccountSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid account payload" }, { status: 400 });
-  }
+  const accountInput = await validateJsonBody(
+    request,
+    createAccountSchema,
+    "Please provide a valid account name, type, currency and balance.",
+  );
 
   const [account] = await db
     .insert(financialAccounts)
     .values({
       householdId: household.householdId,
-      name: parsed.data.name,
-      kind: parsed.data.kind,
-      currency: parsed.data.currency,
-      currentBalance: parsed.data.currentBalance.toFixed(2),
-      institutionName: parsed.data.institutionName,
+      name: accountInput.name,
+      kind: accountInput.kind,
+      currency: accountInput.currency,
+      currentBalance: accountInput.currentBalance.toFixed(2),
+      institutionName: accountInput.institutionName,
       isManual: true,
     })
     .returning();
 
   return NextResponse.json({ account }, { status: 201 });
-}
+});

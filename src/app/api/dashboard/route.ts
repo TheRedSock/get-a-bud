@@ -10,11 +10,12 @@ import {
   recurringBills,
   transactions,
 } from "@/db/schema";
+import { withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 
 const toNumber = (value: string | null | undefined) => Number(value ?? 0);
 
-export async function GET() {
+export const GET = withApiHandler("dashboard.get", async () => {
   const household = await getActiveHousehold();
 
   const [accounts, recentTransactions, activeBudgets, billRows, assetRows, debtRows] =
@@ -80,4 +81,4 @@ export async function GET() {
     assets: assetRows,
     liabilities: debtRows,
   });
-}
+});

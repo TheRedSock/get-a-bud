@@ -12,6 +12,8 @@ import {
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
+import { parseApiResponse } from "@/lib/api-client";
+import { showErrorToast } from "@/lib/toast-errors";
 
 export type SyncRun = {
   id: string;
@@ -63,27 +65,27 @@ export function useBankSyncRuns() {
 
   const pollRun = useCallback(
     async (connectionId: string, runId: string) => {
-      const response = await fetch(
-        `/api/integrations/enable-banking/${connectionId}/sync?runId=${runId}`,
-        { cache: "no-store" },
-      );
+      try {
+        const response = await fetch(
+          `/api/integrations/enable-banking/${connectionId}/sync?runId=${runId}`,
+          { cache: "no-store" },
+        );
 
-      if (!response.ok) {
+        const body = await parseApiResponse<{ run: SyncRun | null }>(response);
+
+        if (!body.run?.connectionId) {
+          return null;
+        }
+
+        setRunsByConnectionId((current) => ({
+          ...current,
+          [body.run!.connectionId!]: body.run!,
+        }));
+
+        return body.run;
+      } catch {
         return null;
       }
-
-      const body = (await response.json()) as { run: SyncRun | null };
-
-      if (!body.run?.connectionId) {
-        return null;
-      }
-
-      setRunsByConnectionId((current) => ({
-        ...current,
-        [body.run!.connectionId!]: body.run!,
-      }));
-
-      return body.run;
     },
     [],
   );
@@ -109,12 +111,10 @@ export function useBankSyncRuns() {
         `/api/integrations/enable-banking/${connectionId}/sync`,
         { method: "POST" },
       );
-      const body = (await response.json().catch(() => null)) as
-        | { run?: SyncRun; error?: string }
-        | null;
+      const body = await parseApiResponse<{ run?: SyncRun }>(response);
 
-      if (!response.ok || !body?.run) {
-        throw new Error(body?.error ?? "Could not queue sync");
+      if (!body.run) {
+        throw new Error("The sync run was not returned. Please try again.");
       }
 
       setRunsByConnectionId((current) => ({
@@ -127,10 +127,7 @@ export function useBankSyncRuns() {
 
       return body.run;
     } catch (error) {
-      toast.error("Could not queue bank sync", {
-        description:
-          error instanceof Error ? error.message : "Please try again later.",
-      });
+      showErrorToast("Could not queue bank sync", error, "Please try again later.");
 
       return null;
     }

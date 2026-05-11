@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { budgets } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createBudgetSchema } from "@/lib/finance/validation";
 
-export async function GET() {
+export const GET = withApiHandler("budgets.list", async () => {
   const household = await getActiveHousehold();
   const rows = await db
     .select()
@@ -14,28 +15,27 @@ export async function GET() {
     .where(eq(budgets.householdId, household.householdId));
 
   return NextResponse.json({ budgets: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("budgets.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = createBudgetSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid budget payload" }, { status: 400 });
-  }
+  const budgetInput = await validateJsonBody(
+    request,
+    createBudgetSchema,
+    "Please provide a valid budget name, type and period settings.",
+  );
 
   const [budget] = await db
     .insert(budgets)
     .values({
       householdId: household.householdId,
-      name: parsed.data.name,
-      type: parsed.data.type,
-      currency: parsed.data.currency,
-      periodStartDay: parsed.data.periodStartDay,
-      paycheckAnchorDay: parsed.data.paycheckAnchorDay,
+      name: budgetInput.name,
+      type: budgetInput.type,
+      currency: budgetInput.currency,
+      periodStartDay: budgetInput.periodStartDay,
+      paycheckAnchorDay: budgetInput.paycheckAnchorDay,
     })
     .returning();
 
   return NextResponse.json({ budget }, { status: 201 });
-}
+});

@@ -3,10 +3,11 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { categories } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createCategorySchema } from "@/lib/finance/validation";
 
-export async function GET() {
+export const GET = withApiHandler("categories.list", async () => {
   const household = await getActiveHousehold();
   const rows = await db
     .select()
@@ -15,25 +16,24 @@ export async function GET() {
     .orderBy(asc(categories.name));
 
   return NextResponse.json({ categories: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("categories.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = createCategorySchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json({ error: "Invalid category payload" }, { status: 400 });
-  }
+  const categoryInput = await validateJsonBody(
+    request,
+    createCategorySchema,
+    "Please provide a valid category name.",
+  );
 
   const [category] = await db
     .insert(categories)
     .values({
       householdId: household.householdId,
-      ...parsed.data,
+      ...categoryInput,
       isSystem: false,
     })
     .returning();
 
   return NextResponse.json({ category }, { status: 201 });
-}
+});

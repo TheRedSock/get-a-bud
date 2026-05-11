@@ -3,11 +3,13 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { financialAccounts, transactions } from "@/db/schema";
+import { notFoundError } from "@/lib/errors/catalog";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { detectCategory, normalizeMerchant } from "@/lib/finance/categorization";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createTransactionSchema } from "@/lib/finance/validation";
 
-export async function GET(request: Request) {
+export const GET = withApiHandler("transactions.list", async (request) => {
   const household = await getActiveHousehold();
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q");
@@ -31,19 +33,15 @@ export async function GET(request: Request) {
     .limit(100);
 
   return NextResponse.json({ transactions: rows });
-}
+});
 
-export async function POST(request: Request) {
+export const POST = withApiHandler("transactions.create", async (request) => {
   const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = createTransactionSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid transaction payload" },
-      { status: 400 },
-    );
-  }
+  const transactionInput = await validateJsonBody(
+    request,
+    createTransactionSchema,
+    "Please provide a valid transaction account, amount, date and description.",
+  );
 
   const [account] = await db
     .select({
@@ -51,41 +49,46 @@ export async function POST(request: Request) {
       householdId: financialAccounts.householdId,
     })
     .from(financialAccounts)
-    .where(eq(financialAccounts.id, parsed.data.accountId))
+    .where(eq(financialAccounts.id, transactionInput.accountId))
     .limit(1);
 
   if (!account || account.householdId !== household.householdId) {
-    return NextResponse.json({ error: "Account not found" }, { status: 404 });
+    throw notFoundError("Choose an account from this household.", {
+      accountId: transactionInput.accountId,
+      householdId: household.householdId,
+    });
   }
 
   const categoryId =
-    parsed.data.categoryId ??
+    transactionInput.categoryId ??
     (await detectCategory(
       household.householdId,
-      parsed.data.description,
-      parsed.data.merchantName,
+      transactionInput.description,
+      transactionInput.merchantName,
     ));
-  const normalizedMerchant = parsed.data.merchantName
-    ? normalizeMerchant(parsed.data.merchantName)
-    : normalizeMerchant(parsed.data.description);
+  const normalizedMerchant = transactionInput.merchantName
+    ? normalizeMerchant(transactionInput.merchantName)
+    : normalizeMerchant(transactionInput.description);
 
   const [transaction] = await db
     .insert(transactions)
     .values({
       householdId: household.householdId,
-      accountId: parsed.data.accountId,
+      accountId: transactionInput.accountId,
       categoryId,
-      amount: parsed.data.amount.toFixed(2),
-      currency: parsed.data.currency,
-      date: parsed.data.date,
-      merchantName: parsed.data.merchantName,
+      amount: transactionInput.amount.toFixed(2),
+      currency: transactionInput.currency,
+      date: transactionInput.date,
+      merchantName: transactionInput.merchantName,
       normalizedMerchantName: normalizedMerchant,
-      description: parsed.data.description,
-      notes: parsed.data.notes,
-      searchText: `${parsed.data.description} ${parsed.data.merchantName ?? ""}`,
+      description: transactionInput.description,
+      notes: transactionInput.notes,
+      searchText: `${transactionInput.description} ${
+        transactionInput.merchantName ?? ""
+      }`,
       source: "manual",
     })
     .returning();
 
   return NextResponse.json({ transaction }, { status: 201 });
-}
+});

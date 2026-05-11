@@ -4,6 +4,13 @@ import { z } from "zod";
 
 import { db } from "@/db";
 import { ingestionConnections } from "@/db/schema";
+import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
+import {
+  configurationError,
+  notFoundError,
+  providerError,
+  validationError,
+} from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
 import { capturePsuHeaders } from "@/lib/ingestion/enable-banking/psu-headers";
@@ -30,7 +37,9 @@ function decryptConnectionPrivateKey(
     !connection.encryptedPrivateKeyIv ||
     !connection.encryptedPrivateKeyTag
   ) {
-    throw new Error("Enable Banking private key is missing");
+    throw configurationError("Enable Banking private key is missing", {
+      context: { connectionId: connection.id },
+    });
   }
 
   return decryptSecret({
@@ -40,21 +49,19 @@ function decryptConnectionPrivateKey(
   });
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: Promise<{ connectionId: string }> },
-) {
-  const { connectionId } = await params;
-  const household = await getActiveHousehold();
-  const body = await request.json().catch(() => null);
-  const parsed = startAuthorizationSchema.safeParse(body);
-
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: "Invalid Enable Banking authorization payload" },
-      { status: 400 },
+export const POST = withApiHandler(
+  "enableBanking.authorization.start",
+  async (
+    request: Request,
+    { params }: { params: Promise<{ connectionId: string }> },
+  ) => {
+    const { connectionId } = await params;
+    const household = await getActiveHousehold();
+    const authorizationInput = await validateJsonBody(
+      request,
+      startAuthorizationSchema,
+      "Please provide a valid bank name, country and consent duration.",
     );
-  }
 
   const [connection] = await db
     .select()
@@ -68,60 +75,104 @@ export async function POST(
     .limit(1);
 
   if (!connection) {
-    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    throw notFoundError("Enable Banking connection not found.", { connectionId });
   }
 
   if (!connection.externalApplicationId) {
-    return NextResponse.json(
-      { error: "Enable Banking application ID is missing" },
-      { status: 400 },
-    );
+    throw validationError("Enable Banking application ID is missing.", {
+      fieldErrors: {
+        applicationId: ["Save an Enable Banking application ID before authorizing."],
+      },
+      context: { connectionId },
+    });
   }
 
   const psuHeaders = capturePsuHeaders(request.headers);
   const { state, stateHash, expiresAt } = createAuthorizationState();
   const validUntil = new Date(
-    Date.now() + parsed.data.validDays * 24 * 60 * 60 * 1000,
+    Date.now() + authorizationInput.validDays * 24 * 60 * 60 * 1000,
   ).toISOString();
-  const client = new EnableBankingClient({
-    applicationId: connection.externalApplicationId,
-    pemPrivateKey: decryptConnectionPrivateKey(connection),
-    baseUrl: process.env.ENABLE_BANKING_BASE_URL,
-  });
+  let authorization: Awaited<ReturnType<EnableBankingClient["startAuthorization"]>>;
 
-  const authorization = await client.startAuthorization({
-    access: {
-      validUntil,
-      balances: true,
-      transactions: true,
-    },
-    aspsp: {
-      name: parsed.data.aspspName,
-      country: parsed.data.aspspCountry,
-    },
-    state,
-    redirectUrl: `${getAppUrl(request.url)}/api/callback`,
-    psuType: parsed.data.psuType,
-    authMethod: parsed.data.authMethod,
-    language: parsed.data.language,
-    psuHeaders,
-  });
+  try {
+    const client = new EnableBankingClient({
+      applicationId: connection.externalApplicationId,
+      pemPrivateKey: decryptConnectionPrivateKey(connection),
+      baseUrl: process.env.ENABLE_BANKING_BASE_URL,
+    });
+
+    authorization = await client.startAuthorization({
+      access: {
+        validUntil,
+        balances: true,
+        transactions: true,
+      },
+      aspsp: {
+        name: authorizationInput.aspspName,
+        country: authorizationInput.aspspCountry,
+      },
+      state,
+      redirectUrl: `${getAppUrl(request.url)}/api/callback`,
+      psuType: authorizationInput.psuType,
+      authMethod: authorizationInput.authMethod,
+      language: authorizationInput.language,
+      psuHeaders,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Could not start Enable Banking authorization";
+
+    if (
+      connection.status === "needs_authorization" &&
+      !connection.authorizationId &&
+      !connection.consentSessionId
+    ) {
+      await db
+        .delete(ingestionConnections)
+        .where(eq(ingestionConnections.id, connection.id));
+    } else {
+      await db
+        .update(ingestionConnections)
+        .set({
+          status: "authorization_failed",
+          metadata: {
+            ...(connection.metadata ?? {}),
+            lastAuthorizationError: {
+              message,
+              at: new Date().toISOString(),
+            },
+          },
+          updatedAt: new Date(),
+        })
+        .where(eq(ingestionConnections.id, connection.id));
+    }
+
+    throw providerError(message, {
+      cause: error,
+      status: 400,
+      userMessage:
+        "Could not start authorization with that bank. Check the bank name and country, then try again.",
+      context: { connectionId: connection.id, provider: "enable_banking" },
+    });
+  }
 
   const metadata = {
     ...(connection.metadata ?? {}),
     psuHeaders,
     pendingAuthorization: {
       aspsp: {
-        name: parsed.data.aspspName,
-        country: parsed.data.aspspCountry,
+          name: authorizationInput.aspspName,
+          country: authorizationInput.aspspCountry,
       },
       access: {
         validUntil,
         balances: true,
         transactions: true,
       },
-      psuType: parsed.data.psuType,
-      language: parsed.data.language,
+      psuType: authorizationInput.psuType,
+      language: authorizationInput.language,
       psuIdHash: authorization.psu_id_hash,
       startedAt: new Date().toISOString(),
     },
@@ -144,4 +195,5 @@ export async function POST(
     redirectUrl: authorization.url,
     expiresAt,
   });
-}
+  },
+);

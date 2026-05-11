@@ -4,6 +4,8 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
 import { inngest } from "@/inngest/client";
+import { withApiHandler } from "@/lib/errors/api";
+import { notFoundError, providerError, validationError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
 
 function serializeRun(run: typeof syncRuns.$inferSelect) {
@@ -40,22 +42,26 @@ async function getConnectionForHousehold(connectionId: string) {
   return connection;
 }
 
-export async function POST(
-  _request: Request,
-  { params }: { params: Promise<{ connectionId: string }> },
-) {
+export const POST = withApiHandler(
+  "enableBanking.sync.queue",
+  async (
+    _request: Request,
+    { params }: { params: Promise<{ connectionId: string }> },
+  ) => {
   const { connectionId } = await params;
   const connection = await getConnectionForHousehold(connectionId);
 
   if (!connection) {
-    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    throw notFoundError("Enable Banking connection not found.", { connectionId });
   }
 
   if (!connection.consentSessionId) {
-    return NextResponse.json(
-      { error: "Bank authorization is not complete yet" },
-      { status: 409 },
-    );
+    throw validationError("Bank authorization is not complete yet.", {
+      fieldErrors: {
+        connection: ["Finish bank authorization before starting a sync."],
+      },
+      context: { connectionId },
+    });
   }
 
   const [run] = await db
@@ -87,19 +93,28 @@ export async function POST(
       })
       .where(eq(syncRuns.id, run.id));
 
-    return NextResponse.json({ error: message }, { status: 500 });
+    throw providerError(message, {
+      cause: error,
+      userMessage:
+        "The bank sync could not be queued. Please try again in a moment.",
+      context: { connectionId, runId: run.id },
+      status: 500,
+    });
   }
-}
+  },
+);
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ connectionId: string }> },
-) {
+export const GET = withApiHandler(
+  "enableBanking.sync.get",
+  async (
+    request: Request,
+    { params }: { params: Promise<{ connectionId: string }> },
+  ) => {
   const { connectionId } = await params;
   const connection = await getConnectionForHousehold(connectionId);
 
   if (!connection) {
-    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    throw notFoundError("Enable Banking connection not found.", { connectionId });
   }
 
   const { searchParams } = new URL(request.url);
@@ -120,4 +135,5 @@ export async function GET(
   }
 
   return NextResponse.json({ run: serializeRun(run) });
-}
+  },
+);

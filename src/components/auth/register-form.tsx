@@ -3,11 +3,12 @@
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { parseApiResponse } from "@/lib/api-client";
+import { showErrorToast } from "@/lib/toast-errors";
 
 export function RegisterForm() {
   const router = useRouter();
@@ -26,19 +27,16 @@ export function RegisterForm() {
       currency: formData.get("currency") || "NOK",
     };
 
-    const response = await fetch("/api/register", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const body = (await response.json().catch(() => null)) as
-        | { error?: string }
-        | null;
-      toast.error("Could not create account", {
-        description: body?.error ?? "Please try again.",
-      });
+    try {
+      await parseApiResponse<{ ok: true }>(
+        await fetch("/api/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        }),
+      );
+    } catch (error) {
+      showErrorToast("Could not create account", error);
       setLoading(false);
       return;
     }

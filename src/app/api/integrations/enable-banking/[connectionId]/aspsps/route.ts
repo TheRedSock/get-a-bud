@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { ingestionConnections } from "@/db/schema";
+import { withApiHandler } from "@/lib/errors/api";
+import { configurationError, notFoundError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
 import { decryptSecret } from "@/lib/security/encryption";
@@ -13,7 +15,9 @@ function decryptPrivateKey(connection: typeof ingestionConnections.$inferSelect)
     !connection.encryptedPrivateKeyIv ||
     !connection.encryptedPrivateKeyTag
   ) {
-    throw new Error("Enable Banking private key is missing");
+    throw configurationError("Enable Banking private key is missing", {
+      context: { connectionId: connection.id },
+    });
   }
 
   return decryptSecret({
@@ -23,10 +27,12 @@ function decryptPrivateKey(connection: typeof ingestionConnections.$inferSelect)
   });
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ connectionId: string }> },
-) {
+export const GET = withApiHandler(
+  "enableBanking.aspsps.list",
+  async (
+    request: Request,
+    { params }: { params: Promise<{ connectionId: string }> },
+  ) => {
   const { connectionId } = await params;
   const household = await getActiveHousehold();
   const url = new URL(request.url);
@@ -43,7 +49,7 @@ export async function GET(
     .limit(1);
 
   if (!connection?.externalApplicationId) {
-    return NextResponse.json({ error: "Connection not found" }, { status: 404 });
+    throw notFoundError("Enable Banking connection not found.", { connectionId });
   }
 
   const client = new EnableBankingClient({
@@ -59,4 +65,5 @@ export async function GET(
   });
 
   return NextResponse.json(result);
-}
+  },
+);
