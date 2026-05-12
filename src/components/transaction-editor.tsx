@@ -27,6 +27,7 @@ type TransactionEditorProps = {
     description: string;
     notes: string | null;
     categoryId: string | null;
+    categoryName: string | null;
     status: TransactionStatus;
     excludedFromBudget: boolean;
     accountName: string;
@@ -89,144 +90,172 @@ export function TransactionEditor({
 
   if (editing) {
     return (
-      <div className="grid gap-4 rounded-3xl border bg-background/40 p-4">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="grid gap-2 sm:col-span-2">
-            <Label htmlFor={`transaction-description-${transaction.id}`}>
-              Description
-            </Label>
-            <Input
-              id={`transaction-description-${transaction.id}`}
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-            />
-            {!isManual ? (
-              <p className="text-xs text-muted-foreground">
-                The original bank label is kept in metadata for future import
-                learning.
-              </p>
-            ) : null}
+      <tr className="border-b bg-secondary/20">
+        <td colSpan={7} className="p-4">
+          <div className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-2 sm:col-span-2">
+                <Label htmlFor={`transaction-description-${transaction.id}`}>
+                  Description
+                </Label>
+                <Input
+                  id={`transaction-description-${transaction.id}`}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                />
+                {!isManual ? (
+                  <p className="text-xs text-muted-foreground">
+                    The original bank label is kept in metadata for future import
+                    learning.
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-merchant-${transaction.id}`}>
+                  Merchant
+                </Label>
+                <Input
+                  id={`transaction-merchant-${transaction.id}`}
+                  value={merchantName}
+                  onChange={(event) => setMerchantName(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-category-${transaction.id}`}>
+                  Category
+                </Label>
+                <select
+                  id={`transaction-category-${transaction.id}`}
+                  className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  value={categoryId}
+                  onChange={(event) => setCategoryId(event.target.value)}
+                >
+                  <option value="">Uncategorized</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-status-${transaction.id}`}>Status</Label>
+                <select
+                  id={`transaction-status-${transaction.id}`}
+                  className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+                  value={status}
+                  onChange={(event) =>
+                    setStatus(event.target.value as TransactionStatus)
+                  }
+                >
+                  <option value="posted">Posted</option>
+                  <option value="pending">Pending</option>
+                  <option value="excluded">Excluded</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-date-${transaction.id}`}>Date</Label>
+                <Input
+                  id={`transaction-date-${transaction.id}`}
+                  disabled={!isManual}
+                  type="date"
+                  value={date}
+                  onChange={(event) => setDate(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-amount-${transaction.id}`}>Amount</Label>
+                <Input
+                  id={`transaction-amount-${transaction.id}`}
+                  disabled={!isManual}
+                  inputMode="decimal"
+                  value={amount}
+                  onChange={(event) => setAmount(event.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor={`transaction-notes-${transaction.id}`}>Notes</Label>
+                <Input
+                  id={`transaction-notes-${transaction.id}`}
+                  value={notes}
+                  onChange={(event) => setNotes(event.target.value)}
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  checked={excludedFromBudget}
+                  type="checkbox"
+                  onChange={(event) => setExcludedFromBudget(event.target.checked)}
+                />
+                Exclude from budget
+              </label>
+            </div>
+            <div className="flex gap-2">
+              <Button disabled={saving} type="button" onClick={() => void save()}>
+                {saving ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Save className="size-4" />
+                )}
+                Save
+              </Button>
+              <Button
+                disabled={saving}
+                type="button"
+                variant="outline"
+                onClick={() => setEditing(false)}
+              >
+                <X className="size-4" />
+                Cancel
+              </Button>
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`transaction-merchant-${transaction.id}`}>Merchant</Label>
-            <Input
-              id={`transaction-merchant-${transaction.id}`}
-              value={merchantName}
-              onChange={(event) => setMerchantName(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`transaction-category-${transaction.id}`}>Category</Label>
-            <select
-              id={`transaction-category-${transaction.id}`}
-              className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
-              value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
-            >
-              <option value="">Uncategorized</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`transaction-status-${transaction.id}`}>Status</Label>
-            <select
-              id={`transaction-status-${transaction.id}`}
-              className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
-              value={status}
-              onChange={(event) => setStatus(event.target.value as TransactionStatus)}
-            >
-              <option value="posted">Posted</option>
-              <option value="pending">Pending</option>
-              <option value="excluded">Excluded</option>
-            </select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`transaction-date-${transaction.id}`}>Date</Label>
-            <Input
-              id={`transaction-date-${transaction.id}`}
-              disabled={!isManual}
-              type="date"
-              value={date}
-              onChange={(event) => setDate(event.target.value)}
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor={`transaction-amount-${transaction.id}`}>Amount</Label>
-            <Input
-              id={`transaction-amount-${transaction.id}`}
-              disabled={!isManual}
-              inputMode="decimal"
-              value={amount}
-              onChange={(event) => setAmount(event.target.value)}
-            />
-          </div>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              checked={excludedFromBudget}
-              type="checkbox"
-              onChange={(event) => setExcludedFromBudget(event.target.checked)}
-            />
-            Exclude from budget
-          </label>
-          <div className="grid gap-2 sm:col-span-2">
-            <Label htmlFor={`transaction-notes-${transaction.id}`}>Notes</Label>
-            <Input
-              id={`transaction-notes-${transaction.id}`}
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-            />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button disabled={saving} type="button" onClick={() => void save()}>
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Save className="size-4" />
-            )}
-            Save
-          </Button>
-          <Button
-            disabled={saving}
-            type="button"
-            variant="outline"
-            onClick={() => setEditing(false)}
-          >
-            <X className="size-4" />
-            Cancel
-          </Button>
-        </div>
-      </div>
+        </td>
+      </tr>
     );
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-3xl border bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <p className="font-semibold">
-          {transaction.merchantName ?? transaction.description}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {transaction.date} · {transaction.accountName}
-        </p>
-        {transaction.notes ? (
-          <p className="mt-1 text-sm text-muted-foreground">{transaction.notes}</p>
+    <tr className="border-b transition-colors hover:bg-secondary/30">
+      <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
+        {transaction.date}
+      </td>
+      <td className="min-w-72 px-4 py-3">
+        <p className="font-medium">{transaction.merchantName ?? transaction.description}</p>
+        {transaction.merchantName ? (
+          <p className="line-clamp-1 text-xs text-muted-foreground">
+            {transaction.description}
+          </p>
         ) : null}
-      </div>
-      <div className="flex items-center justify-between gap-4 sm:justify-end">
+        {transaction.notes ? (
+          <p className="line-clamp-1 text-xs text-muted-foreground">
+            Note: {transaction.notes}
+          </p>
+        ) : null}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
+        {transaction.accountName}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
+        {transaction.categoryName ?? "Uncategorized"}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3">
         <Badge>{transaction.status}</Badge>
-        <p className="min-w-24 text-right font-semibold">
-          {formatMoney(Number(transaction.amount), transaction.currency)}
-        </p>
-        <Button type="button" variant="outline" onClick={() => setEditing(true)}>
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold">
+        {formatMoney(Number(transaction.amount), transaction.currency)}
+      </td>
+      <td className="whitespace-nowrap px-4 py-3 text-right">
+        <Button
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => setEditing(true)}
+        >
           <Edit3 className="size-4" />
           Edit
         </Button>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
