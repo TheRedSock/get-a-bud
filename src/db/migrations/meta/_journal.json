@@ -22,6 +22,13 @@
       "when": 1778581257410,
       "tag": "0002_wandering_malice",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1778583617523,
+      "tag": "0003_lying_vanisher",
+      "breakpoints": true
     }
   ]
 }

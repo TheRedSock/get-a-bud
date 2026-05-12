@@ -9,6 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { formatMoney } from "@/lib/utils";
@@ -124,34 +131,40 @@ export function TransactionEditor({
                 <Label htmlFor={`transaction-category-${transaction.id}`}>
                   Category
                 </Label>
-                <select
-                  id={`transaction-category-${transaction.id}`}
-                  className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+                <Select
                   value={categoryId}
-                  onChange={(event) => setCategoryId(event.target.value)}
+                  onValueChange={(value) => setCategoryId(value === "__uncategorized__" ? "" : value)}
                 >
-                  <option value="">Uncategorized</option>
-                  {categories.map((category) => (
-                    <option key={category.id} value={category.id}>
-                      {category.name}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger id={`transaction-category-${transaction.id}`}>
+                    <SelectValue placeholder="Uncategorized" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__uncategorized__">Uncategorized</SelectItem>
+                    {categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`transaction-status-${transaction.id}`}>Status</Label>
-                <select
-                  id={`transaction-status-${transaction.id}`}
-                  className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+                <Select
                   value={status}
-                  onChange={(event) =>
-                    setStatus(event.target.value as TransactionStatus)
+                  onValueChange={(value) =>
+                    setStatus(value as TransactionStatus)
                   }
                 >
-                  <option value="posted">Posted</option>
-                  <option value="pending">Pending</option>
-                  <option value="excluded">Excluded</option>
-                </select>
+                  <SelectTrigger id={`transaction-status-${transaction.id}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="posted">Posted</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="excluded">Excluded</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className="grid gap-2">
                 <Label htmlFor={`transaction-date-${transaction.id}`}>Date</Label>

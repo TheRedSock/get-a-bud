@@ -42,9 +42,12 @@ Test behavior contracts and invariants, not implementation shape.
 - `src/app/api/transactions/*`: household ownership boundaries for accounts and
   categories.
 - `src/lib/ingestion/enable-banking/*`: authorization state handling, provider
-  payload mapping, rate-limit behavior and safe provider errors.
+  payload mapping, rate-limit behavior, safe provider errors, pagination through
+  empty pages with continuation keys, checkpoint resume from run metadata,
+  user-edit preservation during re-imports, and reconciliation offset creation.
 - `src/components/auth/*` and bank sync components: user-facing failure copy and
   success/failure transitions.
 
-The current audit follow-up list in `refs/remaining-audit-items.md` calls out
-the highest-value sync scenarios that still need deeper regression coverage.
+Sync behavioral regression tests cover the five highest-value scenarios
+identified in the architecture audit: pagination, checkpoint resume, rate-limit
+pause, user-edit preservation and balance reconciliation.

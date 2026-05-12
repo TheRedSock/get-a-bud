@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
   boolean,
@@ -285,6 +285,8 @@ export const transactions = pgTable(
     index("transactions_household_date_idx").on(table.householdId, table.date),
     index("transactions_account_idx").on(table.accountId),
     index("transactions_category_idx").on(table.categoryId),
+    index("transactions_search_trgm_idx")
+      .using("gin", sql`${table.searchText} gin_trgm_ops`),
     uniqueIndex("transactions_source_uidx").on(
       table.source,
       table.sourceTransactionId,

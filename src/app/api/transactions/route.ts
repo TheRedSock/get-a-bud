@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
@@ -22,11 +22,7 @@ export const GET = withApiHandler("transactions.list", async (request) => {
       query
         ? and(
             eq(transactions.householdId, household.householdId),
-            or(
-              ilike(transactions.description, `%${query}%`),
-              ilike(transactions.merchantName, `%${query}%`),
-              ilike(transactions.searchText, `%${query}%`),
-            ),
+            ilike(transactions.searchText, `%${query}%`),
           )
         : eq(transactions.householdId, household.householdId),
     )

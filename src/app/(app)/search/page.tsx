@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike } from "drizzle-orm";
 import { Search } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,11 +24,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
         .where(
           and(
             eq(transactions.householdId, household.householdId),
-            or(
-              ilike(transactions.description, `%${query}%`),
-              ilike(transactions.merchantName, `%${query}%`),
-              ilike(transactions.searchText, `%${query}%`),
-            ),
+            ilike(transactions.searchText, `%${query}%`),
           ),
         )
         .orderBy(desc(transactions.date))

@@ -35,8 +35,9 @@ Manual account opening balances are represented as ledger transactions so
 displayed balances remain explainable by transaction history.
 
 Authenticated app pages read household-scoped ledger, budget, bill, asset and
-liability data. Search is scoped to the active household. The public `/demo`
-route uses demo data for reliable first-run visual testing.
+liability data. Search is scoped to the active household and backed by a
+`pg_trgm` GIN index on `search_text` for efficient `ILIKE` matching. The public
+`/demo` route uses demo data for reliable first-run visual testing.
 
 Enable Banking now follows the full authorization lifecycle: encrypted user
 credentials, `POST /auth`, server-stored hashed state, `/api/callback`,

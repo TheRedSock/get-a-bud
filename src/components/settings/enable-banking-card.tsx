@@ -13,6 +13,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 
@@ -319,17 +326,20 @@ export function EnableBankingCard({
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="grid gap-2">
               <Label htmlFor="psuType">PSU type</Label>
-              <select
-                id="psuType"
-                className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+              <Select
                 value={form.psuType}
-                onChange={(event) =>
-                  updateForm("psuType", event.target.value as FormState["psuType"])
+                onValueChange={(value) =>
+                  updateForm("psuType", value as FormState["psuType"])
                 }
               >
-                <option value="personal">Personal</option>
-                <option value="business">Business</option>
-              </select>
+                <SelectTrigger id="psuType">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="personal">Personal</SelectItem>
+                  <SelectItem value="business">Business</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
             <div className="grid gap-2">
               <Label htmlFor="language">Language</Label>

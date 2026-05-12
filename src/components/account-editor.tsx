@@ -9,6 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { formatMoney } from "@/lib/utils";
@@ -104,18 +111,21 @@ export function AccountEditor({ account }: AccountEditorProps) {
           </div>
           <div className="grid gap-2">
             <Label htmlFor={`account-kind-${account.id}`}>Type</Label>
-            <select
-              id={`account-kind-${account.id}`}
-              className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+            <Select
               value={kind}
-              onChange={(event) => setKind(event.target.value as AccountKind)}
+              onValueChange={(value) => setKind(value as AccountKind)}
             >
-              {accountKinds.map((accountKind) => (
-                <option key={accountKind} value={accountKind}>
-                  {accountKind.replace("_", " ")}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger id={`account-kind-${account.id}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {accountKinds.map((accountKind) => (
+                  <SelectItem key={accountKind} value={accountKind}>
+                    {accountKind.replace("_", " ")}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="grid gap-2 sm:col-span-3">
             <Label htmlFor={`account-institution-${account.id}`}>Institution</Label>
