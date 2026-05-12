@@ -32,6 +32,7 @@
   },
   "homepage": "https://github.com/TheRedSock/get-a-bud#readme",
   "dependencies": {
+    "@arcjet/next": "^1.4.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@neondatabase/serverless": "^1.1.0",
     "@radix-ui/react-avatar": "^1.1.11",

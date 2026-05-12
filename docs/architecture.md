@@ -31,9 +31,12 @@ Manual API routes and Enable Banking sync both create `financial_accounts` and
 account is provider-linked, while provider IDs, raw payloads and bank-owned
 transaction facts stay tied to the ingestion layer. Categorization rules can be
 applied after import, and budget views read from the same transaction table.
+Manual account opening balances are represented as ledger transactions so
+displayed balances remain explainable by transaction history.
 
-The authenticated dashboard reads live ledger data. The public `/demo` route
-uses demo data for reliable first-run visual testing.
+Authenticated app pages read household-scoped ledger, budget, bill, asset and
+liability data. Search is scoped to the active household. The public `/demo`
+route uses demo data for reliable first-run visual testing.
 
 Enable Banking now follows the full authorization lifecycle: encrypted user
 credentials, `POST /auth`, server-stored hashed state, `/api/callback`,
@@ -57,6 +60,21 @@ history does not add up to the provider-reported balance, the sync maintains an
 opening balance adjustment transaction and records reconciliation metadata on the
 account. Manual transactions on synced accounts are flagged because they may
 affect the ledger/provider reconciliation.
+
+Budget read models live in `src/lib/finance` and calculate current-period spend
+from `transactions` and `budget_lines`. The dashboard and budget page consume the
+same helper so budget health is not duplicated in page components.
+
+## Runtime Protection
+
+`middleware.ts` protects authenticated app pages and non-public API routes.
+Public exceptions are intentionally narrow: Auth.js endpoints, registration,
+Inngest webhooks and the Enable Banking callback. App pages redirect to
+`/sign-in`; API routes return the standard unauthenticated JSON shape.
+
+Arcjet rate limits protect registration, credentials auth and Enable Banking
+authorization starts. Production CSP removes `unsafe-eval`; local development
+keeps it available for tooling that needs it.
 
 ## Cross-Cutting Error Flow
 

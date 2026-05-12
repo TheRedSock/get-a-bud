@@ -9,6 +9,7 @@ import {
   configurationError,
   notFoundError,
   providerError,
+  rateLimitedError,
   validationError,
 } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
@@ -18,6 +19,7 @@ import {
   createAuthorizationState,
   getAppUrl,
 } from "@/lib/ingestion/enable-banking/state";
+import { integrationAuthRateLimit } from "@/lib/security/arcjet";
 import { decryptSecret } from "@/lib/security/encryption";
 
 const startAuthorizationSchema = z.object({
@@ -55,6 +57,13 @@ export const POST = withApiHandler(
     request: Request,
     { params }: { params: Promise<{ connectionId: string }> },
   ) => {
+    const decision = await integrationAuthRateLimit.protect(request);
+    if (decision.isDenied()) {
+      throw rateLimitedError(
+        "Too many authorization attempts. Please wait a minute before trying again.",
+      );
+    }
+
     const { connectionId } = await params;
     const household = await getActiveHousehold();
     const authorizationInput = await validateJsonBody(

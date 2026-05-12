@@ -13,6 +13,9 @@ background workflows in `src/inngest`.
 - Do not let users edit bank-owned transaction facts for synced rows, including
   amount, currency, account and date. User enrichment such as category, merchant,
   notes, status and budget exclusion may be editable.
+- Keep all account, transaction, budget, bill, asset, liability, category and
+  search reads scoped to the active household. Validate user-supplied foreign
+  keys against that household before writes.
 - Imported account balances must be derived from transactions. If provider
   history is incomplete, maintain a ledger offset transaction rather than writing
   an unexplained balance directly.
@@ -60,6 +63,8 @@ background workflows in `src/inngest`.
 - Add or update tests for meaningful behavior contracts whenever changing logic.
 - Prefer fast Vitest unit tests for validation, finance helpers, ingestion
   mapping, state hashing and error serialization.
+- Cover tenant-boundary rules and durable ledger state transitions when routes
+  accept user-supplied IDs or mutate balances.
 - Use React Testing Library for client behavior and toast copy. Avoid snapshots
   and layout-only assertions.
 - Mock external boundaries such as Enable Banking, Sentry, Inngest, NextAuth and

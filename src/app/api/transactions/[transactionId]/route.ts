@@ -2,9 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
-import { financialAccounts, transactions } from "@/db/schema";
+import { categories, financialAccounts, transactions } from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
+import { recalculateAccountBalance } from "@/lib/finance/balance";
 import { normalizeMerchant } from "@/lib/finance/categorization";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { updateTransactionSchema } from "@/lib/finance/validation";
@@ -124,6 +125,26 @@ export const PATCH = withApiHandler(
     }
 
     if (transactionInput.categoryId !== undefined) {
+      if (transactionInput.categoryId !== null) {
+        const [cat] = await db
+          .select({ id: categories.id })
+          .from(categories)
+          .where(
+            and(
+              eq(categories.id, transactionInput.categoryId),
+              eq(categories.householdId, household.householdId),
+            ),
+          )
+          .limit(1);
+
+        if (!cat) {
+          throw notFoundError("Choose a category from this household.", {
+            categoryId: transactionInput.categoryId,
+            householdId: household.householdId,
+          });
+        }
+      }
+
       values.categoryId = transactionInput.categoryId;
     }
 
@@ -179,6 +200,22 @@ export const PATCH = withApiHandler(
       .set(values)
       .where(eq(transactions.id, transaction.id))
       .returning();
+
+    // Recalculate balances when amount or account changes on manual transactions
+    const amountChanged =
+      transactionInput.amount !== undefined &&
+      transactionInput.amount.toFixed(2) !== transaction.amount;
+    const accountChanged =
+      transactionInput.accountId !== undefined &&
+      transactionInput.accountId !== transaction.accountId;
+
+    if (amountChanged || accountChanged) {
+      await recalculateAccountBalance(updatedTransaction.accountId);
+      // If the transaction moved to a different account, recalculate the old one too
+      if (accountChanged) {
+        await recalculateAccountBalance(transaction.accountId);
+      }
+    }
 
     return NextResponse.json({ transaction: updatedTransaction });
   },

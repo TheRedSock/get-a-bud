@@ -4,11 +4,11 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 
 import { BankSyncPanel } from "@/components/bank-sync-panel";
+import { CreateTransactionForm } from "@/components/forms/create-transaction-form";
 import { TransactionEditor } from "@/components/transaction-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { db } from "@/db";
 import { categories, financialAccounts, transactions } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
@@ -203,22 +203,24 @@ export default async function TransactionsPage({
                   Page {page}, showing up to {pageSize} transactions.
                 </p>
                 <div className="flex gap-2">
-                  <Button asChild disabled={page === 1} size="sm" variant="outline">
-                    <Link
-                      aria-disabled={page === 1}
-                      href={page === 1 ? "#" : hrefFor({ page: page - 1 })}
-                    >
+                  {page === 1 ? (
+                    <Button disabled size="sm" variant="outline">
                       Previous
-                    </Link>
-                  </Button>
-                  <Button asChild disabled={!hasNextPage} size="sm" variant="outline">
-                    <Link
-                      aria-disabled={!hasNextPage}
-                      href={hasNextPage ? hrefFor({ page: page + 1 }) : "#"}
-                    >
+                    </Button>
+                  ) : (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={hrefFor({ page: page - 1 })}>Previous</Link>
+                    </Button>
+                  )}
+                  {hasNextPage ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={hrefFor({ page: page + 1 })}>Next page</Link>
+                    </Button>
+                  ) : (
+                    <Button disabled size="sm" variant="outline">
                       Next page
-                    </Link>
-                  </Button>
+                    </Button>
+                  )}
                 </div>
               </div>
             </>
@@ -240,21 +242,10 @@ export default async function TransactionsPage({
             <CardTitle>Manual transaction</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="grid gap-4">
-              <div className="grid gap-2">
-                <Label>Description</Label>
-                <Input placeholder="Merchant or note" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Amount</Label>
-                <Input inputMode="decimal" placeholder="-299" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Category</Label>
-                <Input placeholder="Groceries" />
-              </div>
-              <Button type="button">Save transaction</Button>
-            </form>
+            <CreateTransactionForm
+              accounts={accountRows}
+              categories={categoryRows}
+            />
           </CardContent>
         </Card>
 

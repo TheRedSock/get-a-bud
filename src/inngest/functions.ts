@@ -1,4 +1,4 @@
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNotNull, isNull, lte, or } from "drizzle-orm";
 import { cron, eventType } from "inngest";
 
 import { db } from "@/db";
@@ -172,11 +172,26 @@ export const scheduledBankSync = inngest.createFunction(
     triggers: cron("0 */6 * * *"),
   },
   async ({ step }) => {
+    const now = new Date();
     const connections = await step.run("load-active-connections", () =>
       db
         .select({ id: ingestionConnections.id })
         .from(ingestionConnections)
-        .where(eq(ingestionConnections.provider, "enable_banking")),
+        .where(
+          and(
+            eq(ingestionConnections.provider, "enable_banking"),
+            eq(ingestionConnections.status, "connected"),
+            isNotNull(ingestionConnections.consentSessionId),
+            or(
+              isNull(ingestionConnections.consentExpiresAt),
+              gt(ingestionConnections.consentExpiresAt, now),
+            ),
+            or(
+              isNull(ingestionConnections.rateLimitedUntil),
+              lte(ingestionConnections.rateLimitedUntil, now),
+            ),
+          ),
+        ),
     );
 
     await Promise.all(
@@ -266,13 +281,22 @@ export const detectRecurringBills = inngest.createFunction(
 
     for (const [merchant, value] of detected) {
       await step.run(`upsert-bill-${merchant}`, () =>
-        db.insert(recurringBills).values({
-          householdId,
-          name: merchant,
-          merchantPattern: merchant,
-          cadence: "monthly",
-          expectedAmount: Math.abs(Number(value.amount)).toFixed(2),
-        }),
+        db
+          .insert(recurringBills)
+          .values({
+            householdId,
+            name: merchant,
+            merchantPattern: merchant,
+            cadence: "monthly",
+            expectedAmount: Math.abs(Number(value.amount)).toFixed(2),
+          })
+          .onConflictDoUpdate({
+            target: [recurringBills.householdId, recurringBills.merchantPattern],
+            set: {
+              lastAmount: Math.abs(Number(value.amount)).toFixed(2),
+              updatedAt: new Date(),
+            },
+          }),
       );
     }
 

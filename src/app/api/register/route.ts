@@ -12,9 +12,10 @@ import {
   users,
 } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
-import { conflictError } from "@/lib/errors/catalog";
+import { conflictError, rateLimitedError } from "@/lib/errors/catalog";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { defaultCategories } from "@/lib/finance/defaults";
+import { registerRateLimit } from "@/lib/security/arcjet";
 
 const registerSchema = z.object({
   name: z.string().min(2).max(80),
@@ -24,6 +25,11 @@ const registerSchema = z.object({
 });
 
 export const POST = withApiHandler("auth.register", async (request) => {
+  const decision = await registerRateLimit.protect(request);
+  if (decision.isDenied()) {
+    throw rateLimitedError("Too many registration attempts. Please try again later.");
+  }
+
   const registerInput = await validateJsonBody(
     request,
     registerSchema,
@@ -42,62 +48,64 @@ export const POST = withApiHandler("auth.register", async (request) => {
 
   const passwordHash = await hashPassword(registerInput.password);
 
-  const [createdUser] = await db
-    .insert(users)
-    .values({
-      name: registerInput.name,
-      email,
-      passwordHash,
-      defaultCurrency: registerInput.currency,
-      onboardingComplete: true,
-    })
-    .returning();
+  await db.transaction(async (tx) => {
+    const [createdUser] = await tx
+      .insert(users)
+      .values({
+        name: registerInput.name,
+        email,
+        passwordHash,
+        defaultCurrency: registerInput.currency,
+        onboardingComplete: true,
+      })
+      .returning();
 
-  const [household] = await db
-    .insert(households)
-    .values({
-      name: `${registerInput.name.split(" ")[0]}'s budget`,
-      defaultCurrency: registerInput.currency,
-      createdById: createdUser.id,
-    })
-    .returning();
+    const [household] = await tx
+      .insert(households)
+      .values({
+        name: `${registerInput.name.split(" ")[0]}'s budget`,
+        defaultCurrency: registerInput.currency,
+        createdById: createdUser.id,
+      })
+      .returning();
 
-  await db.insert(memberships).values({
-    householdId: household.id,
-    userId: createdUser.id,
-    role: "owner",
-  });
-
-  const insertedCategories = await db
-    .insert(categories)
-    .values(
-      defaultCategories.map((category) => ({
-        householdId: household.id,
-        ...category,
-        isSystem: true,
-      })),
-    )
-    .returning();
-
-  const [budget] = await db
-    .insert(budgets)
-    .values({
+    await tx.insert(memberships).values({
       householdId: household.id,
-      name: "Main budget",
-      type: "monthly",
-      currency: registerInput.currency,
-    })
-    .returning();
+      userId: createdUser.id,
+      role: "owner",
+    });
 
-  await db.insert(budgetLines).values(
-    insertedCategories
-      .filter((category) => !category.isIncome)
-      .map((category) => ({
-        budgetId: budget.id,
-        categoryId: category.id,
-        allocatedAmount: "0",
-      })),
-  );
+    const insertedCategories = await tx
+      .insert(categories)
+      .values(
+        defaultCategories.map((category) => ({
+          householdId: household.id,
+          ...category,
+          isSystem: true,
+        })),
+      )
+      .returning();
+
+    const [budget] = await tx
+      .insert(budgets)
+      .values({
+        householdId: household.id,
+        name: "Main budget",
+        type: "monthly",
+        currency: registerInput.currency,
+      })
+      .returning();
+
+    await tx.insert(budgetLines).values(
+      insertedCategories
+        .filter((category) => !category.isIncome)
+        .map((category) => ({
+          budgetId: budget.id,
+          categoryId: category.id,
+          allocatedAmount: "0",
+        })),
+    );
+  });
 
   return NextResponse.json({ ok: true });
 });

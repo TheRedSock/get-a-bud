@@ -16,14 +16,19 @@ Implemented in this prototype:
 - Manual fallback APIs for accounts, transactions, categories, budgets, assets,
   liabilities and bills, with editable account metadata and transaction notes,
   merchant, category, status and budget exclusion fields.
+- Auth middleware for app/API routes plus Arcjet rate limits on registration,
+  credentials auth and Enable Banking authorization starts.
+- Working client forms for manual accounts, transactions, budgets, assets and
+  liabilities, backed by the standard API error envelope and toast handling.
 - Enable Banking adapter with server-side JWT signing, encrypted PEM storage,
   bank authorization redirect, callback session exchange, connection records,
   account detail lookup, paginated transaction sync, sync progress state and
   rate-limit pause/resume handling.
 - Inngest jobs for bank sync, scheduled sync, categorization, recurring bill
   detection and notification batching scaffolds.
-- Dashboard visualizations for balance, cash flow, category spend, budget
-  health, bills and net worth.
+- Live authenticated pages for dashboard, accounts, transactions, budgets, bills,
+  net worth and search. The public `/demo` route remains demo-data driven for
+  first-run visual testing.
 
 ## Setup
 
@@ -92,15 +97,16 @@ pauses the run and resumes after the retry time or a six-hour fallback.
 
 ## Next Steps
 
-- Wire the remaining budget, asset and liability UI forms to their existing API
-  routes.
 - Add ASPSP search/selection UI on top of the authenticated Enable Banking
   `/aspsps` endpoint.
-- Harden runtime protection with Arcjet rate limits on auth, registration and
-  integration routes.
-- Add focused tests for session callback exchange, transaction import
-  deduplication, sync pagination/rate-limit behavior and ledger reconciliation.
+- Add deeper sync regression tests for pagination, checkpoint resume,
+  rate-limit behavior, user-edit preservation and ledger reconciliation.
+- Investigate transaction search indexing with Postgres full-text search or
+  trigram indexes before search becomes a primary workflow.
+- Add accessible table/text fallbacks for dashboard charts.
 - Deploy Vercel Development, Preview and Production environment variables
   separately, then run migrations for each Neon branch.
 - Expand recurring bill detection, forecasting and notification delivery after
   the MVP ledger workflow is validated.
+
+See `refs/remaining-audit-items.md` for the current audit follow-up list.

@@ -21,6 +21,13 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("get-a-bud-theme");if(t==="light")document.documentElement.classList.remove("dark");else if(!t&&!matchMedia("(prefers-color-scheme:dark)").matches)document.documentElement.classList.remove("dark")}catch(e){}})()`,
+          }}
+        />
+      </head>
       <body className="antialiased">
         <ThemeProvider>
           {children}

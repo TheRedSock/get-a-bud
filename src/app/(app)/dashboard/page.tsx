@@ -11,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { db } from "@/db";
 import {
-  budgets,
   financialAccounts,
   recurringBills,
   transactions,
@@ -25,6 +24,7 @@ import {
   spendingData as demoSpendingData,
   transactions as demoTransactions,
 } from "@/lib/demo-data";
+import { getBudgetsWithSpending } from "@/lib/finance/budget-calculations";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatMoney } from "@/lib/utils";
 
@@ -307,7 +307,7 @@ function EmptyDashboardState({ message }: { message: string }) {
 
 async function getLiveDashboardData() {
   const household = await getActiveHousehold();
-  const [accountRows, transactionRows, budgetRows, billRows] = await Promise.all([
+  const [accountRows, transactionRows, budgetsWithSpending, billRows] = await Promise.all([
     db
       .select()
       .from(financialAccounts)
@@ -318,7 +318,7 @@ async function getLiveDashboardData() {
       .where(eq(transactions.householdId, household.householdId))
       .orderBy(desc(transactions.date))
       .limit(50),
-    db.select().from(budgets).where(eq(budgets.householdId, household.householdId)),
+    getBudgetsWithSpending(household.householdId),
     db
       .select()
       .from(recurringBills)
@@ -345,11 +345,13 @@ async function getLiveDashboardData() {
       amount: Number(transaction.amount),
       date: transaction.date,
     })),
-    budgetRows: budgetRows.map((budget) => ({
-      name: budget.name,
-      spent: 0,
-      allocated: 0,
-    })),
+    budgetRows: budgetsWithSpending.flatMap((budget) =>
+      budget.lines.map((line) => ({
+        name: line.categoryName,
+        spent: Number(line.spentAmount),
+        allocated: Number(line.allocatedAmount),
+      })),
+    ),
     bills: billRows.map((bill) => ({
       name: bill.name,
       due: bill.nextDueDate ?? "No due date",

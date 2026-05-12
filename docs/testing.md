@@ -9,7 +9,8 @@ browser smoke tests when the form workflows are stable.
 - `npm run test` runs the test suite once.
 - `npm run test:watch` runs Vitest in watch mode.
 - `npm run test:coverage` runs tests with V8 coverage.
-- `npm run lint` and `npm run typecheck` remain required quality gates.
+- `npm run lint`, `npm run typecheck` and `npm run build` remain release quality
+  gates.
 
 ## Philosophy
 
@@ -34,9 +35,16 @@ Test behavior contracts and invariants, not implementation shape.
 
 - `src/lib/errors/*`: API envelope, normalization, validation parsing and safe
   client parsing.
-- `src/lib/finance/*`: Zod schemas, merchant normalization and category matching.
+- `src/lib/finance/*`: Zod schemas, merchant normalization, category matching,
+  balance recalculation and budget read models.
 - `src/lib/security/*`: encryption key validation and round trips.
+- `middleware.ts`: public route exceptions and authenticated app/API behavior.
+- `src/app/api/transactions/*`: household ownership boundaries for accounts and
+  categories.
 - `src/lib/ingestion/enable-banking/*`: authorization state handling, provider
   payload mapping, rate-limit behavior and safe provider errors.
 - `src/components/auth/*` and bank sync components: user-facing failure copy and
   success/failure transitions.
+
+The current audit follow-up list in `refs/remaining-audit-items.md` calls out
+the highest-value sync scenarios that still need deeper regression coverage.

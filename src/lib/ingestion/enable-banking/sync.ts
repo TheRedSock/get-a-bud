@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -17,6 +17,7 @@ import {
 } from "@/lib/ingestion/enable-banking/client";
 import type { PsuHeaders } from "@/lib/ingestion/enable-banking/psu-headers";
 import type { IngestionSyncResult } from "@/lib/ingestion/types";
+import { configurationError, notFoundError } from "@/lib/errors/catalog";
 import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
 
@@ -110,8 +111,9 @@ async function resolvePrivateKey(connection: typeof ingestionConnections.$inferS
     });
   }
 
-  throw new Error(
+  throw configurationError(
     "Enable Banking private key is not configured for this connection",
+    { context: { connectionId: connection.id } },
   );
 }
 
@@ -159,17 +161,48 @@ async function getRunMetadata(syncRunId: string) {
   return (run?.metadata ?? {}) as EnableBankingSyncMetadata;
 }
 
-async function getRunProgress(syncRunId?: string): Promise<SyncProgress> {
-  if (!syncRunId) {
-    return {
-      importedAccounts: 0,
-      importedTransactions: 0,
-      pagesFetched: 0,
-    };
+/**
+ * Mutable metadata container loaded once per invocation and written at
+ * checkpoints, reducing per-helper DB reads from 5-15+ to 1 (P1-8).
+ */
+class SyncRunMetadataCache {
+  private data: EnableBankingSyncMetadata;
+
+  constructor(
+    private readonly syncRunId: string | undefined,
+    initial: EnableBankingSyncMetadata,
+  ) {
+    this.data = initial;
   }
 
-  const metadata = await getRunMetadata(syncRunId);
-  const progress = metadata.enableBanking?.progress;
+  get(): EnableBankingSyncMetadata {
+    return this.data;
+  }
+
+  update(updater: (data: EnableBankingSyncMetadata) => EnableBankingSyncMetadata) {
+    this.data = updater(this.data);
+  }
+
+  /** Flush the current metadata to the database. */
+  async flush() {
+    if (!this.syncRunId) return;
+    await db
+      .update(syncRuns)
+      .set({ metadata: this.data as Record<string, unknown> })
+      .where(eq(syncRuns.id, this.syncRunId));
+  }
+
+  static async load(syncRunId?: string): Promise<SyncRunMetadataCache> {
+    if (!syncRunId) {
+      return new SyncRunMetadataCache(undefined, {});
+    }
+    const data = await getRunMetadata(syncRunId);
+    return new SyncRunMetadataCache(syncRunId, data);
+  }
+}
+
+function getRunProgress(cache: SyncRunMetadataCache): SyncProgress {
+  const progress = cache.get().enableBanking?.progress;
 
   return {
     importedAccounts: progress?.importedAccounts ?? 0,
@@ -183,15 +216,12 @@ async function getRunProgress(syncRunId?: string): Promise<SyncProgress> {
 
 async function getOrCreateTransactionParams(
   connection: typeof ingestionConnections.$inferSelect,
-  syncRunId?: string,
+  cache: SyncRunMetadataCache,
 ): Promise<TransactionSyncParams> {
-  if (syncRunId) {
-    const metadata = await getRunMetadata(syncRunId);
-    const existing = metadata.enableBanking?.transactionParams;
+  const existing = cache.get().enableBanking?.transactionParams;
 
-    if (existing) {
-      return existing;
-    }
+  if (existing) {
+    return existing;
   }
 
   const connectionMetadata = (connection.metadata ?? {}) as ConnectionMetadata;
@@ -210,22 +240,14 @@ async function getOrCreateTransactionParams(
         transactionStatus: "BOOK",
       };
 
-  if (syncRunId) {
-    const metadata = await getRunMetadata(syncRunId);
-
-    await db
-      .update(syncRuns)
-      .set({
-        metadata: {
-          ...metadata,
-          enableBanking: {
-            ...(metadata.enableBanking ?? {}),
-            transactionParams: params,
-          },
-        },
-      })
-      .where(eq(syncRuns.id, syncRunId));
-  }
+  cache.update((data) => ({
+    ...data,
+    enableBanking: {
+      ...(data.enableBanking ?? {}),
+      transactionParams: params,
+    },
+  }));
+  await cache.flush();
 
   return params;
 }
@@ -244,41 +266,42 @@ function transactionMetadataWithProviderPayload(
   };
 }
 
-async function updateSyncRunProgress(syncRunId: string | undefined, progress: SyncProgress) {
+async function updateSyncRunProgress(
+  cache: SyncRunMetadataCache,
+  syncRunId: string | undefined,
+  progress: SyncProgress,
+) {
   if (!syncRunId) {
     return;
   }
 
-  const metadata = await getRunMetadata(syncRunId);
+  cache.update((data) => ({
+    ...data,
+    enableBanking: {
+      ...(data.enableBanking ?? {}),
+      progress,
+    },
+  }));
 
   await db
     .update(syncRuns)
     .set({
       importedAccounts: progress.importedAccounts,
       importedTransactions: progress.importedTransactions,
-      metadata: {
-        ...metadata,
-        enableBanking: {
-          ...(metadata.enableBanking ?? {}),
-          progress,
-        },
-      },
+      metadata: cache.get() as Record<string, unknown>,
     })
     .where(eq(syncRuns.id, syncRunId));
 }
 
-async function getRunAccountCursor(input: {
-  syncRunId?: string;
-  providerAccountId: string;
-  params: TransactionSyncParams;
-}) {
-  if (!input.syncRunId) {
-    return undefined;
-  }
-
-  const metadata = await getRunMetadata(input.syncRunId);
+function getRunAccountCursor(
+  cache: SyncRunMetadataCache,
+  input: {
+    providerAccountId: string;
+    params: TransactionSyncParams;
+  },
+) {
   const cursor =
-    metadata.enableBanking?.accountCursors?.[input.providerAccountId];
+    cache.get().enableBanking?.accountCursors?.[input.providerAccountId];
 
   if (!cursor || cursor.paramsKey !== transactionParamsKey(input.params)) {
     return undefined;
@@ -287,81 +310,74 @@ async function getRunAccountCursor(input: {
   return cursor.continuationKey;
 }
 
-async function updateRunAccountCursor(input: {
-  syncRunId?: string;
-  providerAccountId: string;
-  params: TransactionSyncParams;
-  continuationKey?: string;
-}) {
+async function updateRunAccountCursor(
+  cache: SyncRunMetadataCache,
+  input: {
+    syncRunId?: string;
+    providerAccountId: string;
+    params: TransactionSyncParams;
+    continuationKey?: string;
+  },
+) {
   if (!input.syncRunId) {
     return;
   }
 
-  const metadata = await getRunMetadata(input.syncRunId);
-  const accountCursors = {
-    ...(metadata.enableBanking?.accountCursors ?? {}),
-  };
-
-  if (input.continuationKey) {
-    accountCursors[input.providerAccountId] = {
-      continuationKey: input.continuationKey,
-      paramsKey: transactionParamsKey(input.params),
+  cache.update((data) => {
+    const accountCursors = {
+      ...(data.enableBanking?.accountCursors ?? {}),
     };
-  } else {
-    delete accountCursors[input.providerAccountId];
-  }
 
-  await db
-    .update(syncRuns)
-    .set({
-      metadata: {
-        ...metadata,
-        enableBanking: {
-          ...(metadata.enableBanking ?? {}),
-          accountCursors,
-        },
+    if (input.continuationKey) {
+      accountCursors[input.providerAccountId] = {
+        continuationKey: input.continuationKey,
+        paramsKey: transactionParamsKey(input.params),
+      };
+    } else {
+      delete accountCursors[input.providerAccountId];
+    }
+
+    return {
+      ...data,
+      enableBanking: {
+        ...(data.enableBanking ?? {}),
+        accountCursors,
       },
-    })
-    .where(eq(syncRuns.id, input.syncRunId));
+    };
+  });
+  await cache.flush();
 }
 
-async function markRunAccountCompleted(input: {
-  syncRunId?: string;
-  providerAccountId: string;
-}) {
+async function markRunAccountCompleted(
+  cache: SyncRunMetadataCache,
+  input: {
+    syncRunId?: string;
+    providerAccountId: string;
+  },
+) {
   if (!input.syncRunId) {
     return;
   }
 
-  const metadata = await getRunMetadata(input.syncRunId);
-  const completedAccountIds = new Set(
-    metadata.enableBanking?.completedAccountIds ?? [],
-  );
+  cache.update((data) => {
+    const completedAccountIds = new Set(
+      data.enableBanking?.completedAccountIds ?? [],
+    );
+    completedAccountIds.add(input.providerAccountId);
 
-  completedAccountIds.add(input.providerAccountId);
-
-  await db
-    .update(syncRuns)
-    .set({
-      metadata: {
-        ...metadata,
-        enableBanking: {
-          ...(metadata.enableBanking ?? {}),
-          completedAccountIds: [...completedAccountIds],
-        },
+    return {
+      ...data,
+      enableBanking: {
+        ...(data.enableBanking ?? {}),
+        completedAccountIds: [...completedAccountIds],
       },
-    })
-    .where(eq(syncRuns.id, input.syncRunId));
+    };
+  });
+  await cache.flush();
 }
 
-async function getRunCompletedAccountIds(syncRunId?: string) {
-  if (!syncRunId) {
-    return new Set<string>();
-  }
-
-  const metadata = await getRunMetadata(syncRunId);
-
-  return new Set(metadata.enableBanking?.completedAccountIds ?? []);
+function getRunCompletedAccountIds(cache: SyncRunMetadataCache) {
+  return new Set(cache.get().enableBanking?.completedAccountIds ?? []);
 }
 
 async function reconcileAccountBalance(input: {
@@ -372,23 +388,42 @@ async function reconcileAccountBalance(input: {
   reportedBalance?: string;
 }) {
   const offsetSourceTransactionId = `enable-banking-opening-balance:${input.providerAccountId}`;
-  const rows = await db
-    .select()
+
+  // Use SQL aggregation instead of loading all transactions into memory (P1-7)
+  const [totals] = await db
+    .select({
+      totalSum: sql<string>`COALESCE(SUM(${transactions.amount}), 0)`,
+      nonOffsetSum: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.sourceTransactionId} IS DISTINCT FROM ${offsetSourceTransactionId} THEN ${transactions.amount} ELSE 0 END), 0)`,
+      manualCount: sql<number>`COUNT(CASE WHEN ${transactions.source} = 'manual' THEN 1 END)`,
+    })
     .from(transactions)
     .where(eq(transactions.accountId, input.financialAccountId));
-  const existingOffset = rows.find(
-    (transaction) => transaction.sourceTransactionId === offsetSourceTransactionId,
-  );
-  const nonOffsetRows = rows.filter(
-    (transaction) => transaction.sourceTransactionId !== offsetSourceTransactionId,
-  );
-  const manualTransactions = nonOffsetRows.filter(
-    (transaction) => transaction.source === "manual",
-  );
-  const transactionSumCents = nonOffsetRows.reduce(
-    (sum, transaction) => sum + toCents(transaction.amount),
-    0,
-  );
+
+  // Check if an offset transaction already exists
+  const [existingOffset] = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.accountId, input.financialAccountId),
+        eq(transactions.sourceTransactionId, offsetSourceTransactionId),
+      ),
+    )
+    .limit(1);
+
+  // Find earliest transaction date for offset placement
+  const [earliest] = await db
+    .select({ date: sql<string>`MIN(${transactions.date})` })
+    .from(transactions)
+    .where(
+      and(
+        eq(transactions.accountId, input.financialAccountId),
+        sql`${transactions.sourceTransactionId} IS DISTINCT FROM ${offsetSourceTransactionId}`,
+      ),
+    );
+
+  const transactionSumCents = toCents(totals?.nonOffsetSum ?? "0");
+  const manualTransactionCount = totals?.manualCount ?? 0;
   const reportedBalanceCents =
     input.reportedBalance === undefined ? undefined : toCents(input.reportedBalance);
   const offsetCents =
@@ -396,25 +431,20 @@ async function reconcileAccountBalance(input: {
       ? 0
       : reportedBalanceCents - transactionSumCents;
   const earliestDate =
-    nonOffsetRows
-      .map((transaction) => transaction.date)
-      .sort((left, right) => left.localeCompare(right))[0] ??
-    new Date().toISOString().slice(0, 10);
+    earliest?.date ?? new Date().toISOString().slice(0, 10);
   const balanceMetadata = {
     source: "transactions",
     reportedBalance: input.reportedBalance,
     transactionSum: fromCents(transactionSumCents),
     offsetAmount: fromCents(offsetCents),
-    manualTransactionsPresent: manualTransactions.length > 0,
-    manualTransactionCount: manualTransactions.length,
+    manualTransactionsPresent: manualTransactionCount > 0,
+    manualTransactionCount,
     discrepancy: offsetCents !== 0,
     updatedAt: new Date().toISOString(),
   };
 
   if (reportedBalanceCents === undefined) {
-    const calculatedBalance = fromCents(
-      rows.reduce((sum, transaction) => sum + toCents(transaction.amount), 0),
-    );
+    const calculatedBalance = totals?.totalSum ?? "0";
     const [account] = await db
       .select({ metadata: financialAccounts.metadata })
       .from(financialAccounts)
@@ -528,15 +558,23 @@ export async function syncEnableBankingConnection(
     .limit(1);
 
   if (!connection) {
-    throw new Error("Enable Banking connection not found");
+    throw notFoundError("Enable Banking connection not found", {
+      connectionId,
+    });
   }
 
   if (!connection.consentSessionId) {
-    throw new Error("Enable Banking connection is missing a consent session id");
+    throw configurationError(
+      "Enable Banking connection is missing a consent session id",
+      { context: { connectionId } },
+    );
   }
 
   if (!connection.externalApplicationId) {
-    throw new Error("Enable Banking connection is missing an application id");
+    throw configurationError(
+      "Enable Banking connection is missing an application id",
+      { context: { connectionId } },
+    );
   }
 
   const client = new EnableBankingClient({
@@ -545,12 +583,14 @@ export async function syncEnableBankingConnection(
     baseUrl: process.env.ENABLE_BANKING_BASE_URL,
   });
   const psuHeaders = getStoredPsuHeaders(connection.metadata);
+  // Load metadata once per invocation (P1-8)
+  const metadataCache = await SyncRunMetadataCache.load(options.syncRunId);
   const transactionParams = await getOrCreateTransactionParams(
     connection,
-    options.syncRunId,
+    metadataCache,
   );
-  const progress = await getRunProgress(options.syncRunId);
-  const completedAccountIds = await getRunCompletedAccountIds(options.syncRunId);
+  const progress = getRunProgress(metadataCache);
+  const completedAccountIds = getRunCompletedAccountIds(metadataCache);
   const shouldPauseInvocation = () =>
     pagesFetchedThisInvocation >= maxPages ||
     Date.now() - invocationStartedAt >= maxDurationMs;
@@ -622,7 +662,7 @@ export async function syncEnableBankingConnection(
       accounts.push(account);
       progress.currentAccountId = account.providerAccountId;
       progress.currentAccountName = account.name;
-      await updateSyncRunProgress(options.syncRunId, progress);
+      await updateSyncRunProgress(metadataCache, options.syncRunId, progress);
 
       const [linkedProviderAccount] = await db
         .insert(providerAccounts)
@@ -683,8 +723,7 @@ export async function syncEnableBankingConnection(
           .where(eq(financialAccounts.id, financialAccountId));
       }
 
-      let continuationKey = await getRunAccountCursor({
-        syncRunId: options.syncRunId,
+      let continuationKey = getRunAccountCursor(metadataCache, {
         providerAccountId: account.providerAccountId,
         params: transactionParams,
       });
@@ -706,86 +745,111 @@ export async function syncEnableBankingConnection(
         progress.pagesFetched += 1;
         pagesFetchedThisInvocation += 1;
 
-        for (const transaction of normalizedTransactions) {
-          const values = {
-            householdId: connection.householdId,
-            accountId: financialAccountId,
-            source: "enable_banking" as const,
-            sourceTransactionId: transaction.providerTransactionId,
-            amount: transaction.amount,
-            currency: transaction.currency,
-            date: transaction.date,
-            merchantName: transaction.merchantName,
-            normalizedMerchantName: normalizeMerchant(
-              transaction.merchantName ?? transaction.description,
-            ),
-            description: transaction.description,
-            searchText: `${transaction.description} ${
-              transaction.merchantName ?? ""
-            }`,
-            metadata: transaction.raw,
-          };
-          const [existing] = await db
-            .select({
-              id: transactions.id,
-              description: transactions.description,
-              merchantName: transactions.merchantName,
-              metadata: transactions.metadata,
-            })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.source, "enable_banking"),
-                eq(transactions.sourceTransactionId, transaction.providerTransactionId),
-                eq(transactions.accountId, financialAccountId),
+        // Batch transaction processing: single lookup per page instead of O(n) (P1-6)
+        if (normalizedTransactions.length > 0) {
+          const sourceIds = normalizedTransactions
+            .map((t) => t.providerTransactionId)
+            .filter(Boolean) as string[];
+
+          const existingRows =
+            sourceIds.length > 0
+              ? await db
+                  .select({
+                    id: transactions.id,
+                    sourceTransactionId: transactions.sourceTransactionId,
+                    description: transactions.description,
+                    merchantName: transactions.merchantName,
+                    metadata: transactions.metadata,
+                  })
+                  .from(transactions)
+                  .where(
+                    and(
+                      eq(transactions.source, "enable_banking"),
+                      eq(transactions.accountId, financialAccountId),
+                      inArray(transactions.sourceTransactionId, sourceIds),
+                    ),
+                  )
+              : [];
+
+          const existingBySourceId = new Map(
+            existingRows.map((row) => [row.sourceTransactionId, row]),
+          );
+
+          const toInsert: (typeof transactions.$inferInsert)[] = [];
+
+          for (const transaction of normalizedTransactions) {
+            const values = {
+              householdId: connection.householdId,
+              accountId: financialAccountId,
+              source: "enable_banking" as const,
+              sourceTransactionId: transaction.providerTransactionId,
+              amount: transaction.amount,
+              currency: transaction.currency,
+              date: transaction.date,
+              merchantName: transaction.merchantName,
+              normalizedMerchantName: normalizeMerchant(
+                transaction.merchantName ?? transaction.description,
               ),
-            )
-            .limit(1);
+              description: transaction.description,
+              searchText: `${transaction.description} ${
+                transaction.merchantName ?? ""
+              }`,
+              metadata: transaction.raw,
+            };
 
-          if (existing) {
-            const existingMetadata = (existing.metadata ??
-              {}) as TransactionMetadata;
-            const description = existingMetadata.userEdits?.descriptionEdited
-              ? existing.description
-              : transaction.description;
-            const merchantName = existingMetadata.userEdits?.merchantNameEdited
-              ? existing.merchantName
-              : transaction.merchantName;
+            const existing = existingBySourceId.get(
+              transaction.providerTransactionId,
+            );
 
-            await db
-              .update(transactions)
-              .set({
+            if (existing) {
+              const existingMetadata = (existing.metadata ??
+                {}) as TransactionMetadata;
+              const description = existingMetadata.userEdits?.descriptionEdited
+                ? existing.description
+                : transaction.description;
+              const merchantName = existingMetadata.userEdits?.merchantNameEdited
+                ? existing.merchantName
+                : transaction.merchantName;
+
+              await db
+                .update(transactions)
+                .set({
+                  ...values,
+                  description,
+                  merchantName,
+                  normalizedMerchantName: normalizeMerchant(
+                    merchantName ?? description,
+                  ),
+                  searchText: `${description} ${merchantName ?? ""}`,
+                  metadata: transactionMetadataWithProviderPayload(
+                    transaction.raw,
+                    transaction.description,
+                    existing.metadata,
+                  ),
+                  updatedAt: new Date(),
+                })
+                .where(eq(transactions.id, existing.id));
+            } else {
+              toInsert.push({
                 ...values,
-                description,
-                merchantName,
-                normalizedMerchantName: normalizeMerchant(
-                  merchantName ?? description,
-                ),
-                searchText: `${description} ${merchantName ?? ""}`,
                 metadata: transactionMetadataWithProviderPayload(
                   transaction.raw,
                   transaction.description,
-                  existing.metadata,
                 ),
-                updatedAt: new Date(),
-              })
-              .where(eq(transactions.id, existing.id));
-            continue;
+              });
+            }
           }
 
-          const [createdTransaction] = await db
-            .insert(transactions)
-            .values({
-              ...values,
-              metadata: transactionMetadataWithProviderPayload(
-                transaction.raw,
-                transaction.description,
-              ),
-            })
-            .returning();
+          // Bulk insert new transactions
+          if (toInsert.length > 0) {
+            const inserted = await db
+              .insert(transactions)
+              .values(toInsert)
+              .returning();
 
-          importedTransactions.push(createdTransaction);
-          progress.importedTransactions += 1;
+            importedTransactions.push(...inserted);
+            progress.importedTransactions += inserted.length;
+          }
         }
 
         continuationKey = transactionResponse.continuation_key ?? undefined;
@@ -798,13 +862,13 @@ export async function syncEnableBankingConnection(
             updatedAt: new Date(),
           })
           .where(eq(providerAccounts.id, linkedProviderAccount.id));
-        await updateRunAccountCursor({
+        await updateRunAccountCursor(metadataCache, {
           syncRunId: options.syncRunId,
           providerAccountId: account.providerAccountId,
           params: transactionParams,
           continuationKey,
         });
-        await updateSyncRunProgress(options.syncRunId, progress);
+        await updateSyncRunProgress(metadataCache, options.syncRunId, progress);
 
         if (hasMorePages && shouldPauseInvocation()) {
           return {
@@ -834,11 +898,11 @@ export async function syncEnableBankingConnection(
         reportedBalance,
       });
       completedAccountIds.add(account.providerAccountId);
-      await markRunAccountCompleted({
+      await markRunAccountCompleted(metadataCache, {
         syncRunId: options.syncRunId,
         providerAccountId: account.providerAccountId,
       });
-      await updateSyncRunProgress(options.syncRunId, progress);
+      await updateSyncRunProgress(metadataCache, options.syncRunId, progress);
 
       if (shouldPauseInvocation()) {
         return {
@@ -898,7 +962,7 @@ export async function syncEnableBankingConnection(
       const retryAt =
         error.retryAt ?? new Date(Date.now() + 6 * 60 * 60 * 1000);
       progress.rateLimitedUntil = retryAt.toISOString();
-      await updateSyncRunProgress(options.syncRunId, progress);
+      await updateSyncRunProgress(metadataCache, options.syncRunId, progress);
       await db
         .update(ingestionConnections)
         .set({

@@ -2,10 +2,9 @@ import { Plus, RefreshCcw } from "lucide-react";
 
 import { AccountEditor } from "@/components/account-editor";
 import { BankSyncPanel } from "@/components/bank-sync-panel";
+import { CreateAccountForm } from "@/components/forms/create-account-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { db } from "@/db";
 import { financialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
@@ -81,23 +80,7 @@ export default async function AccountsPage() {
             <CardTitle>Add manual account</CardTitle>
           </CardHeader>
           <CardContent>
-            <form className="grid gap-4">
-              <div className="grid gap-2">
-                <Label>Name</Label>
-                <Input placeholder="Emergency savings" />
-              </div>
-              <div className="grid gap-2">
-                <Label>Type</Label>
-                <Input placeholder="checking, savings, loan..." />
-              </div>
-              <div className="grid gap-2">
-                <Label>Opening balance</Label>
-                <Input inputMode="decimal" placeholder="0" />
-              </div>
-              <Button type="button">
-                <Plus className="size-4" /> Save account
-              </Button>
-            </form>
+            <CreateAccountForm />
           </CardContent>
         </Card>
       </div>

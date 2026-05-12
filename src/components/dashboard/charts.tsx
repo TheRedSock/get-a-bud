@@ -42,8 +42,12 @@ const tooltipStyle = {
 };
 
 export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
+  const totalIncome = data.reduce((s, d) => s + d.income, 0);
+  const totalExpenses = data.reduce((s, d) => s + d.expenses, 0);
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <div role="img" aria-label={`Cash flow chart: ${formatMoney(totalIncome)} income, ${formatMoney(totalExpenses)} expenses over ${data.length} months`}>
+      <ResponsiveContainer width="100%" height={260}>
       <BarChart data={data}>
         <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
         <XAxis dataKey="month" stroke="var(--muted-foreground)" fontSize={12} />
@@ -59,13 +63,17 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
         <Bar dataKey="income" fill="var(--chart-2)" radius={[8, 8, 0, 0]} />
         <Bar dataKey="expenses" fill="var(--chart-4)" radius={[8, 8, 0, 0]} />
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
 export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
+  const summary = data.map((d) => `${d.name}: ${formatMoney(d.value)}`).join(", ");
+
   return (
-    <ResponsiveContainer width="100%" height={260}>
+    <div role="img" aria-label={`Spending breakdown: ${summary}`}>
+      <ResponsiveContainer width="100%" height={260}>
       <PieChart>
         <Pie
           data={data}
@@ -84,13 +92,17 @@ export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
           formatter={(value) => formatMoney(Number(value))}
         />
       </PieChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
 export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
+  const latest = data.length ? formatMoney(data[data.length - 1].balance) : "no data";
+
   return (
-    <ResponsiveContainer width="100%" height={220}>
+    <div role="img" aria-label={`Balance trend chart, latest: ${latest}`}>
+      <ResponsiveContainer width="100%" height={220}>
       <AreaChart data={data}>
         <defs>
           <linearGradient id="balanceGradient" x1="0" x2="0" y1="0" y2="1">
@@ -114,5 +126,6 @@ export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
         />
       </AreaChart>
     </ResponsiveContainer>
+    </div>
   );
 }

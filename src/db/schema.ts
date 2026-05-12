@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   index,
@@ -187,7 +188,7 @@ export const categories = pgTable(
     householdId: text("household_id")
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
-    parentId: text("parent_id"),
+    parentId: text("parent_id").references((): AnyPgColumn => categories.id),
     name: text("name").notNull(),
     color: text("color").notNull().default("var(--chart-1)"),
     icon: text("icon").notNull().default("circle"),
@@ -389,7 +390,13 @@ export const recurringBills = pgTable(
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
   },
-  (table) => [index("recurring_bills_household_idx").on(table.householdId)],
+  (table) => [
+    index("recurring_bills_household_idx").on(table.householdId),
+    uniqueIndex("recurring_bills_household_merchant_uidx").on(
+      table.householdId,
+      table.merchantPattern,
+    ),
+  ],
 );
 
 export const assets = pgTable(
@@ -496,6 +503,12 @@ export const providerAccounts = pgTable(
     providerAccountName: text("provider_account_name"),
     currency: text("currency").notNull().default("NOK"),
     lastBalance: numeric("last_balance", { precision: 18, scale: 2 }),
+    /**
+     * Diagnostic-only: last known continuation key written during sync.
+     * The authoritative cursor state lives in `syncRuns.metadata.enableBanking.accountCursors`
+     * which includes `paramsKey` validation to prevent stale cursor replay.
+     * Do NOT read this field for sync resumption. See P2-7 in architecture-audit.md.
+     */
     syncCursor: text("sync_cursor"),
     raw: jsonb("raw").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),

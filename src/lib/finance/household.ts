@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 
 import { db } from "@/db";
 import { households, memberships } from "@/db/schema";
@@ -19,6 +19,7 @@ export async function getActiveHousehold() {
     .from(memberships)
     .innerJoin(households, eq(households.id, memberships.householdId))
     .where(eq(memberships.userId, user.id))
+    .orderBy(asc(memberships.createdAt))
     .limit(1);
 
   if (!membership) {

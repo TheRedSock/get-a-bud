@@ -11,10 +11,18 @@ export const currencyFormatter = new Intl.NumberFormat("nb-NO", {
   maximumFractionDigits: 0,
 });
 
+/** Cached formatters keyed by currency code (P3-1). */
+const formatterCache = new Map<string, Intl.NumberFormat>();
+
 export function formatMoney(value: number, currency = "NOK") {
-  return new Intl.NumberFormat("nb-NO", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0,
-  }).format(value);
+  let formatter = formatterCache.get(currency);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat("nb-NO", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    });
+    formatterCache.set(currency, formatter);
+  }
+  return formatter.format(value);
 }

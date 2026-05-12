@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import {
   BarChart3,
   CalendarDays,
   CreditCard,
   Landmark,
   LayoutDashboard,
+  MoreHorizontal,
   PiggyBank,
   Search,
   Settings,
   WalletCards,
+  X,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -27,8 +30,16 @@ const navItems = [
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
+const mobileMainItems = navItems.slice(0, 4);
+const mobileOverflowItems = navItems.slice(4);
+
 export function AppNav() {
   const pathname = usePathname();
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const isOverflowActive = mobileOverflowItems.some(
+    (item) => pathname === item.href || pathname.startsWith(`${item.href}/`),
+  );
 
   return (
     <>
@@ -63,8 +74,42 @@ export function AppNav() {
           })}
         </nav>
       </aside>
+
+      {/* Mobile overflow sheet */}
+      {moreOpen && (
+        <div className="fixed inset-0 z-50 lg:hidden">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setMoreOpen(false)}
+          />
+          <div className="absolute inset-x-3 bottom-[4.5rem] grid gap-1 rounded-[1.6rem] border bg-card p-3 shadow-2xl">
+            {mobileOverflowItems.map((item) => {
+              const Icon = item.icon;
+              const active =
+                pathname === item.href || pathname.startsWith(`${item.href}/`);
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setMoreOpen(false)}
+                  className={cn(
+                    "flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground",
+                    active && "bg-primary/12 text-foreground",
+                  )}
+                >
+                  <Icon className="size-4" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Mobile bottom nav */}
       <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[1.6rem] border bg-card/90 p-2 shadow-2xl shadow-black/20 backdrop-blur-xl lg:hidden">
-        {navItems.slice(0, 5).map((item) => {
+        {mobileMainItems.map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
@@ -82,6 +127,20 @@ export function AppNav() {
             </Link>
           );
         })}
+        <button
+          aria-label="More"
+          onClick={() => setMoreOpen((open) => !open)}
+          className={cn(
+            "grid place-items-center rounded-2xl py-2 text-muted-foreground transition-colors",
+            (moreOpen || isOverflowActive) && "bg-primary text-primary-foreground",
+          )}
+        >
+          {moreOpen ? (
+            <X className="size-5" />
+          ) : (
+            <MoreHorizontal className="size-5" />
+          )}
+        </button>
       </nav>
     </>
   );

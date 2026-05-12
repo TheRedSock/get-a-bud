@@ -2,9 +2,10 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
-import { financialAccounts, transactions } from "@/db/schema";
+import { categories, financialAccounts, transactions } from "@/db/schema";
 import { notFoundError } from "@/lib/errors/catalog";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
+import { recalculateAccountBalance } from "@/lib/finance/balance";
 import { detectCategory, normalizeMerchant } from "@/lib/finance/categorization";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createTransactionSchema } from "@/lib/finance/validation";
@@ -59,6 +60,26 @@ export const POST = withApiHandler("transactions.create", async (request) => {
     });
   }
 
+  if (transactionInput.categoryId) {
+    const [cat] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(
+        and(
+          eq(categories.id, transactionInput.categoryId),
+          eq(categories.householdId, household.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!cat) {
+      throw notFoundError("Choose a category from this household.", {
+        categoryId: transactionInput.categoryId,
+        householdId: household.householdId,
+      });
+    }
+  }
+
   const categoryId =
     transactionInput.categoryId ??
     (await detectCategory(
@@ -89,6 +110,8 @@ export const POST = withApiHandler("transactions.create", async (request) => {
       source: "manual",
     })
     .returning();
+
+  await recalculateAccountBalance(transactionInput.accountId);
 
   return NextResponse.json({ transaction }, { status: 201 });
 });

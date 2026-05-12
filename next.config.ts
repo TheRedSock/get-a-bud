@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const securityHeaders = [
   {
     key: "Content-Security-Policy",
@@ -9,7 +11,7 @@ const securityHeaders = [
       "form-action 'self'",
       "frame-ancestors 'none'",
       "object-src 'none'",
-      "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://vercel.live",
+      `script-src 'self'${isDev ? " 'unsafe-eval'" : ""} 'unsafe-inline' https://vercel.live`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",

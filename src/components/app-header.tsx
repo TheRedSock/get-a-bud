@@ -14,10 +14,10 @@ export function AppHeader({ title }: { title: string }) {
         </div>
         <div className="relative hidden w-80 md:block">
           <Search className="absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input className="pl-10" placeholder="Search merchants, bills, accounts..." />
+          <Input className="pl-10" placeholder="Search merchants, bills, accounts..." disabled title="Search is available on the Search page" />
         </div>
         <ThemeToggle />
-        <Button size="icon" variant="outline" aria-label="Notifications">
+        <Button size="icon" variant="outline" aria-label="Notifications (coming soon)" disabled title="Notifications coming soon">
           <Bell className="size-4" />
         </Button>
       </div>

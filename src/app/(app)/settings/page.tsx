@@ -36,11 +36,12 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps =
             {["Aurora", "Mint", "Ember"].map((theme) => (
               <button
                 key={theme}
-                className="rounded-3xl border bg-background/40 p-5 text-left transition-transform hover:-translate-y-1"
+                disabled
+                className="rounded-3xl border bg-background/40 p-5 text-left opacity-60"
               >
                 <Palette className="mb-4 size-5 text-primary" />
                 <p className="font-semibold">{theme}</p>
-                <p className="text-sm text-muted-foreground">Chart-aware palette</p>
+                <p className="text-sm text-muted-foreground">Coming soon</p>
               </button>
             ))}
           </CardContent>

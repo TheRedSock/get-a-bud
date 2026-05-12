@@ -15,6 +15,13 @@
       "when": 1778500725198,
       "tag": "0001_wooden_whistler",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778581257410,
+      "tag": "0002_wandering_malice",
+      "breakpoints": true
     }
   ]
 }
