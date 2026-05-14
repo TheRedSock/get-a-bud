@@ -924,6 +924,13 @@ type RecurringCandidateRow = {
   merchantId: string | null;
   normalizedMerchantName: string | null;
   transactionType: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+type RecurringDetectionMetadata = Record<string, unknown> & {
+  recurringDetection?: {
+    ignored?: boolean;
+  };
 };
 
 type ExistingRecurringBill = {
@@ -1055,6 +1062,12 @@ function comparableAmountForBill(
   return Math.abs(Number(row.amount));
 }
 
+function isRecurringDetectionIgnored(metadata: Record<string, unknown> | null) {
+  return Boolean(
+    (metadata as RecurringDetectionMetadata | null)?.recurringDetection?.ignored,
+  );
+}
+
 export const detectRecurringBills = inngest.createFunction(
   {
     id: "detect-recurring-bills",
@@ -1090,6 +1103,7 @@ export const detectRecurringBills = inngest.createFunction(
             merchantId: transactions.merchantId,
             normalizedMerchantName: transactions.normalizedMerchantName,
             transactionType: transactions.transactionType,
+            metadata: transactions.metadata,
           })
           .from(transactions)
           .where(
@@ -1110,6 +1124,7 @@ export const detectRecurringBills = inngest.createFunction(
       offset += PAGE_SIZE;
     }
 
+    allRows = allRows.filter((row) => !isRecurringDetectionIgnored(row.metadata));
     const txnMap = new Map(allRows.map((r) => [r.id, r]));
 
     // -----------------------------------------------------------------------

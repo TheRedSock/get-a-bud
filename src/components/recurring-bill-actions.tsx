@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, Loader2, Pencil, Play, Save } from "lucide-react";
+import { Eye, Loader2, Pencil, Play, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -353,6 +353,60 @@ export function RecurringBillEditor({
         </div>
       ) : null}
     </div>
+  );
+}
+
+export function RejectRecurringBillButton({ billId }: { billId: string }) {
+  const router = useRouter();
+  const [rejecting, setRejecting] = useState(false);
+
+  async function rejectBill() {
+    const confirmed = window.confirm(
+      "Reject this recurring bill? It will be removed and its matched transactions will be ignored by future recurring detection.",
+    );
+    if (!confirmed) return;
+
+    setRejecting(true);
+
+    try {
+      const response = await fetch(`/api/bills/${billId}`, {
+        method: "DELETE",
+      });
+      const body = await parseApiResponse<{ ignoredTransactions: number }>(
+        response,
+      );
+      toast.success(
+        `Recurring bill rejected${
+          body.ignoredTransactions > 0
+            ? ` and ${body.ignoredTransactions} matched transaction${
+                body.ignoredTransactions === 1 ? " was" : "s were"
+              } ignored`
+            : ""
+        }`,
+      );
+      router.refresh();
+    } catch (error) {
+      showErrorToast("Could not reject recurring bill", error);
+    } finally {
+      setRejecting(false);
+    }
+  }
+
+  return (
+    <Button
+      disabled={rejecting}
+      size="sm"
+      type="button"
+      variant="destructive"
+      onClick={() => void rejectBill()}
+    >
+      {rejecting ? (
+        <Loader2 className="size-4 animate-spin" />
+      ) : (
+        <Trash2 className="size-4" />
+      )}
+      Reject recurring bill
+    </Button>
   );
 }
 

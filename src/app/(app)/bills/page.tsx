@@ -4,6 +4,7 @@ import Link from "next/link";
 
 import {
   BillTransactionsViewer,
+  RejectRecurringBillButton,
   RecurringBillCategoryAction,
   RecurringBillEditor,
   RunRecurringDetectionButton,
@@ -153,6 +154,9 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                     nextDueDate={bill.nextDueDate}
                   />
                   <BillTransactionsViewer billId={bill.id} />
+                  <div className="mt-3">
+                    <RejectRecurringBillButton billId={bill.id} />
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">
