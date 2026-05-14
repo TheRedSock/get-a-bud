@@ -8,6 +8,9 @@ import {
   syncRuns,
   transactions,
 } from "@/db/schema";
+import { parseDescription } from "@/lib/classification/parser";
+import { parseNorwegianDecimal } from "@/lib/classification/parser/norwegian";
+import type { ParserResult } from "@/lib/classification/parser/types";
 import { normalizeMerchant } from "@/lib/finance/categorization";
 import {
   EnableBankingClient,
@@ -64,12 +67,34 @@ type ConnectionMetadata = Record<string, unknown> & {
 
 type TransactionMetadata = Record<string, unknown> & {
   providerDescription?: string;
+  observedMerchantName?: string | null;
+  providerMerchantName?: string | null;
+  parsed?: {
+    transactionType: string;
+    paymentChannel: string;
+    merchantName: string | null;
+    merchantAddress: string | null;
+    counterparty: string | null;
+    purpose: string | null;
+    metadata: Record<string, string | number | null>;
+  };
   userEdits?: {
     descriptionEdited?: boolean;
     merchantNameEdited?: boolean;
     originalDescription?: string;
     originalMerchantName?: string | null;
     updatedAt?: string;
+  };
+  autoLabel?: {
+    appliedAt: string;
+    source: string;
+    confidence: number;
+    originalDescription: string;
+    originalMerchantName: string | null;
+    appliedDescription: string;
+    appliedMerchantName: string | null;
+    appliedCategoryId: string | null;
+    undone: boolean;
   };
 };
 
@@ -255,14 +280,34 @@ async function getOrCreateTransactionParams(
 function transactionMetadataWithProviderPayload(
   raw: Record<string, unknown> | undefined,
   providerDescription: string,
+  observedMerchantName: string | null | undefined,
+  providerMerchantName: string | null | undefined,
   existingMetadata?: Record<string, unknown> | null,
+  parsed?: ParserResult,
 ): TransactionMetadata {
   const metadata = (existingMetadata ?? {}) as TransactionMetadata;
 
   return {
     ...(raw ?? {}),
+    // Preserve user/system metadata that must survive re-syncs
     userEdits: metadata.userEdits,
+    autoLabel: metadata.autoLabel,
     providerDescription,
+    observedMerchantName: observedMerchantName ?? parsed?.merchantName ?? null,
+    providerMerchantName: providerMerchantName ?? null,
+    ...(parsed
+      ? {
+          parsed: {
+            transactionType: parsed.transactionType,
+            paymentChannel: parsed.paymentChannel,
+            merchantName: parsed.merchantName,
+            merchantAddress: parsed.merchantAddress,
+            counterparty: parsed.counterparty,
+            purpose: parsed.purpose,
+            metadata: parsed.metadata,
+          },
+        }
+      : {}),
   };
 }
 
@@ -776,9 +821,21 @@ export async function syncEnableBankingConnection(
           );
 
           const toInsert: (typeof transactions.$inferInsert)[] = [];
+          const aspspCountry = session.aspsp?.country ?? undefined;
 
           for (const transaction of normalizedTransactions) {
-            const values = {
+            // Run Phase 1A parser on the provider description
+            const parsed = parseDescription(
+              transaction.description,
+              "enable_banking",
+              { country: aspspCountry },
+            );
+
+            // Use parser-extracted merchant when provider didn't supply one
+            const merchantName =
+              transaction.merchantName ?? parsed?.merchantName ?? null;
+
+            const values: typeof transactions.$inferInsert = {
               householdId: connection.householdId,
               accountId: financialAccountId,
               source: "enable_banking" as const,
@@ -786,16 +843,36 @@ export async function syncEnableBankingConnection(
               amount: transaction.amount,
               currency: transaction.currency,
               date: transaction.date,
-              merchantName: transaction.merchantName,
+              merchantName,
               normalizedMerchantName: normalizeMerchant(
-                transaction.merchantName ?? transaction.description,
+                merchantName ?? transaction.description,
               ),
               description: transaction.description,
-              searchText: `${transaction.description} ${
-                transaction.merchantName ?? ""
-              }`,
+              searchText: `${transaction.description} ${merchantName ?? ""}`,
               metadata: transaction.raw,
+              // Phase 1A: parser-extracted fields
+              transactionType: parsed?.transactionType ?? null,
+              paymentChannel: parsed?.paymentChannel ?? null,
+              parserSource: parsed ? "norwegian" : null,
             };
+
+            // Phase 1C: populate original currency from foreign Visa lines
+            if (
+              parsed?.metadata?.originalCurrency &&
+              parsed?.metadata?.originalAmount
+            ) {
+              values.originalCurrency = String(
+                parsed.metadata.originalCurrency,
+              ).toUpperCase();
+              values.originalAmount = parseNorwegianDecimal(
+                String(parsed.metadata.originalAmount),
+              );
+            }
+
+            // Phase 1C: exchange rate for metadata reference
+            const parsedExchangeRate = parsed?.metadata?.exchangeRate
+              ? parseNorwegianDecimal(String(parsed.metadata.exchangeRate))
+              : undefined;
 
             const existing = existingBySourceId.get(
               transaction.providerTransactionId,
@@ -807,35 +884,53 @@ export async function syncEnableBankingConnection(
               const description = existingMetadata.userEdits?.descriptionEdited
                 ? existing.description
                 : transaction.description;
-              const merchantName = existingMetadata.userEdits?.merchantNameEdited
-                ? existing.merchantName
-                : transaction.merchantName;
+              const resolvedMerchant =
+                existingMetadata.userEdits?.merchantNameEdited
+                  ? existing.merchantName
+                  : merchantName;
 
               await db
                 .update(transactions)
                 .set({
                   ...values,
                   description,
-                  merchantName,
+                  merchantName: resolvedMerchant,
                   normalizedMerchantName: normalizeMerchant(
-                    merchantName ?? description,
+                    resolvedMerchant ?? description,
                   ),
-                  searchText: `${description} ${merchantName ?? ""}`,
-                  metadata: transactionMetadataWithProviderPayload(
-                    transaction.raw,
-                    transaction.description,
-                    existing.metadata,
-                  ),
+                  searchText: `${description} ${resolvedMerchant ?? ""}`,
+                  metadata: {
+                    ...transactionMetadataWithProviderPayload(
+                      transaction.raw,
+                      transaction.description,
+                      merchantName,
+                      transaction.merchantName,
+                      existing.metadata,
+                      parsed,
+                    ),
+                    ...(parsedExchangeRate != null
+                      ? { exchangeRate: parsedExchangeRate }
+                      : {}),
+                  },
                   updatedAt: new Date(),
                 })
                 .where(eq(transactions.id, existing.id));
             } else {
               toInsert.push({
                 ...values,
-                metadata: transactionMetadataWithProviderPayload(
-                  transaction.raw,
-                  transaction.description,
-                ),
+                metadata: {
+                  ...transactionMetadataWithProviderPayload(
+                    transaction.raw,
+                    transaction.description,
+                    merchantName,
+                    transaction.merchantName,
+                    undefined,
+                    parsed,
+                  ),
+                  ...(parsedExchangeRate != null
+                    ? { exchangeRate: parsedExchangeRate }
+                    : {}),
+                },
               });
             }
           }

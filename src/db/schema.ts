@@ -72,6 +72,7 @@ export const billCadenceEnum = pgEnum("bill_cadence", [
   "biweekly",
   "monthly",
   "quarterly",
+  "semi_annual",
   "yearly",
   "unknown",
 ]);
@@ -148,6 +149,11 @@ export const households = pgTable("households", {
   createdById: text("created_by_id").references(() => users.id, {
     onDelete: "set null",
   }),
+  classificationCorrectionsSinceTrain: integer(
+    "classification_corrections_since_train",
+  )
+    .notNull()
+    .default(0),
   createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
 });
@@ -179,6 +185,29 @@ export const memberships = pgTable(
   ],
 );
 
+export const categoryGroups = pgTable(
+  "category_groups",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("category_groups_household_key_uidx").on(
+      table.householdId,
+      table.key,
+    ),
+    index("category_groups_household_idx").on(table.householdId),
+  ],
+);
+
 export const categories = pgTable(
   "categories",
   {
@@ -189,19 +218,90 @@ export const categories = pgTable(
       .notNull()
       .references(() => households.id, { onDelete: "cascade" }),
     parentId: text("parent_id").references((): AnyPgColumn => categories.id),
+    groupId: text("group_id")
+      .notNull()
+      .references(() => categoryGroups.id),
     name: text("name").notNull(),
     color: text("color").notNull().default("var(--chart-1)"),
     icon: text("icon").notNull().default("circle"),
     isIncome: boolean("is_income").notNull().default(false),
     isSystem: boolean("is_system").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
-    uniqueIndex("categories_household_name_uidx").on(
-      table.householdId,
-      table.name,
-    ),
+    uniqueIndex("categories_household_toplevel_name_uidx")
+      .on(table.householdId, table.name)
+      .where(sql`${table.parentId} IS NULL`),
+    uniqueIndex("categories_household_parent_name_uidx")
+      .on(table.householdId, table.parentId, table.name)
+      .where(sql`${table.parentId} IS NOT NULL`),
     index("categories_household_idx").on(table.householdId),
+  ],
+);
+
+export const merchants = pgTable(
+  "merchants",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    canonicalName: text("canonical_name").notNull(),
+    normalizedCanonicalName: text("normalized_canonical_name").notNull(),
+    defaultCategoryId: text("default_category_id").references(() => categories.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("merchants_household_idx").on(table.householdId),
+    index("merchants_household_normalized_idx").on(
+      table.householdId,
+      table.normalizedCanonicalName,
+    ),
+  ],
+);
+
+export const merchantAliases = pgTable(
+  "merchant_aliases",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    merchantId: text("merchant_id")
+      .notNull()
+      .references(() => merchants.id, { onDelete: "cascade" }),
+    alias: text("alias").notNull(),
+    normalizedAlias: text("normalized_alias").notNull(),
+    source: text("source").notNull().default("unknown"),
+    transactionType: text("transaction_type"),
+    paymentChannel: text("payment_channel"),
+    confidence: numeric("confidence", { precision: 3, scale: 2 })
+      .notNull()
+      .default("1.0"),
+    matchType: text("match_type").notNull().default("user"),
+    sampleTransactionId: text("sample_transaction_id"),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("merchant_aliases_household_alias_uidx").on(
+      table.householdId,
+      table.normalizedAlias,
+    ),
+    index("merchant_aliases_household_idx").on(table.householdId),
+    index("merchant_aliases_merchant_idx").on(table.merchantId),
+    index("merchant_aliases_normalized_trgm_idx").using(
+      "gin",
+      sql`${table.normalizedAlias} gin_trgm_ops`,
+    ),
   ],
 );
 
@@ -254,6 +354,9 @@ export const transactions = pgTable(
     accountId: text("account_id")
       .notNull()
       .references(() => financialAccounts.id, { onDelete: "cascade" }),
+    merchantId: text("merchant_id").references(() => merchants.id, {
+      onDelete: "set null",
+    }),
     categoryId: text("category_id").references(() => categories.id, {
       onDelete: "set null",
     }),
@@ -277,6 +380,28 @@ export const transactions = pgTable(
     excludedFromBudget: boolean("excluded_from_budget")
       .notNull()
       .default(false),
+    // Phase 1A: parser-extracted fields
+    transactionType: text("transaction_type"),
+    paymentChannel: text("payment_channel"),
+    parserSource: text("parser_source"),
+    categorySource: text("category_source"),
+    categoryConfidence: numeric("category_confidence", {
+      precision: 3,
+      scale: 2,
+    }),
+    // Phase 3B: suggested fields for amber-zone confidence
+    suggestedCategoryId: text("suggested_category_id").references(
+      () => categories.id,
+      { onDelete: "set null" },
+    ),
+    suggestedDescription: text("suggested_description"),
+    suggestedMerchantName: text("suggested_merchant_name"),
+    // Phase 2A: transfer linking
+    linkedTransactionId: text("linked_transaction_id").references(
+      (): AnyPgColumn => transactions.id,
+      { onDelete: "set null" },
+    ),
+    transferGroupId: text("transfer_group_id"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
@@ -284,6 +409,7 @@ export const transactions = pgTable(
   (table) => [
     index("transactions_household_date_idx").on(table.householdId, table.date),
     index("transactions_account_idx").on(table.accountId),
+    index("transactions_merchant_idx").on(table.merchantId),
     index("transactions_category_idx").on(table.categoryId),
     index("transactions_search_trgm_idx")
       .using("gin", sql`${table.searchText} gin_trgm_ops`),
@@ -292,6 +418,7 @@ export const transactions = pgTable(
       table.sourceTransactionId,
       table.accountId,
     ),
+    index("transactions_transfer_group_idx").on(table.transferGroupId),
   ],
 );
 
@@ -309,11 +436,87 @@ export const categorizationRules = pgTable(
       .references(() => categories.id, { onDelete: "cascade" }),
     matcher: text("matcher").notNull(),
     matcherType: text("matcher_type").notNull().default("contains"),
+    matchField: text("match_field").notNull().default("merchant"),
     priority: integer("priority").notNull().default(100),
     learnedFromTransactionId: text("learned_from_transaction_id"),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
   },
-  (table) => [index("categorization_rules_household_idx").on(table.householdId)],
+  (table) => [
+    index("categorization_rules_household_idx").on(table.householdId),
+    uniqueIndex("categorization_rules_household_field_matcher_uidx").on(
+      table.householdId,
+      table.matchField,
+      table.matcher,
+    ),
+  ],
+);
+
+export const transactionLinks = pgTable(
+  "transaction_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    groupId: text("group_id").notNull(),
+    transactionId: text("transaction_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("source"),
+    confidence: numeric("confidence", { precision: 3, scale: 2 })
+      .notNull()
+      .default("1.0"),
+    confirmed: boolean("confirmed").notNull().default(false),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("transaction_links_group_txn_uidx").on(
+      table.groupId,
+      table.transactionId,
+    ),
+    index("transaction_links_household_idx").on(table.householdId),
+    index("transaction_links_transaction_idx").on(table.transactionId),
+    index("transaction_links_group_idx").on(table.groupId),
+  ],
+);
+
+export const classificationModels = pgTable(
+  "classification_models",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    householdId: text("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    modelType: text("model_type").notNull().default("naive_bayes"),
+    modelData: jsonb("model_data").$type<unknown[]>(),
+    version: integer("version").notNull(),
+    trainedAt: timestamp("trained_at", { mode: "date" }).notNull().defaultNow(),
+    trainingTransactionCount: integer("training_transaction_count")
+      .notNull()
+      .default(0),
+    accuracy: numeric("accuracy", { precision: 4, scale: 3 }),
+    autoApplyThreshold: numeric("auto_apply_threshold", {
+      precision: 3,
+      scale: 2,
+    }),
+    suggestThreshold: numeric("suggest_threshold", {
+      precision: 3,
+      scale: 2,
+    }),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("classification_models_household_idx").on(table.householdId),
+    uniqueIndex("classification_models_household_version_uidx").on(
+      table.householdId,
+      table.version,
+    ),
+  ],
 );
 
 export const budgets = pgTable(
@@ -381,6 +584,10 @@ export const recurringBills = pgTable(
     }),
     name: text("name").notNull(),
     merchantPattern: text("merchant_pattern").notNull(),
+    /** Disambiguates multiple recurring patterns for the same merchant
+     *  (e.g. own Netflix EUR vs family Netflix USD, or duplicate subs).
+     *  Format: "{currency}~{roundedMedianAmount}~{index}" */
+    amountSignature: text("amount_signature").notNull().default(""),
     cadence: billCadenceEnum("cadence").notNull().default("monthly"),
     expectedAmount: numeric("expected_amount", { precision: 18, scale: 2 }),
     nextDueDate: date("next_due_date"),
@@ -389,14 +596,67 @@ export const recurringBills = pgTable(
       .notNull()
       .default(15),
     isActive: boolean("is_active").notNull().default(true),
+    /** Flagged when today > nextDueDate + 1.5× cadence interval.
+     *  Not auto-deactivated — user may have switched payment method. */
+    isPossiblyCancelled: boolean("is_possibly_cancelled")
+      .notNull()
+      .default(false),
+    /** True when this bill was split from an interleaved duplicate cluster.
+     *  Alerts the user they may be paying twice for the same service. */
+    isDuplicateSubscription: boolean("is_duplicate_subscription")
+      .notNull()
+      .default(false),
+    // Phase 2B: enhanced recurring detection fields
+    detectedCadenceConfidence: numeric("detected_cadence_confidence", {
+      precision: 3,
+      scale: 2,
+    }),
+    pattern: text("pattern").default("day_of_month"),
+    typicalDayOfMonth: integer("typical_day_of_month"),
+    originalCurrency: text("original_currency"),
+    lastOriginalAmount: numeric("last_original_amount", {
+      precision: 18,
+      scale: 2,
+    }),
+    amountTrend: text("amount_trend").default("stable"),
+    lastDetectedAt: timestamp("last_detected_at", { mode: "date" }),
+    transactionCount: integer("transaction_count").default(0),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
   },
   (table) => [
     index("recurring_bills_household_idx").on(table.householdId),
-    uniqueIndex("recurring_bills_household_merchant_uidx").on(
+    uniqueIndex("recurring_bills_household_merchant_sig_uidx").on(
       table.householdId,
       table.merchantPattern,
+      table.amountSignature,
+    ),
+  ],
+);
+
+export const recurringBillHistory = pgTable(
+  "recurring_bill_history",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    billId: text("bill_id")
+      .notNull()
+      .references(() => recurringBills.id, { onDelete: "cascade" }),
+    amount: numeric("amount", { precision: 18, scale: 2 }).notNull(),
+    originalAmount: numeric("original_amount", { precision: 18, scale: 2 }),
+    originalCurrency: text("original_currency"),
+    date: date("date").notNull(),
+    transactionId: text("transaction_id").references(() => transactions.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("recurring_bill_history_bill_idx").on(table.billId),
+    uniqueIndex("recurring_bill_history_bill_txn_uidx").on(
+      table.billId,
+      table.transactionId,
     ),
   ],
 );
@@ -577,7 +837,11 @@ export const householdsRelations = relations(households, ({ many }) => ({
   accounts: many(financialAccounts),
   transactions: many(transactions),
   categories: many(categories),
+  categoryGroups: many(categoryGroups),
+  merchants: many(merchants),
   budgets: many(budgets),
+  transactionLinks: many(transactionLinks),
+  classificationModels: many(classificationModels),
 }));
 
 export const financialAccountsRelations = relations(
@@ -604,4 +868,119 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
     fields: [transactions.categoryId],
     references: [categories.id],
   }),
+  merchant: one(merchants, {
+    fields: [transactions.merchantId],
+    references: [merchants.id],
+  }),
+  suggestedCategory: one(categories, {
+    fields: [transactions.suggestedCategoryId],
+    references: [categories.id],
+    relationName: "suggestedCategory",
+  }),
 }));
+
+export const categoryGroupsRelations = relations(
+  categoryGroups,
+  ({ one, many }) => ({
+    household: one(households, {
+      fields: [categoryGroups.householdId],
+      references: [households.id],
+    }),
+    categories: many(categories),
+  }),
+);
+
+export const categoriesRelations = relations(categories, ({ one }) => ({
+  household: one(households, {
+    fields: [categories.householdId],
+    references: [households.id],
+  }),
+  group: one(categoryGroups, {
+    fields: [categories.groupId],
+    references: [categoryGroups.id],
+  }),
+  parent: one(categories, {
+    fields: [categories.parentId],
+    references: [categories.id],
+    relationName: "parentChild",
+  }),
+}));
+
+export const merchantsRelations = relations(merchants, ({ one, many }) => ({
+  household: one(households, {
+    fields: [merchants.householdId],
+    references: [households.id],
+  }),
+  defaultCategory: one(categories, {
+    fields: [merchants.defaultCategoryId],
+    references: [categories.id],
+  }),
+  aliases: many(merchantAliases),
+}));
+
+export const merchantAliasesRelations = relations(
+  merchantAliases,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [merchantAliases.householdId],
+      references: [households.id],
+    }),
+    merchant: one(merchants, {
+      fields: [merchantAliases.merchantId],
+      references: [merchants.id],
+    }),
+  }),
+);
+
+export const transactionLinksRelations = relations(
+  transactionLinks,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [transactionLinks.householdId],
+      references: [households.id],
+    }),
+    transaction: one(transactions, {
+      fields: [transactionLinks.transactionId],
+      references: [transactions.id],
+    }),
+  }),
+);
+
+export const classificationModelsRelations = relations(
+  classificationModels,
+  ({ one }) => ({
+    household: one(households, {
+      fields: [classificationModels.householdId],
+      references: [households.id],
+    }),
+  }),
+);
+
+export const recurringBillsRelations = relations(
+  recurringBills,
+  ({ one, many }) => ({
+    household: one(households, {
+      fields: [recurringBills.householdId],
+      references: [households.id],
+    }),
+    category: one(categories, {
+      fields: [recurringBills.categoryId],
+      references: [categories.id],
+    }),
+    history: many(recurringBillHistory),
+  }),
+);
+
+export const recurringBillHistoryRelations = relations(
+  recurringBillHistory,
+  ({ one }) => ({
+    bill: one(recurringBills, {
+      fields: [recurringBillHistory.billId],
+      references: [recurringBills.id],
+    }),
+    transaction: one(transactions, {
+      fields: [recurringBillHistory.transactionId],
+      references: [transactions.id],
+    }),
+  }),
+);

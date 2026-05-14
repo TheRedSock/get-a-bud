@@ -7,8 +7,13 @@ import { notFoundError } from "@/lib/errors/catalog";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { recalculateAccountBalance } from "@/lib/finance/balance";
 import { detectCategory, normalizeMerchant } from "@/lib/finance/categorization";
+import {
+  resolveMerchantIdentity,
+  upsertMerchantFromUserCorrection,
+} from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createTransactionSchema } from "@/lib/finance/validation";
+import { inngest } from "@/inngest/client";
 
 export const GET = withApiHandler("transactions.list", async (request) => {
   const household = await getActiveHousehold();
@@ -76,38 +81,101 @@ export const POST = withApiHandler("transactions.create", async (request) => {
     }
   }
 
-  const categoryId =
-    transactionInput.categoryId ??
-    (await detectCategory(
-      household.householdId,
-      transactionInput.description,
-      transactionInput.merchantName,
-    ));
   const normalizedMerchant = transactionInput.merchantName
     ? normalizeMerchant(transactionInput.merchantName)
     : normalizeMerchant(transactionInput.description);
+  const merchantResolution = transactionInput.merchantName
+    ? await resolveMerchantIdentity({
+        householdId: household.householdId,
+        transaction: {
+          description: transactionInput.description,
+          merchantName: transactionInput.merchantName,
+          normalizedMerchantName: normalizedMerchant,
+          source: "manual",
+        },
+      })
+    : null;
+  const detectionResult =
+    transactionInput.categoryId || merchantResolution?.defaultCategoryId
+      ? null
+      : await detectCategory(
+          household.householdId,
+          transactionInput.description,
+          transactionInput.merchantName,
+          { normalizedMerchantName: normalizedMerchant },
+        );
+  const categoryId =
+    transactionInput.categoryId ??
+    merchantResolution?.defaultCategoryId ??
+    detectionResult?.categoryId ??
+    null;
+  const categorySource = transactionInput.categoryId
+    ? "user"
+    : merchantResolution?.defaultCategoryId
+      ? "merchant"
+      : detectionResult
+        ? "rule"
+        : null;
+  const categoryConfidence = merchantResolution?.defaultCategoryId
+    ? Math.min(merchantResolution.confidence, 0.95).toFixed(2)
+    : detectionResult?.confidence?.toFixed(2) ?? null;
+  const nextMerchantName =
+    merchantResolution && transactionInput.merchantName
+      ? merchantResolution.canonicalName
+      : transactionInput.merchantName;
+  const nextDescription =
+    merchantResolution && transactionInput.merchantName
+      ? merchantResolution.canonicalName
+      : transactionInput.description;
 
   const [transaction] = await db
     .insert(transactions)
     .values({
       householdId: household.householdId,
       accountId: transactionInput.accountId,
+      merchantId: merchantResolution?.merchantId ?? null,
       categoryId,
+      categorySource,
+      categoryConfidence,
       amount: transactionInput.amount.toFixed(2),
       currency: transactionInput.currency,
       date: transactionInput.date,
-      merchantName: transactionInput.merchantName,
-      normalizedMerchantName: normalizedMerchant,
-      description: transactionInput.description,
+      merchantName: nextMerchantName,
+      normalizedMerchantName: normalizeMerchant(nextMerchantName ?? nextDescription),
+      description: nextDescription,
       notes: transactionInput.notes,
-      searchText: `${transactionInput.description} ${
-        transactionInput.merchantName ?? ""
-      }`,
+      searchText: `${nextDescription} ${nextMerchantName ?? ""}`,
       source: "manual",
     })
     .returning();
 
+  if (transactionInput.categoryId && transactionInput.merchantName) {
+    await upsertMerchantFromUserCorrection({
+      householdId: household.householdId,
+      categoryId: transactionInput.categoryId,
+      transaction: {
+        id: transaction.id,
+        householdId: household.householdId,
+        source: "manual",
+        description: transactionInput.description,
+        merchantName: transactionInput.merchantName,
+        normalizedMerchantName: normalizedMerchant,
+        metadata: transaction.metadata,
+      },
+      displayMerchantName: transactionInput.merchantName,
+    });
+  }
+
   await recalculateAccountBalance(transactionInput.accountId);
+
+  // If Tier 1 rules didn't match, enqueue categorization so the Tier 2
+  // statistical model gets a chance to classify this transaction.
+  if (!categoryId) {
+    await inngest.send({
+      name: "transactions.categorize",
+      data: { householdId: household.householdId },
+    });
+  }
 
   return NextResponse.json({ transaction }, { status: 201 });
 });

@@ -100,7 +100,15 @@ export async function getBudgetsWithSpending(
         spentAmount: sql<string>`COALESCE(
           (SELECT ABS(SUM(${transactions.amount}))
            FROM ${transactions}
-           WHERE ${transactions.categoryId} = ${budgetLines.categoryId}
+           WHERE (
+             ${transactions.categoryId} = ${budgetLines.categoryId}
+             OR ${transactions.categoryId} IN (
+               SELECT child.id
+               FROM ${categories} child
+               WHERE child.parent_id = ${budgetLines.categoryId}
+                 AND child.household_id = ${householdId}
+             )
+           )
              AND ${transactions.householdId} = ${householdId}
              AND ${transactions.date} >= ${period.from}
              AND ${transactions.date} < ${period.to}

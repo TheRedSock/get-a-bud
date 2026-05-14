@@ -38,9 +38,14 @@ export default async function BillsPage() {
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">
-                    {formatMoney(
-                      Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
-                    )}
+                    {bill.originalCurrency && bill.lastOriginalAmount
+                      ? formatMoney(
+                          Number(bill.lastOriginalAmount),
+                          bill.originalCurrency,
+                        )
+                      : formatMoney(
+                          Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+                        )}
                   </p>
                   <Badge className="mt-2">
                     {bill.isActive ? "Active" : "Paused"}

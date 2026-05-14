@@ -1,16 +1,34 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
 import { db } from "@/db";
-import { categories, financialAccounts, transactions } from "@/db/schema";
+import {
+  categories,
+  financialAccounts,
+  households,
+  transactions,
+} from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
+import { RETRAIN_CORRECTION_THRESHOLD } from "@/lib/classification/types";
 import { recalculateAccountBalance } from "@/lib/finance/balance";
-import { normalizeMerchant } from "@/lib/finance/categorization";
+import {
+  learnCategoryCorrection,
+  normalizeMerchant,
+} from "@/lib/finance/categorization";
+import {
+  getCategoryLearningTarget,
+  updateMerchantCanonicalName,
+  upsertMerchantFromUserCorrection,
+} from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { updateTransactionSchema } from "@/lib/finance/validation";
+import { inngest } from "@/inngest/client";
 
 type TransactionMetadata = Record<string, unknown> & {
+  parsed?: {
+    counterparty?: string | null;
+  };
   userEdits?: {
     descriptionEdited?: boolean;
     merchantNameEdited?: boolean;
@@ -146,6 +164,24 @@ export const PATCH = withApiHandler(
       }
 
       values.categoryId = transactionInput.categoryId;
+
+      if (transactionInput.categoryId === null) {
+        // Uncategorizing: clear all classification metadata so stale
+        // confidence/source/suggestions don't persist.
+        values.categorySource = null;
+        values.categoryConfidence = null;
+        values.suggestedCategoryId = null;
+        values.suggestedDescription = null;
+        values.suggestedMerchantName = null;
+      } else if (transactionInput.categoryId !== transaction.categoryId) {
+        // User set a new category
+        values.categorySource = "user";
+        values.categoryConfidence = "1.00";
+        // Clear any pending suggestion once the user has chosen
+        values.suggestedCategoryId = null;
+        values.suggestedDescription = null;
+        values.suggestedMerchantName = null;
+      }
     }
 
     if (transactionInput.merchantName !== undefined) {
@@ -200,6 +236,90 @@ export const PATCH = withApiHandler(
       .set(values)
       .where(eq(transactions.id, transaction.id))
       .returning();
+
+    if (
+      transactionInput.merchantName !== undefined &&
+      transactionInput.merchantName !== transaction.merchantName &&
+      updatedTransaction.merchantId &&
+      transactionInput.merchantName
+    ) {
+      await updateMerchantCanonicalName({
+        householdId: household.householdId,
+        merchantId: updatedTransaction.merchantId,
+        canonicalName: transactionInput.merchantName,
+      });
+    }
+
+    // Phase 1B: learn categorization rule from user's category edit
+    if (
+      transactionInput.categoryId !== undefined &&
+      transactionInput.categoryId !== null &&
+      transactionInput.categoryId !== transaction.categoryId
+    ) {
+      const learningTarget = getCategoryLearningTarget({
+        id: transaction.id,
+        householdId: transaction.householdId,
+        source: transaction.source,
+        description: transaction.description,
+        merchantName: transaction.merchantName,
+        normalizedMerchantName: transaction.normalizedMerchantName,
+        transactionType: transaction.transactionType,
+        paymentChannel: transaction.paymentChannel,
+        metadata: transaction.metadata,
+      });
+
+      if (learningTarget) {
+        await learnCategoryCorrection({
+          householdId: household.householdId,
+          categoryId: transactionInput.categoryId,
+          matcher: learningTarget.matcher,
+          matchField: learningTarget.matchField,
+          transactionId: transaction.id,
+        });
+
+        await upsertMerchantFromUserCorrection({
+          householdId: household.householdId,
+          categoryId: transactionInput.categoryId,
+          transaction: {
+            id: transaction.id,
+            householdId: transaction.householdId,
+            source: transaction.source,
+            description: transaction.description,
+            merchantName: transaction.merchantName,
+            normalizedMerchantName: transaction.normalizedMerchantName,
+            transactionType: transaction.transactionType,
+            paymentChannel: transaction.paymentChannel,
+            metadata: transaction.metadata,
+          },
+          displayMerchantName: updatedTransaction.merchantName,
+        });
+
+        // Phase 3A: Increment correction counter and trigger retrain when
+        // enough corrections have accumulated since the last model training.
+        // Counter only advances when a rule was actually learned (matcher
+        // was long enough), so that trivial edits with short/empty matchers
+        // don't dilute the retrain signal.
+        const [updated] = await db
+          .update(households)
+          .set({
+            classificationCorrectionsSinceTrain: sql`${households.classificationCorrectionsSinceTrain} + 1`,
+          })
+          .where(eq(households.id, household.householdId))
+          .returning({
+            corrections: households.classificationCorrectionsSinceTrain,
+          });
+
+        if (
+          updated &&
+          updated.corrections >= RETRAIN_CORRECTION_THRESHOLD
+        ) {
+          await inngest.send({
+            name: "model.retrain",
+            data: { householdId: household.householdId },
+          });
+        }
+      }
+    }
 
     // Recalculate balances when amount or account changes on manual transactions
     const amountChanged =

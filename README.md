@@ -24,8 +24,25 @@ Implemented in this prototype:
   bank authorization redirect, callback session exchange, connection records,
   account detail lookup, paginated transaction sync, sync progress state and
   rate-limit pause/resume handling.
-- Inngest jobs for bank sync, scheduled sync, categorization, recurring bill
-  detection and notification batching scaffolds.
+- Inngest jobs for bank sync, scheduled sync, transaction categorization
+  (three-tier: merchant identity, rule engine, statistical model), transfer
+  linking, recurring bill detection, model retraining, parser backfill, and
+  notification batching scaffold.
+- Merchant identity and alias resolution for matching the same store across
+  different ingestion sources and user-edited merchant labels.
+- Three-tier transaction classification: Norwegian description parser (16 format
+  families), field-scoped categorization rules with user-correction learning,
+  and a per-household Naive Bayes statistical model with Norwegian stemming,
+  cross-validated thresholds, and automatic retraining.
+- Confidence-driven auto-labeling with type-specific description relabeling,
+  metadata-tracked undo, approve/reject/batch-approve suggestion APIs, and
+  regression test coverage for stabilization invariants.
+- Cross-account transfer linking with confidence scoring and budget exclusion.
+- Enhanced recurring bill detection with day-of-month histogram peaks,
+  cadence analysis, amount clustering by original currency, delayed-payment
+  reconciliation, and cancellation flagging.
+- File-import normalization scaffolding with a DNB credit card period export
+  adapter, shared date/amount/name helpers, and an import format registry.
 - Live authenticated pages for dashboard, accounts, transactions, budgets, bills,
   net worth and search. The public `/demo` route remains demo-data driven for
   first-run visual testing.
@@ -71,6 +88,11 @@ Enable Banking is modeled as one ingestion source, not as the canonical account
 model. Manual entry, future imports and future licensed bank aggregators can all
 write into the same ledger tables.
 
+CSV/XLSX-style imports should go through `src/lib/ingestion/imports/` adapters
+rather than the Enable Banking parser. The current file-import adapter is
+explicitly for DNB credit card period exports; shared helpers handle common
+normalization work such as dates, localized amounts and merchant display names.
+
 Imported account rows keep user-editable metadata such as display name, account
 type and institution separate from provider-owned IDs and transaction data.
 Bank-synced transaction amount, date, account and currency are immutable in the
@@ -94,19 +116,3 @@ Initial Enable Banking transaction imports use `strategy=longest` and follow
 with a continuation key. Incremental syncs use a recent default window. If the
 bank or ASPSP returns rate limiting, the Inngest sync records current progress,
 pauses the run and resumes after the retry time or a six-hour fallback.
-
-## Next Steps
-
-- Add ASPSP search/selection UI on top of the authenticated Enable Banking
-  `/aspsps` endpoint.
-- Add deeper sync regression tests for pagination, checkpoint resume,
-  rate-limit behavior, user-edit preservation and ledger reconciliation.
-- Investigate transaction search indexing with Postgres full-text search or
-  trigram indexes before search becomes a primary workflow.
-- Add accessible table/text fallbacks for dashboard charts.
-- Deploy Vercel Development, Preview and Production environment variables
-  separately, then run migrations for each Neon branch.
-- Expand recurring bill detection, forecasting and notification delivery after
-  the MVP ledger workflow is validated.
-
-See `refs/remaining-audit-items.md` for the current audit follow-up list.

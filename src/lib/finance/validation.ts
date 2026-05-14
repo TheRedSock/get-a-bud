@@ -70,6 +70,8 @@ export const createCategorySchema = z.object({
   color: z.string().default("var(--chart-1)"),
   icon: z.string().default("circle"),
   isIncome: z.coerce.boolean().default(false),
+  groupId: z.string().min(1).optional(),
+  parentId: z.string().min(1).optional(),
 });
 
 export const createBudgetSchema = z.object({
