@@ -72,6 +72,38 @@ type MerchantIdentityTransaction = {
   metadata?: Record<string, unknown> | null;
 };
 
+const INNGEST_STEP_LIMIT = 1000;
+const INNGEST_CONTINUATION_STEP_BUFFER = 100;
+const INNGEST_CONTINUATION_RUNTIME_MS = 45_000;
+
+function createContinuationGuard(options?: {
+  runtimeLimitMs?: number;
+  stepBuffer?: number;
+  stepLimit?: number;
+}) {
+  const startedAt = Date.now();
+  const runtimeLimitMs =
+    options?.runtimeLimitMs ?? INNGEST_CONTINUATION_RUNTIME_MS;
+  const stepLimit = options?.stepLimit ?? INNGEST_STEP_LIMIT;
+  const stepBuffer = options?.stepBuffer ?? INNGEST_CONTINUATION_STEP_BUFFER;
+  let stepsUsed = 0;
+
+  return {
+    recordStep(count = 1) {
+      stepsUsed += count;
+    },
+    shouldContinue() {
+      return (
+        stepsUsed >= stepLimit - stepBuffer ||
+        Date.now() - startedAt >= runtimeLimitMs
+      );
+    },
+    get stepsUsed() {
+      return stepsUsed;
+    },
+  };
+}
+
 function merchantIdentityUpdates(
   transaction: MerchantIdentityTransaction,
   resolution: MerchantResolutionResult | null,
@@ -1510,127 +1542,141 @@ export const backfillParsedFields = inngest.createFunction(
   },
   async ({ step }) => {
     const BATCH_SIZE = 200;
+    const guard = createContinuationGuard();
     let totalUpdated = 0;
-    let hasMore = true;
+    let totalSkipped = 0;
+    let processed = 0;
 
-    while (hasMore) {
-      const rows = await step.run(
-        `load-unparsed-batch-${totalUpdated}`,
-        () =>
-          db
-            .select({
-              id: transactions.id,
-              description: transactions.description,
-              source: transactions.source,
-              merchantName: transactions.merchantName,
-              originalCurrency: transactions.originalCurrency,
-              metadata: transactions.metadata,
-            })
-            .from(transactions)
-            .where(
-              and(
-                eq(transactions.source, "enable_banking"),
-                isNull(transactions.parserSource),
-              ),
-            )
-            .limit(BATCH_SIZE),
-      );
-
-      if (rows.length === 0) {
-        hasMore = false;
-        break;
-      }
-
-      for (const row of rows) {
-        const parsed = parseDescription(row.description, "enable_banking", {
-          country: "NO",
-        });
-
-        if (!parsed) {
-          // Mark as attempted so this row is not reloaded on the next batch.
-          // A null-returning parser means the description format is unrecognized;
-          // Tier 2 will handle classification. Setting parserSource to empty
-          // string distinguishes "attempted but unrecognized" from "never
-          // attempted" (null).
-          await step.run(`skip-${row.id}`, () =>
-            db
-              .update(transactions)
-              .set({ parserSource: "none", updatedAt: new Date() })
-              .where(eq(transactions.id, row.id)),
-          );
-          continue;
-        }
-
-        const merchantName = row.merchantName ?? parsed.merchantName ?? null;
-        const updates: Partial<typeof transactions.$inferInsert> = {
-          transactionType: parsed.transactionType,
-          paymentChannel: parsed.paymentChannel,
-          parserSource: "norwegian",
-          metadata: {
-            ...(row.metadata ?? {}),
-            observedMerchantName: parsed.merchantName ?? merchantName,
-            parsed: {
-              transactionType: parsed.transactionType,
-              paymentChannel: parsed.paymentChannel,
-              merchantName: parsed.merchantName,
-              merchantAddress: parsed.merchantAddress,
-              counterparty: parsed.counterparty,
-              purpose: parsed.purpose,
-              metadata: parsed.metadata,
-            },
-          },
-          normalizedMerchantName: normalizeMerchant(
-            merchantName ?? row.description,
+    const rows = await step.run("load-unparsed-batch", () =>
+      db
+        .select({
+          id: transactions.id,
+          description: transactions.description,
+          source: transactions.source,
+          merchantName: transactions.merchantName,
+          originalCurrency: transactions.originalCurrency,
+          metadata: transactions.metadata,
+        })
+        .from(transactions)
+        .where(
+          and(
+            eq(transactions.source, "enable_banking"),
+            isNull(transactions.parserSource),
           ),
-          updatedAt: new Date(),
-        };
+        )
+        .limit(BATCH_SIZE),
+    );
+    guard.recordStep();
 
-        // Only fill merchantName from parser if it wasn't already set
-        if (!row.merchantName && parsed.merchantName) {
-          updates.merchantName = parsed.merchantName;
-          updates.searchText = `${row.description} ${parsed.merchantName}`;
-        }
+    for (const row of rows) {
+      const parsed = parseDescription(row.description, "enable_banking", {
+        country: "NO",
+      });
 
-        // Phase 1C: populate original currency from foreign Visa lines
-        if (
-          !row.originalCurrency &&
-          parsed.metadata?.originalCurrency &&
-          parsed.metadata?.originalAmount
-        ) {
-          updates.originalCurrency = String(
-            parsed.metadata.originalCurrency,
-          ).toUpperCase();
-          updates.originalAmount = parseNorwegianDecimal(
-            String(parsed.metadata.originalAmount),
-          );
-
-          // Store exchange rate in metadata for reference
-          if (parsed.metadata?.exchangeRate) {
-            updates.metadata = {
-              ...(updates.metadata ?? row.metadata ?? {}),
-              exchangeRate: parseNorwegianDecimal(
-                String(parsed.metadata.exchangeRate),
-              ),
-            };
-          }
-        }
-
-        await step.run(`update-${row.id}`, () =>
+      if (!parsed) {
+        // Mark as attempted so this row is not reloaded by continuation runs.
+        await step.run(`skip-${row.id}`, () =>
           db
             .update(transactions)
-            .set(updates)
+            .set({ parserSource: "none", updatedAt: new Date() })
             .where(eq(transactions.id, row.id)),
         );
+        guard.recordStep();
+        totalSkipped += 1;
+        processed += 1;
 
-        totalUpdated += 1;
+        if (guard.shouldContinue()) break;
+        continue;
       }
 
-      if (rows.length < BATCH_SIZE) {
-        hasMore = false;
+      const merchantName = row.merchantName ?? parsed.merchantName ?? null;
+      const updates: Partial<typeof transactions.$inferInsert> = {
+        transactionType: parsed.transactionType,
+        paymentChannel: parsed.paymentChannel,
+        parserSource: "norwegian",
+        metadata: {
+          ...(row.metadata ?? {}),
+          observedMerchantName: parsed.merchantName ?? merchantName,
+          parsed: {
+            transactionType: parsed.transactionType,
+            paymentChannel: parsed.paymentChannel,
+            merchantName: parsed.merchantName,
+            merchantAddress: parsed.merchantAddress,
+            counterparty: parsed.counterparty,
+            purpose: parsed.purpose,
+            metadata: parsed.metadata,
+          },
+        },
+        normalizedMerchantName: normalizeMerchant(
+          merchantName ?? row.description,
+        ),
+        updatedAt: new Date(),
+      };
+
+      // Only fill merchantName from parser if it wasn't already set
+      if (!row.merchantName && parsed.merchantName) {
+        updates.merchantName = parsed.merchantName;
+        updates.searchText = `${row.description} ${parsed.merchantName}`;
       }
+
+      // Phase 1C: populate original currency from foreign Visa lines
+      if (
+        !row.originalCurrency &&
+        parsed.metadata?.originalCurrency &&
+        parsed.metadata?.originalAmount
+      ) {
+        updates.originalCurrency = String(
+          parsed.metadata.originalCurrency,
+        ).toUpperCase();
+        updates.originalAmount = parseNorwegianDecimal(
+          String(parsed.metadata.originalAmount),
+        );
+
+        // Store exchange rate in metadata for reference
+        if (parsed.metadata?.exchangeRate) {
+          updates.metadata = {
+            ...(updates.metadata ?? row.metadata ?? {}),
+            exchangeRate: parseNorwegianDecimal(
+              String(parsed.metadata.exchangeRate),
+            ),
+          };
+        }
+      }
+
+      await step.run(`update-${row.id}`, () =>
+        db
+          .update(transactions)
+          .set(updates)
+          .where(eq(transactions.id, row.id)),
+      );
+      guard.recordStep();
+
+      totalUpdated += 1;
+      processed += 1;
+
+      if (guard.shouldContinue()) break;
     }
 
-    return { updated: totalUpdated };
+    const continuationRequired =
+      processed < rows.length ||
+      rows.length >= BATCH_SIZE ||
+      guard.shouldContinue();
+
+    if (continuationRequired) {
+      await step.sendEvent("continue-backfill-parsed-fields", {
+        name: "transactions.backfill-parsed-fields",
+        data: { continuation: true },
+      });
+      guard.recordStep();
+    }
+
+    return {
+      updated: totalUpdated,
+      skipped: totalSkipped,
+      processed,
+      continuationRequired,
+      stepsUsed: guard.stepsUsed,
+    };
   },
 );
 
