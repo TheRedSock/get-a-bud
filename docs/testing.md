@@ -37,6 +37,9 @@ Test behavior contracts and invariants, not implementation shape.
   client parsing.
 - `src/lib/finance/*`: Zod schemas, merchant normalization, category matching,
   balance recalculation and budget read models.
+- `src/lib/classification/*`: parser formats, merchant/model feature extraction,
+  confidence UI state, auto-label stabilization, transfer linking and recurring
+  detection invariants.
 - `src/lib/security/*`: encryption key validation and round trips.
 - `middleware.ts`: public route exceptions and authenticated app/API behavior.
 - `src/app/api/transactions/*`: household ownership boundaries for accounts and
@@ -45,8 +48,14 @@ Test behavior contracts and invariants, not implementation shape.
   payload mapping, rate-limit behavior, safe provider errors, pagination through
   empty pages with continuation keys, checkpoint resume from run metadata,
   user-edit preservation during re-imports, and reconciliation offset creation.
+- `src/inngest/functions.ts`: continuation behavior for long-running jobs,
+  especially parser backfill, categorization, transfer linking and recurring
+  detection queueing.
 - `src/components/auth/*` and bank sync components: user-facing failure copy and
   success/failure transitions.
+- `src/components/transaction-editor.tsx` and classification review components:
+  suggestion approval/rejection, auto-label undo, confidence indicators and
+  immutable bank-fact presentation.
 
 Sync behavioral regression tests cover the five highest-value scenarios
 identified in the architecture audit: pagination, checkpoint resume, rate-limit

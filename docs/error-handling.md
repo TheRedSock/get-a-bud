@@ -64,3 +64,15 @@ Inngest jobs should persist user-safe status in durable tables such as
 `sync_runs.errorCode` and `sync_runs.errorMessage`, then log richer sanitized
 diagnostics through `logger.exception()`. Rethrow unexpected job failures so
 Inngest can retry and surface them operationally.
+
+Long-running jobs should checkpoint through durable database state and enqueue
+continuation events before approaching serverless runtime or Inngest step
+limits. Enable Banking sync stores progress on `sync_runs.metadata`; parser
+backfill stores per-row progress by setting `parser_source` to `norwegian` or
+`none`. Continuation events should be safe to replay and should not depend on
+ephemeral cursors unless those cursors are scoped to the current durable run.
+
+Keep Inngest Production keys isolated from preview and branch deployments.
+Sharing the same event/signing keys across environments can cause production
+events to be dispatched to the latest synced preview endpoint, which makes job
+step output disagree with the production database.

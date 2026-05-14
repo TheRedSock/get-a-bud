@@ -9,7 +9,8 @@ flowchart LR
   Manual[Manual Entry] --> Ledger
   EnableBanking[Enable Banking Adapter] --> Inngest[Inngest Jobs]
   Inngest --> Ledger
-  Ledger --> Categorization[Rules and Learning]
+  Ledger --> Classification[Parser, Rules, Model and Merchant Identity]
+  Classification --> Review[Classification Review UI]
   Ledger --> Budgets[Budget Engine]
   Ledger --> Dashboard[Dashboard UI]
 ```
@@ -18,6 +19,8 @@ flowchart LR
 
 - `src/db/schema.ts` defines the durable data model.
 - `src/lib/finance` contains budget, category and household helpers.
+- `src/lib/classification` contains parser, model, transfer-linking,
+  recurring-detection and UI-state helpers for the classification system.
 - `src/lib/ingestion` defines provider-independent normalized account and
   transaction shapes.
 - `src/lib/ingestion/enable-banking` contains all Enable Banking specifics.
@@ -65,6 +68,49 @@ affect the ledger/provider reconciliation.
 Budget read models live in `src/lib/finance` and calculate current-period spend
 from `transactions` and `budget_lines`. The dashboard and budget page consume the
 same helper so budget health is not duplicated in page components.
+
+## Classification Pipeline
+
+Transaction classification is asynchronous and household scoped. New manual
+transactions and Enable Banking imports can queue Inngest jobs that enrich rows
+without changing bank-owned facts such as amount, currency, account or booking
+date.
+
+The pipeline currently includes:
+
+- parser backfill and sync-time parsing for Norwegian Enable Banking
+  descriptions, including transaction type, payment channel and original
+  currency metadata;
+- merchant identity and alias resolution for stable merchant names and default
+  merchant categories;
+- field-scoped category rules and user-correction learning;
+- a per-household Naive Bayes model with confidence thresholds for auto-apply
+  and suggestions;
+- auto-label metadata for description and merchant rewrites, with user undo;
+- transfer linking and one-sided transfer budget exclusion;
+- recurring bill detection that tracks cadence, amount patterns, original
+  currency, delayed payments and possible cancellations.
+
+The transaction list is the main review surface. It shows confidence state,
+suggestions, approve/reject actions, auto-label undo, transfer badges and bank
+facts alongside editable user enrichment. Search mirrors the classification
+state indicators, while the bills page remains the recurring-bill review
+surface.
+
+Long-running classification jobs must avoid relying on a single Inngest run for
+an unbounded data set. Jobs that page through historical rows should process a
+bounded page or stop before the runtime/step budget is exhausted, then enqueue a
+continuation event. Parser backfill marks each attempted row with
+`parser_source` (`norwegian` or `none`) so retries and continuations are
+idempotent.
+
+## Inngest Environments
+
+Inngest app sync is environment-specific. Production events must target the
+production deployment and production database. Preview or branch deployments
+should use a separate Inngest branch/custom environment with its own event and
+signing keys; otherwise the latest synced preview deployment can receive
+production events while pointing at preview data.
 
 ## Runtime Protection
 
