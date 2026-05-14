@@ -35,6 +35,27 @@ export default async function BillsPage() {
                   <p className="text-sm text-muted-foreground">
                     {bill.nextDueDate ? `Due ${bill.nextDueDate}` : "No due date"}
                   </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <Badge>{bill.cadence}</Badge>
+                    {bill.detectedCadenceConfidence ? (
+                      <Badge>
+                        Confidence {bill.detectedCadenceConfidence}
+                      </Badge>
+                    ) : null}
+                    {bill.amountTrend && bill.amountTrend !== "stable" ? (
+                      <Badge>{bill.amountTrend}</Badge>
+                    ) : null}
+                    {bill.isPossiblyCancelled ? (
+                      <Badge className="border-amber-500/30 bg-amber-500/10 text-amber-700">
+                        Check status
+                      </Badge>
+                    ) : null}
+                    {bill.isDuplicateSubscription ? (
+                      <Badge className="border-destructive/30 bg-destructive/10 text-destructive">
+                        Possible duplicate
+                      </Badge>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">

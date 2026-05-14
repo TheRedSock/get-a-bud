@@ -75,7 +75,11 @@ export function CreateTransactionForm({
       });
 
       await parseApiResponse(response);
-      toast.success("Transaction created");
+      toast.success(
+        categoryId
+          ? "Transaction created"
+          : "Transaction created. Classification has been queued.",
+      );
       setDescription("");
       setAmount("");
       setAccountId(accounts[0]?.id ?? "");

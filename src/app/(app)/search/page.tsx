@@ -1,10 +1,12 @@
 import { and, desc, eq, ilike } from "drizzle-orm";
 import { Search } from "lucide-react";
 
+import { ClassificationIndicator } from "@/components/classification-indicator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { db } from "@/db";
-import { transactions } from "@/db/schema";
+import { categories, transactions } from "@/db/schema";
+import { getClassificationUiState } from "@/lib/classification/ui-state";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatMoney } from "@/lib/utils";
 
@@ -19,8 +21,22 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
 
   const rows = query
     ? await db
-        .select()
+        .select({
+          id: transactions.id,
+          source: transactions.source,
+          date: transactions.date,
+          amount: transactions.amount,
+          currency: transactions.currency,
+          merchantName: transactions.merchantName,
+          description: transactions.description,
+          categoryId: transactions.categoryId,
+          categoryName: categories.name,
+          categorySource: transactions.categorySource,
+          categoryConfidence: transactions.categoryConfidence,
+          suggestedCategoryId: transactions.suggestedCategoryId,
+        })
         .from(transactions)
+        .leftJoin(categories, eq(categories.id, transactions.categoryId))
         .where(
           and(
             eq(transactions.householdId, household.householdId),
@@ -30,8 +46,22 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
         .orderBy(desc(transactions.date))
         .limit(100)
     : await db
-        .select()
+        .select({
+          id: transactions.id,
+          source: transactions.source,
+          date: transactions.date,
+          amount: transactions.amount,
+          currency: transactions.currency,
+          merchantName: transactions.merchantName,
+          description: transactions.description,
+          categoryId: transactions.categoryId,
+          categoryName: categories.name,
+          categorySource: transactions.categorySource,
+          categoryConfidence: transactions.categoryConfidence,
+          suggestedCategoryId: transactions.suggestedCategoryId,
+        })
         .from(transactions)
+        .leftJoin(categories, eq(categories.id, transactions.categoryId))
         .where(eq(transactions.householdId, household.householdId))
         .orderBy(desc(transactions.date))
         .limit(20);
@@ -62,6 +92,18 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
                   className="flex items-center justify-between rounded-3xl border bg-background/40 p-4"
                 >
                   <div>
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
+                      <ClassificationIndicator
+                        confidence={transaction.categoryConfidence}
+                        source={transaction.categorySource}
+                        state={getClassificationUiState(transaction)}
+                      />
+                      {transaction.categoryName ? (
+                        <span className="text-xs text-muted-foreground">
+                          {transaction.categoryName}
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="font-medium">
                       {transaction.merchantName ?? transaction.description}
                     </p>
@@ -70,7 +112,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
                     </p>
                   </div>
                   <p className="font-semibold">
-                    {formatMoney(Number(transaction.amount))}
+                    {formatMoney(Number(transaction.amount), transaction.currency)}
                   </p>
                 </div>
               ))
