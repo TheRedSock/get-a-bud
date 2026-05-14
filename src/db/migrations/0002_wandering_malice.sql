@@ -1,2 +1,0 @@
-ALTER TABLE "categories" ADD CONSTRAINT "categories_parent_id_categories_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."categories"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "recurring_bills_household_merchant_uidx" ON "recurring_bills" USING btree ("household_id","merchant_pattern");

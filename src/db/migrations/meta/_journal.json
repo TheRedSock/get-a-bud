@@ -5,43 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1778496883839,
-      "tag": "0000_concerned_mastermind",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778500725198,
-      "tag": "0001_wooden_whistler",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "7",
-      "when": 1778581257410,
-      "tag": "0002_wandering_malice",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "7",
-      "when": 1778583617523,
-      "tag": "0003_lying_vanisher",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "7",
-      "when": 1778754600000,
-      "tag": "0004_merchant_identity",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "7",
-      "when": 1778755200000,
-      "tag": "0005_classification_state",
+      "when": 1778769690123,
+      "tag": "0000_loose_banshee",
       "breakpoints": true
     }
   ]
