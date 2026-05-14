@@ -11,7 +11,15 @@ const billSchema = z.object({
   name: z.string().min(1).max(120),
   merchantPattern: z.string().min(1).max(160),
   cadence: z
-    .enum(["weekly", "biweekly", "monthly", "quarterly", "yearly", "unknown"])
+    .enum([
+      "weekly",
+      "biweekly",
+      "monthly",
+      "quarterly",
+      "semi_annual",
+      "yearly",
+      "unknown",
+    ])
     .default("monthly"),
   expectedAmount: z.coerce.number().optional(),
   nextDueDate: z.string().min(8).optional(),
@@ -23,7 +31,7 @@ export const GET = withApiHandler("bills.list", async () => {
     .select()
     .from(recurringBills)
     .where(eq(recurringBills.householdId, household.householdId))
-    .orderBy(asc(recurringBills.nextDueDate));
+    .orderBy(asc(recurringBills.nextDueDate), asc(recurringBills.name));
 
   return NextResponse.json({ bills: rows });
 });

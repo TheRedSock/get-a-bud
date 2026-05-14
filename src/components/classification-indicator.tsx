@@ -2,6 +2,7 @@ import { CircleAlert, CircleCheck, CircleHelp, Sparkles } from "lucide-react";
 
 import {
   classificationStateLabel,
+  formatConfidencePercent,
   type ClassificationUiState,
 } from "@/lib/classification/ui-state";
 import { cn } from "@/lib/utils";
@@ -28,9 +29,10 @@ export function ClassificationIndicator({
   }
 
   const label = classificationStateLabel(state);
+  const confidenceLabel = formatConfidencePercent(confidence);
   const detail = source
-    ? `${label} by ${source}${confidence ? ` (${confidence})` : ""}`
-    : `${label}${confidence ? ` (${confidence})` : ""}`;
+    ? `${label} by ${source}${confidenceLabel ? ` (${confidenceLabel})` : ""}`
+    : `${label}${confidenceLabel ? ` (${confidenceLabel})` : ""}`;
   const Icon =
     state === "auto_applied"
       ? Sparkles
@@ -50,6 +52,7 @@ export function ClassificationIndicator({
     >
       <Icon className="size-3.5" />
       {label}
+      {confidenceLabel ? <span>{confidenceLabel}</span> : null}
     </span>
   );
 }

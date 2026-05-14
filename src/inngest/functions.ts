@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, gt, inArray, isNotNull, isNull, lt, lte, or, desc, sql } from "drizzle-orm";
+import { and, asc, eq, gte, gt, inArray, isNotNull, isNull, lt, lte, notInArray, or, desc, sql } from "drizzle-orm";
 import { cron, eventType } from "inngest";
 
 import { db } from "@/db";
@@ -75,16 +75,11 @@ type MerchantIdentityTransaction = {
 
 const INNGEST_STEP_LIMIT = 1000;
 const INNGEST_CONTINUATION_STEP_BUFFER = 100;
-const INNGEST_CONTINUATION_RUNTIME_MS = 45_000;
 
 function createContinuationGuard(options?: {
-  runtimeLimitMs?: number;
   stepBuffer?: number;
   stepLimit?: number;
 }) {
-  const startedAt = Date.now();
-  const runtimeLimitMs =
-    options?.runtimeLimitMs ?? INNGEST_CONTINUATION_RUNTIME_MS;
   const stepLimit = options?.stepLimit ?? INNGEST_STEP_LIMIT;
   const stepBuffer = options?.stepBuffer ?? INNGEST_CONTINUATION_STEP_BUFFER;
   let stepsUsed = 0;
@@ -94,10 +89,7 @@ function createContinuationGuard(options?: {
       stepsUsed += count;
     },
     shouldContinue() {
-      return (
-        stepsUsed >= stepLimit - stepBuffer ||
-        Date.now() - startedAt >= runtimeLimitMs
-      );
+      return stepsUsed >= stepLimit - stepBuffer;
     },
     get stepsUsed() {
       return stepsUsed;
@@ -376,7 +368,7 @@ export const categorizeTransactions = inngest.createFunction(
       return { updated: 0, skipped: "missing_household" };
     }
 
-    const PAGE_SIZE = 200;
+    const PAGE_SIZE = 100;
 
     const rows = await step.run("load-uncategorized", () =>
       db
@@ -773,7 +765,9 @@ export const linkTransferPairs = inngest.createFunction(
   },
   async ({ event, step }) => {
     const householdId = event.data.householdId as string;
-    const PAGE_SIZE = 200;
+    const afterId =
+      typeof event.data.afterId === "string" ? event.data.afterId : undefined;
+    const PAGE_SIZE = 100;
 
     // Load unlinked transfer candidates
     const candidates = await step.run("load-candidates", () =>
@@ -793,17 +787,25 @@ export const linkTransferPairs = inngest.createFunction(
           and(
             eq(transactions.householdId, householdId),
             isNull(transactions.transferGroupId),
+            eq(transactions.excludedFromBudget, false),
             isNotNull(transactions.transactionType),
+            afterId ? gt(transactions.id, afterId) : undefined,
             inArray(transactions.transactionType, [
               "internal_transfer",
               "investment",
             ]),
           ),
         )
+        .orderBy(asc(transactions.id))
         .limit(PAGE_SIZE),
     );
+    const lastScannedId = candidates.at(-1)?.id;
 
     if (candidates.length === 0) {
+      await step.sendEvent("detect-recurring-bills", {
+        name: "transactions.recurring.detect",
+        data: { householdId },
+      });
       return { linked: 0, oneSided: 0 };
     }
 
@@ -814,54 +816,58 @@ export const linkTransferPairs = inngest.createFunction(
 
     let linked = 0;
 
-    for (const match of matches) {
-      await step.run(`link-${match.groupId}`, async () => {
+    if (matches.length > 0) {
+      linked = await step.run("apply-transfer-links", async () => {
         // Create transaction_links rows (conflict-safe for retries)
         await db
           .insert(transactionLinks)
-          .values([
-            {
-              householdId,
-              groupId: match.groupId,
-              transactionId: match.sourceId,
-              role: "source",
-              confidence: match.confidence.toFixed(2),
-              confirmed: match.autoConfirm,
-            },
-            {
-              householdId,
-              groupId: match.groupId,
-              transactionId: match.destinationId,
-              role: "destination",
-              confidence: match.confidence.toFixed(2),
-              confirmed: match.autoConfirm,
-            },
-          ])
+          .values(
+            matches.flatMap((match) => [
+              {
+                householdId,
+                groupId: match.groupId,
+                transactionId: match.sourceId,
+                role: "source",
+                confidence: match.confidence.toFixed(2),
+                confirmed: match.autoConfirm,
+              },
+              {
+                householdId,
+                groupId: match.groupId,
+                transactionId: match.destinationId,
+                role: "destination",
+                confidence: match.confidence.toFixed(2),
+                confirmed: match.autoConfirm,
+              },
+            ]),
+          )
           .onConflictDoNothing();
 
-        // Update convenience columns on both transactions
-        const updates: Partial<typeof transactions.$inferInsert> = {
-          transferGroupId: match.groupId,
-          updatedAt: new Date(),
-        };
+        for (const match of matches) {
+          // Update convenience columns on both transactions
+          const updates: Partial<typeof transactions.$inferInsert> = {
+            transferGroupId: match.groupId,
+            updatedAt: new Date(),
+          };
 
-        // High-confidence: auto-exclude from budget
-        if (match.autoConfirm) {
-          updates.excludedFromBudget = true;
+          // High-confidence: auto-exclude from budget
+          if (match.autoConfirm) {
+            updates.excludedFromBudget = true;
+          }
+
+          await db
+            .update(transactions)
+            .set({ ...updates, linkedTransactionId: match.destinationId })
+            .where(eq(transactions.id, match.sourceId));
+
+          await db
+            .update(transactions)
+            .set({ ...updates, linkedTransactionId: match.sourceId })
+            .where(eq(transactions.id, match.destinationId));
         }
 
-        await db
-          .update(transactions)
-          .set({ ...updates, linkedTransactionId: match.destinationId })
-          .where(eq(transactions.id, match.sourceId));
-
-        await db
-          .update(transactions)
-          .set({ ...updates, linkedTransactionId: match.sourceId })
-          .where(eq(transactions.id, match.destinationId));
+        return matches.length;
       });
-
-      linked += 1;
     }
 
     // Handle one-sided transfers (exclude from budget even without a match)
@@ -888,10 +894,10 @@ export const linkTransferPairs = inngest.createFunction(
     }
 
     // If we loaded a full page, there may be more candidates. Re-enqueue.
-    if (candidates.length >= PAGE_SIZE) {
+    if (candidates.length >= PAGE_SIZE && lastScannedId) {
       await step.sendEvent("continue-link-transfers", {
         name: "transactions.link-transfers",
-        data: { householdId },
+        data: { householdId, afterId: lastScannedId },
       });
     } else {
       await step.sendEvent("detect-recurring-bills", {
@@ -1241,71 +1247,67 @@ export const detectRecurringBills = inngest.createFunction(
     );
     const results = detectRecurring(unclaimed);
 
-    // Upsert detected bills and insert history rows
-    let historyInserted = 0;
-    for (const result of results) {
-      const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
-      const amountStr = lastObs
-        ? Math.abs(lastObs.value).toFixed(2)
-        : null;
+    // Upsert detected bills and insert history rows in one static step. This
+    // keeps Inngest replay deterministic even when merchant names/signatures
+    // change and avoids a step per detected pattern.
+    const detectedWriteResult = await step.run("upsert-detected-bills", async () => {
+      let historyInserted = 0;
 
-      const [bill] = await step.run(
-        `upsert-${result.merchant}-${result.amountSignature}`,
-        () =>
-          db
-            .insert(recurringBills)
-            .values({
-              householdId,
-              name: result.merchant,
-              merchantPattern: result.merchant,
-              amountSignature: result.amountSignature,
+      for (const result of results) {
+        const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
+        const amountStr = lastObs ? Math.abs(lastObs.value).toFixed(2) : null;
+
+        const [bill] = await db
+          .insert(recurringBills)
+          .values({
+            householdId,
+            name: result.merchant,
+            merchantPattern: result.merchant,
+            amountSignature: result.amountSignature,
+            cadence: result.cadence,
+            expectedAmount: amountStr,
+            nextDueDate: result.predictedNextDate,
+            lastAmount: amountStr,
+            detectedCadenceConfidence: result.confidence.toFixed(2),
+            pattern: result.pattern,
+            typicalDayOfMonth: result.typicalDayOfMonth,
+            originalCurrency: result.originalCurrency,
+            lastOriginalAmount: result.lastOriginalAmount?.toFixed(2) ?? null,
+            amountTrend: result.amountTrend,
+            lastDetectedAt: runStartTime,
+            transactionCount: result.transactionCount,
+            isDuplicateSubscription: result.isDuplicateSubscription,
+            isPossiblyCancelled: false,
+          })
+          .onConflictDoUpdate({
+            target: [
+              recurringBills.householdId,
+              recurringBills.merchantPattern,
+              recurringBills.amountSignature,
+            ],
+            set: {
               cadence: result.cadence,
-              expectedAmount: amountStr,
+              expectedAmount: amountStr ?? undefined,
               nextDueDate: result.predictedNextDate,
-              lastAmount: amountStr,
+              lastAmount: amountStr ?? undefined,
               detectedCadenceConfidence: result.confidence.toFixed(2),
               pattern: result.pattern,
               typicalDayOfMonth: result.typicalDayOfMonth,
               originalCurrency: result.originalCurrency,
-              lastOriginalAmount:
-                result.lastOriginalAmount?.toFixed(2) ?? null,
+              lastOriginalAmount: result.lastOriginalAmount?.toFixed(2) ?? null,
               amountTrend: result.amountTrend,
               lastDetectedAt: runStartTime,
               transactionCount: result.transactionCount,
               isDuplicateSubscription: result.isDuplicateSubscription,
               isPossiblyCancelled: false,
-            })
-            .onConflictDoUpdate({
-              target: [
-                recurringBills.householdId,
-                recurringBills.merchantPattern,
-                recurringBills.amountSignature,
-              ],
-              set: {
-                cadence: result.cadence,
-                expectedAmount: amountStr ?? undefined,
-                nextDueDate: result.predictedNextDate,
-                lastAmount: amountStr ?? undefined,
-                detectedCadenceConfidence: result.confidence.toFixed(2),
-                pattern: result.pattern,
-                typicalDayOfMonth: result.typicalDayOfMonth,
-                originalCurrency: result.originalCurrency,
-                lastOriginalAmount:
-                  result.lastOriginalAmount?.toFixed(2) ?? null,
-                amountTrend: result.amountTrend,
-                lastDetectedAt: runStartTime,
-                transactionCount: result.transactionCount,
-                isDuplicateSubscription: result.isDuplicateSubscription,
-                isPossiblyCancelled: false,
-                isActive: true,
-                updatedAt: new Date(),
-              },
-            })
-            .returning({ id: recurringBills.id }),
-      );
+              isActive: true,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({ id: recurringBills.id });
 
-      // Insert history rows for this bill's transactions
-      if (bill && result.transactionIds.length > 0) {
+        if (!bill || result.transactionIds.length === 0) continue;
+
         const historyRows = result.transactionIds
           .map((txnId) => {
             const txn = txnMap.get(txnId);
@@ -1321,32 +1323,105 @@ export const detectRecurringBills = inngest.createFunction(
               transactionId: txnId,
             };
           })
-          .filter(
-            (row): row is NonNullable<typeof row> => row !== null,
-          );
+          .filter((row): row is NonNullable<typeof row> => row !== null);
 
         if (historyRows.length > 0) {
-          const inserted = await step.run(
-            `history-${result.merchant}-${result.amountSignature}`,
-            () =>
-              db
-                .insert(recurringBillHistory)
-                .values(historyRows)
-                .onConflictDoNothing()
-                .returning({ id: recurringBillHistory.id }),
-          );
+          const inserted = await db
+            .insert(recurringBillHistory)
+            .values(historyRows)
+            .onConflictDoNothing()
+            .returning({ id: recurringBillHistory.id });
           historyInserted += inserted.length;
         }
       }
-    }
+
+      return { detected: results.length, historyInserted };
+    });
 
     // -----------------------------------------------------------------------
     // Stale bill deactivation and cancellation detection
     // -----------------------------------------------------------------------
 
-    // Do not deactivate active bills merely because the current sync did not
-    // contain a new matching transaction. Cancellation is a time-based signal
-    // below; deactivation should remain a user or explicit retention policy.
+    const staleBillCleanup = await step.run("cleanup-stale-bill-history", async () => {
+      const activeBills = await db
+        .select({
+          id: recurringBills.id,
+          categoryId: recurringBills.categoryId,
+        })
+        .from(recurringBills)
+        .where(
+          and(
+            eq(recurringBills.householdId, householdId),
+            eq(recurringBills.isActive, true),
+          ),
+        );
+
+      const historyBills = await db
+        .select({ billId: recurringBillHistory.billId })
+        .from(recurringBillHistory)
+        .innerJoin(recurringBills, eq(recurringBillHistory.billId, recurringBills.id))
+        .where(eq(recurringBills.householdId, householdId));
+
+      const eligibleHistoryBills = await db
+        .select({ billId: recurringBillHistory.billId })
+        .from(recurringBillHistory)
+        .innerJoin(transactions, eq(recurringBillHistory.transactionId, transactions.id))
+        .innerJoin(recurringBills, eq(recurringBillHistory.billId, recurringBills.id))
+        .where(
+          and(
+            eq(recurringBills.householdId, householdId),
+            lt(transactions.amount, "0"),
+            eq(transactions.excludedFromBudget, false),
+            or(
+              isNull(transactions.transactionType),
+              notInArray(transactions.transactionType, [
+                "internal_transfer",
+                "investment",
+              ]),
+            ),
+          ),
+        );
+
+      const billsWithHistory = new Set(historyBills.map((row) => row.billId));
+      const billsWithEligibleHistory = new Set(
+        eligibleHistoryBills.map((row) => row.billId),
+      );
+      const staleBills = activeBills.filter(
+        (bill) =>
+          billsWithHistory.has(bill.id) && !billsWithEligibleHistory.has(bill.id),
+      );
+      const unapprovedIds = staleBills
+        .filter((bill) => bill.categoryId == null)
+        .map((bill) => bill.id);
+      const approvedIds = staleBills
+        .filter((bill) => bill.categoryId != null)
+        .map((bill) => bill.id);
+
+      let deleted = 0;
+      let markedForReview = 0;
+
+      if (unapprovedIds.length > 0) {
+        const deletedRows = await db
+          .delete(recurringBills)
+          .where(inArray(recurringBills.id, unapprovedIds))
+          .returning({ id: recurringBills.id });
+        deleted = deletedRows.length;
+      }
+
+      if (approvedIds.length > 0) {
+        const updatedRows = await db
+          .update(recurringBills)
+          .set({
+            isPossiblyCancelled: true,
+            updatedAt: new Date(),
+          })
+          .where(inArray(recurringBills.id, approvedIds))
+          .returning({ id: recurringBills.id });
+        markedForReview = updatedRows.length;
+      }
+
+      return { deleted, markedForReview };
+    });
 
     // Cancellation detection: flag active bills whose predicted next date
     // has been exceeded by more than 1.5× their cadence interval.
@@ -1399,7 +1474,9 @@ export const detectRecurringBills = inngest.createFunction(
       existingMatched,
       duplicates: results.filter((r) => r.isDuplicateSubscription).length,
       priceChanges: results.filter((r) => r.priceChangeDetected).length,
-      historyInserted,
+      historyInserted: detectedWriteResult.historyInserted,
+      staleDeleted: staleBillCleanup.deleted,
+      staleMarkedForReview: staleBillCleanup.markedForReview,
       possiblyCancelled: possiblyCancelledIds.length,
     };
   },

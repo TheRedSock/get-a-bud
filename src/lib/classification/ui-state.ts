@@ -65,3 +65,11 @@ export function classificationStateLabel(state: ClassificationUiState) {
       return "Classified";
   }
 }
+
+export function formatConfidencePercent(confidence?: string | number | null) {
+  if (confidence == null || confidence === "") return null;
+  const numeric =
+    typeof confidence === "number" ? confidence : Number.parseFloat(confidence);
+  if (!Number.isFinite(numeric)) return null;
+  return `${Math.round(numeric * 100)}%`;
+}

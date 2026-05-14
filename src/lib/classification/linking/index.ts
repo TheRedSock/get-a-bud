@@ -35,6 +35,10 @@ export interface TransferMatch {
   autoConfirm: boolean;
 }
 
+export function transferGroupIdForPair(sourceId: string, destinationId: string) {
+  return `transfer:${sourceId}:${destinationId}`;
+}
+
 /**
  * Transaction types eligible for transfer linking.
  * bank_transfer is deliberately excluded — it's often a payment to someone else.
@@ -173,11 +177,10 @@ export function findTransferMatches(
     }
 
     if (bestCredit && bestScore >= 0.5) {
-      const groupId = crypto.randomUUID();
       matches.push({
         sourceId: debit.id,
         destinationId: bestCredit.id,
-        groupId,
+        groupId: transferGroupIdForPair(debit.id, bestCredit.id),
         confidence: bestScore,
         autoConfirm: bestScore >= 0.85,
       });

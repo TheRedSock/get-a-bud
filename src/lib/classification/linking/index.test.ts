@@ -3,6 +3,7 @@ import {
   findOneSidedTransfers,
   findTransferMatches,
   isTransferCandidate,
+  transferGroupIdForPair,
   type TransferCandidate,
 } from "./index";
 
@@ -42,6 +43,18 @@ describe("findTransferMatches", () => {
     expect(matches[0].autoConfirm).toBe(true);
     expect(matches[0].sourceId).toBe("t1");
     expect(matches[0].destinationId).toBe("t2");
+    expect(matches[0].groupId).toBe(transferGroupIdForPair("t1", "t2"));
+  });
+
+  it("uses deterministic group IDs for replay-safe background jobs", () => {
+    const candidates = [
+      makeCandidate({ id: "source", accountId: "acc-a", amount: "-5000.00" }),
+      makeCandidate({ id: "destination", accountId: "acc-b", amount: "5000.00" }),
+    ];
+
+    expect(findTransferMatches(candidates)[0].groupId).toBe(
+      findTransferMatches(candidates)[0].groupId,
+    );
   });
 
   it("links exact amount + 1 day offset with confidence 0.85", () => {
