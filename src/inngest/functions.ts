@@ -24,6 +24,7 @@ import {
   trainModel,
   type LoadedModel,
 } from "@/lib/classification/model";
+import { getBootstrapSuggestions } from "@/lib/classification/bootstrap";
 import { parseDescription } from "@/lib/classification/parser";
 import { parseNorwegianDecimal } from "@/lib/classification/parser/norwegian";
 import {
@@ -357,6 +358,8 @@ export const categorizeTransactions = inngest.createFunction(
       typeof event.data.householdId === "string"
         ? event.data.householdId
         : undefined;
+    const afterId =
+      typeof event.data.afterId === "string" ? event.data.afterId : undefined;
 
     if (!householdId && typeof event.data.connectionId === "string") {
       const [conn] = await step.run("resolve-connection-household", () =>
@@ -383,10 +386,13 @@ export const categorizeTransactions = inngest.createFunction(
           and(
             eq(transactions.householdId, householdId),
             isNull(transactions.categoryId),
+            afterId ? gt(transactions.id, afterId) : undefined,
           ),
         )
+        .orderBy(asc(transactions.id))
         .limit(PAGE_SIZE),
     );
+    const lastScannedId = rows.at(-1)?.id;
 
     // Load the latest Tier 2 model for this household (if one exists).
     // Model loading involves deserializing into a classifier instance which
@@ -410,6 +416,31 @@ export const categorizeTransactions = inngest.createFunction(
     let tier1 = 0;
     let tier2 = 0;
     let suggested = 0;
+    let bootstrapSuggested = 0;
+
+    const bootstrapSuggestionRows = await step.run(
+      "load-bootstrap-suggestions",
+      async () =>
+        Array.from(
+          (
+            await getBootstrapSuggestions({
+              householdId,
+              transactions: rows.map((transaction) => ({
+                id: transaction.id,
+                householdId: transaction.householdId,
+                source: transaction.source,
+                description: transaction.description,
+                merchantName: transaction.merchantName,
+                normalizedMerchantName: transaction.normalizedMerchantName,
+                transactionType: transaction.transactionType,
+                paymentChannel: transaction.paymentChannel,
+                metadata: transaction.metadata,
+              })),
+            })
+          ).entries(),
+        ),
+    );
+    const bootstrapSuggestions = new Map(bootstrapSuggestionRows);
 
     for (const transaction of rows.filter((row) => !row.categoryId)) {
       const merchantResolution = await step.run(
@@ -680,31 +711,53 @@ export const categorizeTransactions = inngest.createFunction(
             .where(eq(transactions.id, transaction.id)),
         );
       }
+
+      const bootstrapSuggestion = bootstrapSuggestions.get(transaction.id);
+      if (bootstrapSuggestion) {
+        await step.run(`bootstrap-suggest-${transaction.id}`, () =>
+          db
+            .update(transactions)
+            .set({
+              ...identityUpdates,
+              suggestedCategoryId: bootstrapSuggestion.categoryId,
+              categoryConfidence: bootstrapSuggestion.confidence.toFixed(2),
+              metadata: {
+                ...(transaction.metadata ?? {}),
+                classificationBootstrap: {
+                  source: bootstrapSuggestion.source,
+                  reason: bootstrapSuggestion.reason,
+                  confidence: bootstrapSuggestion.confidence,
+                  suggestedAt: new Date().toISOString(),
+                },
+              },
+              updatedAt: new Date(),
+            })
+            .where(eq(transactions.id, transaction.id)),
+        );
+        suggested += 1;
+        bootstrapSuggested += 1;
+      }
     }
 
-    // If we processed a full page, there may be more uncategorized rows.
+    // If we scanned a full page, there may be more uncategorized rows.
     // Re-enqueue and skip downstream work — link/recurring will run after
     // the final page completes.
-    if (rows.length >= PAGE_SIZE) {
+    if (rows.length >= PAGE_SIZE && lastScannedId) {
       await step.sendEvent("continue-categorize", {
         name: "transactions.categorize",
-        data: { householdId },
+        data: { householdId, afterId: lastScannedId },
       });
-      return { updated, tier1, tier2, suggested };
+      return { updated, tier1, tier2, suggested, bootstrapSuggested, scanned: rows.length };
     }
 
-    // Final page: chain downstream work now that all categorization is done.
+    // Final page: chain transfer linking. That job queues recurring detection
+    // after its final page so bill detection sees transfer budget exclusions.
     await step.sendEvent("link-transfer-pairs", {
       name: "transactions.link-transfers",
       data: { householdId },
     });
 
-    await step.sendEvent("detect-recurring-bills", {
-      name: "transactions.recurring.detect",
-      data: { householdId },
-    });
-
-    return { updated, tier1, tier2, suggested };
+    return { updated, tier1, tier2, suggested, bootstrapSuggested, scanned: rows.length };
   },
 );
 
@@ -838,6 +891,11 @@ export const linkTransferPairs = inngest.createFunction(
     if (candidates.length >= PAGE_SIZE) {
       await step.sendEvent("continue-link-transfers", {
         name: "transactions.link-transfers",
+        data: { householdId },
+      });
+    } else {
+      await step.sendEvent("detect-recurring-bills", {
+        name: "transactions.recurring.detect",
         data: { householdId },
       });
     }
@@ -1521,6 +1579,11 @@ export const retrainClassificationModel = inngest.createFunction(
           ),
       );
     }
+
+    await step.sendEvent("classify-after-retrain", {
+      name: "transactions.categorize",
+      data: { householdId },
+    });
 
     return {
       trained: true,

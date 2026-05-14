@@ -1,11 +1,14 @@
 import { asc, eq } from "drizzle-orm";
 import { BellRing, TrendingUp } from "lucide-react";
 
+import {
+  RecurringBillCategoryAction,
+  RunRecurringDetectionButton,
+} from "@/components/recurring-bill-actions";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
-import { recurringBills } from "@/db/schema";
+import { categories, recurringBills } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatMoney } from "@/lib/utils";
 
@@ -16,6 +19,11 @@ export default async function BillsPage() {
     .from(recurringBills)
     .where(eq(recurringBills.householdId, household.householdId))
     .orderBy(asc(recurringBills.nextDueDate));
+  const categoryOptions = await db
+    .select({ id: categories.id, name: categories.name })
+    .from(categories)
+    .where(eq(categories.householdId, household.householdId))
+    .orderBy(asc(categories.name));
 
   return (
     <div className="grid gap-6 lg:grid-cols-2">
@@ -56,6 +64,11 @@ export default async function BillsPage() {
                       </Badge>
                     ) : null}
                   </div>
+                  <RecurringBillCategoryAction
+                    billId={bill.id}
+                    categories={categoryOptions}
+                    initialCategoryId={bill.categoryId}
+                  />
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">
@@ -107,7 +120,7 @@ export default async function BillsPage() {
               material changes.
             </p>
           </div>
-          <Button variant="outline">Run recurring detection</Button>
+          <RunRecurringDetectionButton />
         </CardContent>
       </Card>
     </div>
