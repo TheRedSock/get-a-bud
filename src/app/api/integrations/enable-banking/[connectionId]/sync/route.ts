@@ -5,8 +5,9 @@ import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
 import { inngest } from "@/inngest/client";
 import { withApiHandler } from "@/lib/errors/api";
-import { notFoundError, providerError, validationError } from "@/lib/errors/catalog";
+import { notFoundError, providerError, rateLimitedError, validationError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
+import { queueEnqueueRateLimit } from "@/lib/security/arcjet";
 
 function serializeRun(run: typeof syncRuns.$inferSelect) {
   const metadata = run.metadata as
@@ -61,9 +62,14 @@ async function getConnectionForHousehold(connectionId: string) {
 export const POST = withApiHandler(
   "enableBanking.sync.queue",
   async (
-    _request: Request,
+    request: Request,
     { params }: { params: Promise<{ connectionId: string }> },
   ) => {
+  const decision = await queueEnqueueRateLimit.protect(request);
+  if (decision.isDenied()) {
+    throw rateLimitedError("Too many sync requests. Please try again shortly.");
+  }
+
   const { connectionId } = await params;
   const connection = await getConnectionForHousehold(connectionId);
 

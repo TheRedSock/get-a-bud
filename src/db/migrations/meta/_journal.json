@@ -8,6 +8,13 @@
       "when": 1778769690123,
       "tag": "0000_loose_banshee",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778939028633,
+      "tag": "0001_hot_genesis",
+      "breakpoints": true
     }
   ]
 }

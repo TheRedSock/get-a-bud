@@ -5,6 +5,8 @@ import { db } from "@/db";
 import { categories, financialAccounts, transactions } from "@/db/schema";
 import { notFoundError } from "@/lib/errors/catalog";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
+import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
+import { requireUser } from "@/lib/auth/session";
 import { recalculateAccountBalance } from "@/lib/finance/balance";
 import { detectCategory, normalizeMerchant } from "@/lib/finance/categorization";
 import {
@@ -13,6 +15,8 @@ import {
 } from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createTransactionSchema } from "@/lib/finance/validation";
+import { rateLimitedError } from "@/lib/errors/catalog";
+import { authenticatedMutationRateLimit } from "@/lib/security/arcjet";
 import { inngest } from "@/inngest/client";
 
 export const GET = withApiHandler("transactions.list", async (request) => {
@@ -37,7 +41,13 @@ export const GET = withApiHandler("transactions.list", async (request) => {
   return NextResponse.json({ transactions: rows });
 });
 
-export const POST = withApiHandler("transactions.create", async (request) => {
+export const POST = withApiHandler("transactions.create", async (request, _ctx, { requestId }) => {
+  const decision = await authenticatedMutationRateLimit.protect(request);
+  if (decision.isDenied()) {
+    throw rateLimitedError("Too many requests. Please try again shortly.");
+  }
+
+  const user = await requireUser();
   const household = await getActiveHousehold();
   const transactionInput = await validateJsonBody(
     request,
@@ -176,6 +186,16 @@ export const POST = withApiHandler("transactions.create", async (request) => {
       data: { householdId: household.householdId },
     });
   }
+
+  writeAuditEventAsync({
+    householdId: household.householdId,
+    actorUserId: user.id!,
+    action: AuditAction.TRANSACTION_CREATE,
+    resourceType: "transaction",
+    resourceId: transaction.id,
+    outcome: "success",
+    requestId,
+  });
 
   return NextResponse.json({ transaction }, { status: 201 });
 });

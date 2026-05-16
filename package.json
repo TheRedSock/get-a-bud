@@ -17,7 +17,8 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:prod:migrate": "node scripts/with-env-file.mjs .env.prod -- drizzle-kit migrate",
-    "db:prod:studio": "node scripts/with-env-file.mjs .env.prod -- drizzle-kit studio"
+    "db:prod:studio": "node scripts/with-env-file.mjs .env.prod -- drizzle-kit studio",
+    "audit:security": "npm audit --audit-level=high"
   },
   "repository": {
     "type": "git",

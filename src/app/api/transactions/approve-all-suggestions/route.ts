@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { categories, households, transactions } from "@/db/schema";
 import { withApiHandler } from "@/lib/errors/api";
+import { rateLimitedError } from "@/lib/errors/catalog";
 import { RETRAIN_CORRECTION_THRESHOLD } from "@/lib/classification/types";
 import {
   learnCategoryCorrection,
@@ -14,6 +15,7 @@ import {
   upsertMerchantFromUserCorrection,
 } from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
+import { bulkOperationRateLimit } from "@/lib/security/arcjet";
 import { inngest } from "@/inngest/client";
 
 /**
@@ -24,7 +26,12 @@ import { inngest } from "@/inngest/client";
  */
 export const POST = withApiHandler(
   "transactions.approve-all-suggestions",
-  async () => {
+  async (request) => {
+    const decision = await bulkOperationRateLimit.protect(request);
+    if (decision.isDenied()) {
+      throw rateLimitedError("Too many bulk operations. Please try again shortly.");
+    }
+
     const household = await getActiveHousehold();
 
     // Load all transactions with pending suggestions

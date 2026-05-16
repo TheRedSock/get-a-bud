@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { budgets } from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
+import { rateLimitedError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { createBudgetSchema } from "@/lib/finance/validation";
+import { authenticatedMutationRateLimit } from "@/lib/security/arcjet";
 
 export const GET = withApiHandler("budgets.list", async () => {
   const household = await getActiveHousehold();
@@ -18,6 +20,11 @@ export const GET = withApiHandler("budgets.list", async () => {
 });
 
 export const POST = withApiHandler("budgets.create", async (request) => {
+  const decision = await authenticatedMutationRateLimit.protect(request);
+  if (decision.isDenied()) {
+    throw rateLimitedError("Too many requests. Please try again shortly.");
+  }
+
   const household = await getActiveHousehold();
   const budgetInput = await validateJsonBody(
     request,

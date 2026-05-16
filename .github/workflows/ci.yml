@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+
+    env:
+      # Build-time stubs — Next.js compiles server modules but does not
+      # execute them during `next build`. These satisfy module-level checks.
+      DATABASE_URL: "postgresql://stub:stub@localhost:5432/stub?sslmode=require"
+      NEXTAUTH_SECRET: "ci-stub-secret-not-used-at-runtime"
+      NEXTAUTH_URL: "http://localhost:3000"
+      FIELD_ENCRYPTION_KEY: "c3R1Yi1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw=="
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Security audit
+        run: npm audit --audit-level=high
+        continue-on-error: true

@@ -45,6 +45,16 @@ vi.mock("@/lib/finance/household", () => ({
   }),
 }));
 
+vi.mock("@/lib/auth/session", () => ({
+  requireUser: vi.fn().mockResolvedValue({ id: "user-1", email: "test@test.com" }),
+  getCurrentUser: vi.fn().mockResolvedValue({ id: "user-1", email: "test@test.com" }),
+}));
+
+vi.mock("@/lib/audit", () => ({
+  AuditAction: { TRANSACTION_CREATE: "transaction.create" },
+  writeAuditEventAsync: vi.fn(),
+}));
+
 vi.mock("@/lib/finance/categorization", () => ({
   detectCategory: vi.fn().mockResolvedValue(null),
   normalizeMerchant: vi.fn().mockReturnValue("test merchant"),
@@ -54,6 +64,9 @@ vi.mock("@/lib/security/arcjet", () => ({
   registerRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
   authRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
   integrationAuthRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
+  authenticatedMutationRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
+  bulkOperationRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
+  queueEnqueueRateLimit: { protect: vi.fn().mockResolvedValue({ isDenied: () => false }) },
 }));
 
 vi.mock("@/lib/finance/balance", () => ({
