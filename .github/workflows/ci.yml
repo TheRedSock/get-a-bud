@@ -26,7 +26,10 @@ jobs:
           node-version: 22
           cache: npm
 
-      - run: npm ci
+      # Using `npm install` instead of `npm ci` because the lock file is
+      # generated on Windows and may drift from Linux resolution. Acceptable
+      # for a prototype; tighten to `npm ci` once lock file is stable.
+      - run: npm install
 
       - name: Lint
         run: npm run lint
