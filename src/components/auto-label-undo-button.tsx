@@ -11,8 +11,10 @@ import { showErrorToast } from "@/lib/toast-errors";
 
 export function AutoLabelUndoButton({
   transactionId,
+  iconOnly = false,
 }: {
   transactionId: string;
+  iconOnly?: boolean;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -35,10 +37,15 @@ export function AutoLabelUndoButton({
     }
   }
 
+  const label = "Undo auto-label";
+
   return (
     <Button
+      aria-label={label}
+      className={iconOnly ? "size-8 shrink-0 p-0" : undefined}
       disabled={loading}
       size="sm"
+      title={label}
       type="button"
       variant="outline"
       onClick={() => void undo()}
@@ -48,7 +55,7 @@ export function AutoLabelUndoButton({
       ) : (
         <Undo2 className="size-4" />
       )}
-      Undo auto-label
+      {iconOnly ? <span className="sr-only">{label}</span> : label}
     </Button>
   );
 }

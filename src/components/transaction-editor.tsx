@@ -1,6 +1,16 @@
 "use client";
 
-import { Edit3, Loader2, Repeat, Save, X } from "lucide-react";
+import {
+  Ban,
+  Clock,
+  Edit3,
+  Loader2,
+  PieChart,
+  Repeat,
+  Save,
+  Unlink,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -29,7 +39,7 @@ import {
   getClassificationUiState,
 } from "@/lib/classification/ui-state";
 import { showErrorToast } from "@/lib/toast-errors";
-import { formatMoney } from "@/lib/utils";
+import { cn, formatMoney } from "@/lib/utils";
 
 type TransactionStatus = "pending" | "posted" | "excluded";
 type TransactionMetadata = Record<string, unknown> & {
@@ -109,6 +119,7 @@ export function TransactionEditor({
   );
   const [amount, setAmount] = useState(transaction.amount);
   const [date, setDate] = useState(transaction.date);
+  const [savingCategory, setSavingCategory] = useState(false);
   const classificationState = getClassificationUiState(transaction);
   const undoAvailable = canUndoAutoLabel(transaction);
   const providerDescription =
@@ -124,6 +135,31 @@ export function TransactionEditor({
     transaction.excludedFromBudget &&
     (transaction.transactionType === "internal_transfer" ||
       transaction.transactionType === "investment");
+
+  async function saveCategoryPick(nextValue: string) {
+    const nextCategoryId =
+      nextValue === "__uncategorized__" ? null : nextValue;
+    const currentCategoryId = transaction.categoryId ?? null;
+    if (nextCategoryId === currentCategoryId) {
+      return;
+    }
+
+    setSavingCategory(true);
+    try {
+      const response = await fetch(`/api/transactions/${transaction.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId: nextCategoryId }),
+      });
+      await parseApiResponse(response);
+      toast.success("Transaction updated");
+      router.refresh();
+    } catch (error) {
+      showErrorToast("Could not update transaction", error);
+    } finally {
+      setSavingCategory(false);
+    }
+  }
 
   async function save() {
     setSaving(true);
@@ -163,7 +199,7 @@ export function TransactionEditor({
   if (editing) {
     return (
       <tr className="border-b bg-secondary/20">
-        <td colSpan={7} className="p-4">
+        <td colSpan={6} className="p-4">
           <div className="grid gap-4">
             <div className="flex flex-wrap items-center gap-2">
               <ClassificationIndicator
@@ -380,37 +416,115 @@ export function TransactionEditor({
     );
   }
 
+  const recurringBillTitle = transaction.recurringBill
+    ? [
+        `Recurring bill: ${transaction.recurringBill.billName}`,
+        `Cadence: ${transaction.recurringBill.cadence.replace(/_/g, " ")}`,
+        transaction.recurringBill.nextDueDate
+          ? `Next due: ${transaction.recurringBill.nextDueDate}`
+          : null,
+        transaction.recurringBill.isPossiblyCancelled
+          ? "Marked as possibly cancelled."
+          : null,
+      ]
+        .filter(Boolean)
+        .join(". ")
+    : "";
+  const oneSidedTitle =
+    "One-sided transfer: internal movement excluded from budget matching.";
+
+  const assignedCategoryName = transaction.categoryId
+    ? categories.find((c) => c.id === transaction.categoryId)?.name
+    : undefined;
+  const categoryTriggerLabel =
+    assignedCategoryName ??
+    (!transaction.categoryId && hasSuggestion
+      ? `Suggested: ${transaction.suggestedCategoryName ?? "Unknown"}`
+      : "Uncategorized");
+
   return (
-    <tr className="border-b transition-colors hover:bg-secondary/30">
+    <tr
+      className={cn(
+        "border-b transition-colors hover:bg-secondary/30",
+        transaction.status === "pending" &&
+          "border-l-[3px] border-l-amber-500 bg-amber-500/[0.06]",
+        transaction.status === "excluded" &&
+          "border-l-[3px] border-l-zinc-500/80 bg-muted/40",
+      )}
+    >
       <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
         {transaction.date}
       </td>
       <td className="min-w-72 px-4 py-3">
-        <div className="mb-2 flex flex-wrap items-center gap-2">
-          <ClassificationIndicator
-            confidence={transaction.categoryConfidence}
-            source={transaction.categorySource}
-            state={classificationState}
-          />
-          <TransferLinkBadge summary={transaction.transferSummary} />
-          {isOneSidedTransfer ? (
-            <Badge className="gap-1 border-sky-500/30 bg-sky-500/10 text-sky-700">
-              One-sided transfer
-            </Badge>
-          ) : null}
-          {transaction.recurringBill ? (
-            <Badge className="gap-1 border-purple-500/30 bg-purple-500/10 text-purple-700">
-              <Repeat className="size-3.5" />
-              {transaction.recurringBill.billName}
-            </Badge>
-          ) : null}
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">
+              {transaction.merchantName ?? transaction.description}
+            </p>
+            {transaction.merchantName ? (
+              <p className="line-clamp-1 text-xs text-muted-foreground">
+                {transaction.description}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 flex-nowrap items-center gap-1">
+            <ClassificationIndicator
+              confidence={transaction.categoryConfidence}
+              source={transaction.categorySource}
+              state={classificationState}
+              variant="icon"
+            />
+            <TransferLinkBadge
+              summary={transaction.transferSummary}
+              variant="icon"
+            />
+            {isOneSidedTransfer ? (
+              <span
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-700"
+                title={oneSidedTitle}
+              >
+                <span className="sr-only">{oneSidedTitle}</span>
+                <Unlink className="size-3.5" aria-hidden />
+              </span>
+            ) : null}
+            {transaction.recurringBill ? (
+              <span
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-700"
+                title={recurringBillTitle}
+              >
+                <span className="sr-only">{recurringBillTitle}</span>
+                <Repeat className="size-3.5" aria-hidden />
+              </span>
+            ) : null}
+            {transaction.status === "pending" ? (
+              <span
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-800"
+                title="Pending: this transaction is not yet posted."
+              >
+                <span className="sr-only">Pending transaction</span>
+                <Clock className="size-3.5" aria-hidden />
+              </span>
+            ) : null}
+            {transaction.status === "excluded" ? (
+              <span
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-zinc-500/40 bg-muted text-muted-foreground"
+                title="Excluded: removed from active budgeting and reporting flows."
+              >
+                <span className="sr-only">Excluded transaction</span>
+                <Ban className="size-3.5" aria-hidden />
+              </span>
+            ) : null}
+            {transaction.status === "posted" && transaction.excludedFromBudget ? (
+              <span
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-orange-500/35 bg-orange-500/10 text-orange-800"
+                title="Excluded from budget: not counted toward budget totals."
+              >
+                <span className="sr-only">Excluded from budget</span>
+                <PieChart className="size-3.5" aria-hidden />
+              </span>
+            ) : null}
+          </div>
         </div>
-        <p className="font-medium">{transaction.merchantName ?? transaction.description}</p>
-        {transaction.merchantName ? (
-          <p className="line-clamp-1 text-xs text-muted-foreground">
-            {transaction.description}
-          </p>
-        ) : null}
         {hasSuggestion ? (
           <div className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
             <p className="font-medium text-amber-700">
@@ -439,33 +553,63 @@ export function TransactionEditor({
       <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
         {transaction.accountName}
       </td>
-      <td className="whitespace-nowrap px-4 py-3 text-sm text-muted-foreground">
-        {transaction.categoryName ??
-          transaction.suggestedCategoryName ??
-          "Uncategorized"}
-      </td>
-      <td className="whitespace-nowrap px-4 py-3">
-        <Badge>{transaction.status}</Badge>
+      <td className="max-w-[14rem] px-4 py-3 text-sm">
+        <Select
+          disabled={savingCategory}
+          value={transaction.categoryId ?? "__uncategorized__"}
+          onValueChange={(value) => void saveCategoryPick(value)}
+        >
+          <SelectTrigger
+            id={`transaction-category-inline-${transaction.id}`}
+            aria-label={`Category: ${categoryTriggerLabel}`}
+            className={cn(
+              "h-auto min-h-0 w-full max-w-[14rem] gap-1 border-0 bg-transparent px-1.5 py-1 shadow-none",
+              "font-normal text-muted-foreground transition-colors",
+              "hover:bg-muted/50 hover:text-foreground",
+              "rounded-lg focus:ring-1 focus:ring-ring",
+              "[&>svg:last-child]:size-3.5 [&>svg:last-child]:opacity-40",
+            )}
+            title="Click to change category"
+          >
+            <span className="line-clamp-2 flex-1 text-left text-sm">
+              {categoryTriggerLabel}
+            </span>
+          </SelectTrigger>
+          <SelectContent align="start">
+            <SelectItem value="__uncategorized__">Uncategorized</SelectItem>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold">
         {formatMoney(Number(transaction.amount), transaction.currency)}
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right">
-        <div className="flex flex-wrap justify-end gap-2">
+        <div className="inline-flex flex-nowrap items-center justify-end gap-1">
           {hasSuggestion ? (
-            <SuggestionActions transactionId={transaction.id} />
+            <SuggestionActions iconOnly transactionId={transaction.id} />
           ) : null}
           {undoAvailable ? (
-            <AutoLabelUndoButton transactionId={transaction.id} />
+            <AutoLabelUndoButton iconOnly transactionId={transaction.id} />
           ) : null}
           <Button
+            aria-label="Edit transaction"
+            className="size-8 shrink-0 p-0"
             size="sm"
+            title="Edit transaction"
             type="button"
             variant="outline"
-            onClick={() => setEditing(true)}
+            onClick={() => {
+              setCategoryId(transaction.categoryId ?? "");
+              setEditing(true);
+            }}
           >
             <Edit3 className="size-4" />
-            Edit
+            <span className="sr-only">Edit transaction</span>
           </Button>
         </div>
       </td>

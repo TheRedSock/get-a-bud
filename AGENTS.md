@@ -1,36 +1,53 @@
 # Agent Guidance
 
 Follow the project architecture in `README.md` and `docs/architecture.md`.
-Finance ledger logic belongs in `src/lib/finance`, provider-independent
-ingestion in `src/lib/ingestion`, Enable Banking specifics in
-`src/lib/ingestion/enable-banking`, durable schema in `src/db/schema.ts`, and
-background workflows in `src/inngest`.
+The full engineering philosophy is in `docs/philosophy.md`. Do not read that
+file on every prompt; instead load the relevant skill for the area you are
+working in.
 
-## Ledger and Ingestion Invariants
+## Project Layout
 
-- Keep user-editable account metadata on `financial_accounts` separate from
-  provider identity and raw payload data on `provider_accounts`.
-- Do not let users edit bank-owned transaction facts for synced rows, including
-  amount, currency, account and date. User enrichment such as category, merchant,
-  notes, status and budget exclusion may be editable.
-- Keep all account, transaction, budget, bill, asset, liability, category and
-  search reads scoped to the active household. Validate user-supplied foreign
-  keys against that household before writes.
-- Imported account balances must be derived from transactions. If provider
-  history is incomplete, maintain a ledger offset transaction rather than writing
-  an unexplained balance directly.
-- Enable Banking transaction pagination must keep request parameters stable while
-  following `continuation_key` until it is absent, even when a page contains no
-  transactions. Continuation keys are scoped to the current sync run and request
-  parameter set; never seed a new run from an old provider account cursor.
-- Do not switch Enable Banking to incremental date-window sync until a completed
-  initial `strategy=longest` transaction sync has been recorded on the connection
-  metadata.
-- Keep bank sync work below serverless invocation limits by checkpointing long
-  imports in `sync_runs.metadata` and enqueueing continuation events instead of
-  looping over all pages in one function call.
-- Treat `ASPSP_RATE_LIMIT_EXCEEDED` or HTTP 429 as a paused sync. Record progress
-  and retry after the provider retry time or a six-hour fallback.
+```
+src/app/          Route shells and API handlers (thin)
+src/components/   Shared UI — zero business logic
+src/db/           Drizzle schema, migrations, connection
+src/inngest/      Background job definitions
+src/lib/          Domain logic, integrations, cross-cutting concerns
+  auth/           Auth.js config, session helpers
+  errors/         AppError catalog, API handler wrapper
+  finance/        Budget, balance, category, merchant helpers
+  ingestion/      Provider-independent types + provider adapters
+    enable-banking/
+    imports/
+  security/       Arcjet presets, encryption
+  logger.ts       Structured logger
+```
+
+Dependency flow: `app/ -> components/ -> lib/`. Never import backwards.
+
+## Universal Commandments
+
+1. All money in integer cents. Never float for currency.
+2. Authenticate, validate, authorize — in that order — in every server action.
+3. All data reads scoped to the active household. Validate foreign keys
+   against that household before writes.
+4. Types flow from schema. Infer from Drizzle and Zod. Never duplicate types.
+5. Every component has loading, error, and empty states.
+6. Semantic color tokens, not raw Tailwind colors.
+7. No `any`. No unvalidated external input past the boundary.
+8. Every background job must be idempotent. Assume it will run twice.
+9. Never expose internal errors to the client. Log to Sentry; return a safe
+   human message via the error catalog.
+10. Abstract the third time, not the first. Duplication over wrong abstraction.
+11. Business rules live in domain modules, not in components or route files.
+12. Provider-owned transaction facts are immutable. Users may enrich
+    (category, merchant, notes, status) but never edit amount, currency,
+    account, or date for synced rows.
+13. Log deviations, not successes. Keep routine noise muted.
+14. One file, one concept. If it needs "and" to describe, split it.
+15. Minimize round-trips, maximize per-trip value. Batch, join, parallelize.
+16. Every server action has a household-isolation test.
+17. All deployments pass lint, typecheck, and tests.
 
 ## Error Handling
 
@@ -47,16 +64,12 @@ background workflows in `src/inngest`.
 
 ## Logging
 
-- Keep routine logs muted. Do not log successful expected actions just because
-  they completed.
+- Use `logger` from `src/lib/logger.ts`; do not add direct `console.*` logging.
 - Log deviations: handled exceptions, provider failures, partial sync
   degradation, failed queues/jobs, suspicious auth/state mismatches and missing
   server configuration.
-- Use `logger` from `src/lib/logger.ts`; do not add direct `console.*` logging.
 - Include safe operation names and IDs when helpful. Do not log secrets,
   credentials, auth codes, session IDs, PEM material, raw headers or tokens.
-- `SENTRY_DSN` is configured through environment variables; unexpected errors
-  should flow to Sentry through the shared logger/instrumentation.
 
 ## Testing
 
@@ -69,10 +82,28 @@ background workflows in `src/inngest`.
   and layout-only assertions.
 - Mock external boundaries such as Enable Banking, Sentry, Inngest, NextAuth and
   network fetches.
-- Avoid redundant CRUD tests after the shared route wrapper is covered. Test
-  route-specific rules, ownership boundaries and durable state transitions.
 - When product behavior changes intentionally, update or remove obsolete tests in
   the same change instead of preserving assertions for old logic.
 
 Before handing off substantive changes, run `npm run lint`, `npm run typecheck`
 and `npm run test` when practical, and mention any command you could not run.
+
+## Skills — Load Before Working
+
+Load the relevant skill before starting work on a particular area. Skills
+contain the detailed design rules an agent must follow and audit against.
+In Cursor, read each skill from `.cursor/skills/<skill-name>/SKILL.md`.
+
+| Skill | Load when working on |
+|-------|---------------------|
+| `schema-data` | `src/db/`, schema changes, migrations, query functions |
+| `domain-logic` | `src/lib/` domain modules, file decomposition, TypeScript types |
+| `ingestion` | `src/lib/ingestion/`, Enable Banking, bank sync, file imports |
+| `background-jobs` | `src/inngest/`, background functions, sync/compute jobs |
+| `api-layer` | `src/app/api/`, server actions, auth/authorization, route handlers |
+| `ui-components` | `src/components/`, `src/app/(app)/` pages, styling, forms, charts |
+| `testing` | Writing or modifying tests across any layer |
+| `data-efficiency` | Database queries, data fetching, caching, performance optimization |
+
+Multiple skills may apply. For example, adding a new API endpoint that writes
+to the database should load both `api-layer` and `schema-data`.

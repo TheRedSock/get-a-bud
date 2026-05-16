@@ -19,10 +19,12 @@ export function ClassificationIndicator({
   confidence,
   source,
   state,
+  variant = "default",
 }: {
   confidence?: string | null;
   source?: string | null;
   state: ClassificationUiState;
+  variant?: "default" | "icon";
 }) {
   if (state === "none" || state === "user_confirmed") {
     return null;
@@ -30,9 +32,13 @@ export function ClassificationIndicator({
 
   const label = classificationStateLabel(state);
   const confidenceLabel = formatConfidencePercent(confidence);
+  const confidenceSentence = confidenceLabel
+    ? ` Category confidence: ${confidenceLabel}.`
+    : "";
   const detail = source
-    ? `${label} by ${source}${confidenceLabel ? ` (${confidenceLabel})` : ""}`
-    : `${label}${confidenceLabel ? ` (${confidenceLabel})` : ""}`;
+    ? `${label} by ${source}.${confidenceSentence}`
+    : `${label}.${confidenceSentence}`;
+
   const Icon =
     state === "auto_applied"
       ? Sparkles
@@ -42,13 +48,28 @@ export function ClassificationIndicator({
           ? CircleAlert
           : CircleCheck;
 
+  if (variant === "icon") {
+    return (
+      <span
+        className={cn(
+          "inline-flex size-7 shrink-0 items-center justify-center rounded-full border",
+          stateStyles[state],
+        )}
+        title={detail.trim()}
+      >
+        <Icon className="size-3.5" aria-hidden />
+        <span className="sr-only">{detail}</span>
+      </span>
+    );
+  }
+
   return (
     <span
       className={cn(
         "inline-flex w-fit items-center gap-1 rounded-full border px-2 py-1 text-xs font-medium",
         stateStyles[state],
       )}
-      title={detail}
+      title={detail.trim()}
     >
       <Icon className="size-3.5" />
       {label}

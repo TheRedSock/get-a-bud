@@ -44,7 +44,7 @@ type TransactionsPageProps = {
 };
 
 const pageSize = 50;
-const sortKeys = ["date", "description", "account", "category", "status", "amount"] as const;
+const sortKeys = ["date", "description", "account", "category", "amount"] as const;
 const classificationFilters = [
   "all",
   "suggestions",
@@ -113,7 +113,6 @@ export default async function TransactionsPage({
     description: transactions.description,
     account: financialAccounts.name,
     category: categories.name,
-    status: transactions.status,
     amount: transactions.amount,
   } satisfies Record<SortKey, unknown>;
   const sortColumn = sortColumns[sort];
@@ -490,9 +489,6 @@ export default async function TransactionsPage({
                       </SortableHeader>
                       <SortableHeader href={sortHref("category")}>
                         Category{sortLabel("category")}
-                      </SortableHeader>
-                      <SortableHeader href={sortHref("status")}>
-                        Status{sortLabel("status")}
                       </SortableHeader>
                       <SortableHeader className="text-right" href={sortHref("amount")}>
                         Amount{sortLabel("amount")}

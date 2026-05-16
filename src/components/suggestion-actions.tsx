@@ -13,8 +13,10 @@ type Action = "approve" | "reject";
 
 export function SuggestionActions({
   transactionId,
+  iconOnly = false,
 }: {
   transactionId: string;
+  iconOnly?: boolean;
 }) {
   const router = useRouter();
   const [loadingAction, setLoadingAction] = useState<Action | null>(null);
@@ -44,11 +46,17 @@ export function SuggestionActions({
     }
   }
 
+  const approveLabel = "Approve suggested category";
+  const rejectLabel = "Reject suggestion";
+
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className={iconOnly ? "inline-flex items-center gap-1" : "flex flex-wrap gap-2"}>
       <Button
+        aria-label={approveLabel}
+        className={iconOnly ? "size-8 shrink-0 p-0" : undefined}
         disabled={loadingAction !== null}
         size="sm"
+        title={approveLabel}
         type="button"
         onClick={() => void submit("approve")}
       >
@@ -57,11 +65,14 @@ export function SuggestionActions({
         ) : (
           <Check className="size-4" />
         )}
-        Approve
+        {iconOnly ? <span className="sr-only">{approveLabel}</span> : "Approve"}
       </Button>
       <Button
+        aria-label={rejectLabel}
+        className={iconOnly ? "size-8 shrink-0 p-0" : undefined}
         disabled={loadingAction !== null}
         size="sm"
+        title={rejectLabel}
         type="button"
         variant="outline"
         onClick={() => void submit("reject")}
@@ -71,7 +82,7 @@ export function SuggestionActions({
         ) : (
           <X className="size-4" />
         )}
-        Reject
+        {iconOnly ? <span className="sr-only">{rejectLabel}</span> : "Reject"}
       </Button>
     </div>
   );
