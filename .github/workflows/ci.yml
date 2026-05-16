@@ -17,6 +17,9 @@ jobs:
       NEXTAUTH_SECRET: "ci-stub-secret-not-used-at-runtime"
       NEXTAUTH_URL: "http://localhost:3000"
       FIELD_ENCRYPTION_KEY: "c3R1Yi1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw=="
+      # next build sets NODE_ENV=production, so these become required:
+      SENTRY_DSN: "https://stub@o0.ingest.sentry.io/0"
+      ARCJET_KEY: "ajkey_ci_stub"
 
     steps:
       - uses: actions/checkout@v4
