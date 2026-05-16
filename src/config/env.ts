@@ -68,7 +68,7 @@ const serverSchema = z.object({
 const publicSchema = z.object({
   NEXT_PUBLIC_APP_URL: z.string().url().optional(),
   NEXT_PUBLIC_APP_ENV: z
-    .enum(["development", "production", "test"])
+    .enum(["development", "preview", "production", "test"])
     .optional(),
 });
 
