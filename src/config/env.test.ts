@@ -60,14 +60,14 @@ describe("src/config/env", () => {
   });
 
   it("treats SENTRY_DSN as optional in non-production", async () => {
-    process.env = { ...originalEnv, ...VALID_ENV };
+    process.env = { ...VALID_ENV };
 
     const { serverEnv } = await import("@/config/env");
     expect(serverEnv.SENTRY_DSN).toBeUndefined();
   });
 
   it("treats ARCJET_KEY as optional in non-production", async () => {
-    process.env = { ...originalEnv, ...VALID_ENV };
+    process.env = { ...VALID_ENV };
 
     const { serverEnv } = await import("@/config/env");
     expect(serverEnv.ARCJET_KEY).toBeUndefined();
