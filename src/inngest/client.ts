@@ -1,17 +1,37 @@
 import { Inngest } from "inngest";
 
 /**
- * Inngest client instance.
+ * Determine the Inngest environment for branch routing.
  *
- * Environment routing:
- * - On Vercel, the SDK auto-detects the branch from VERCEL_GIT_COMMIT_REF.
- *   Do NOT set INNGEST_ENV in Vercel — it overrides auto-detection.
- * - Locally, set INNGEST_ENV="development" in .env.local for the Dev Server.
- * - All branch environments share the same INNGEST_EVENT_KEY and
- *   INNGEST_SIGNING_KEY. Routing is handled by environment detection, not keys.
+ * - Local dev: Uses INNGEST_ENV from .env.local (typically "development")
+ * - Vercel Preview: Uses the git branch name (e.g. "dev") as branch environment
+ * - Vercel Production: Returns undefined → routes to Inngest's production env
+ *
+ * The SDK docs claim auto-detection from VERCEL_GIT_COMMIT_REF, but in
+ * practice this does not work reliably with the Vercel integration.
+ * Setting `env` explicitly ensures correct routing.
  */
+function resolveInngestEnv(): string | undefined {
+  // Explicit override takes priority (local dev with INNGEST_ENV="development")
+  if (process.env.INNGEST_ENV) {
+    return process.env.INNGEST_ENV;
+  }
+
+  // On Vercel Preview, use the git branch as the branch environment name
+  if (
+    process.env.VERCEL_ENV === "preview" &&
+    process.env.VERCEL_GIT_COMMIT_REF
+  ) {
+    return process.env.VERCEL_GIT_COMMIT_REF;
+  }
+
+  // Production or unknown: undefined means Inngest default (production)
+  return undefined;
+}
+
 export const inngest = new Inngest({
   id: "get-a-bud",
   name: "Get a Bud",
   eventKey: process.env.INNGEST_EVENT_KEY,
+  env: resolveInngestEnv(),
 });
