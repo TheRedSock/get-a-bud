@@ -8,22 +8,22 @@ import { financialAccounts, transactions } from "@/db/schema";
  * summing all its transactions in the database. Uses SQL aggregation so
  * that transaction rows are never loaded into Node.js memory.
  *
- * Returns the new balance as a string (numeric(18,2)).
+ * Returns the new balance in integer cents.
  */
 export async function recalculateAccountBalance(accountId: string) {
   const [result] = await db
     .select({
-      sum: sql<string>`COALESCE(SUM(${transactions.amount}), 0)`,
+      sum: sql<number>`COALESCE(SUM(${transactions.amountCents}), 0)::bigint`,
     })
     .from(transactions)
     .where(eq(transactions.accountId, accountId));
 
-  const newBalance = result?.sum ?? "0";
+  const newBalanceCents = Number(result?.sum ?? 0);
 
   await db
     .update(financialAccounts)
-    .set({ currentBalance: newBalance, updatedAt: new Date() })
+    .set({ currentBalanceCents: newBalanceCents, updatedAt: new Date() })
     .where(eq(financialAccounts.id, accountId));
 
-  return newBalance;
+  return newBalanceCents;
 }

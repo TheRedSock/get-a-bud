@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/select";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 const NO_CATEGORY = "__none";
 
@@ -38,15 +38,15 @@ const cadenceOptions = [
 
 type BillTransactionRow = {
   historyId: string;
-  amount: string;
-  originalAmount: string | null;
+  amountCents: number;
+  originalAmountCents: number | null;
   originalCurrency: string | null;
   date: string;
   transactionId: string | null;
   description: string | null;
   merchantName: string | null;
   currency: string | null;
-  transactionAmount: string | null;
+  transactionAmountCents: number | null;
   excludedFromBudget: boolean | null;
   transactionType: string | null;
   accountName: string | null;
@@ -487,13 +487,13 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
                       </p>
                     </div>
                     <p className="font-semibold">
-                      {row.originalCurrency && row.originalAmount
-                        ? formatMoney(
-                            Number(row.originalAmount),
+                      {row.originalCurrency && row.originalAmountCents
+                        ? formatCents(
+                            row.originalAmountCents,
                             row.originalCurrency,
                           )
-                        : formatMoney(
-                            Number(row.amount),
+                        : formatCents(
+                            row.amountCents,
                             row.currency ?? undefined,
                           )}
                     </p>

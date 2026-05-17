@@ -12,6 +12,7 @@ import { parseDescription } from "@/lib/classification/parser";
 import { parseNorwegianDecimal } from "@/lib/classification/parser/norwegian";
 import type { ParserResult } from "@/lib/classification/parser/types";
 import { normalizeMerchant } from "@/lib/finance/categorization";
+import { parseMoneyToCents } from "@/lib/finance/money";
 import {
   EnableBankingClient,
   EnableBankingRateLimitError,
@@ -437,8 +438,8 @@ async function reconcileAccountBalance(input: {
   // Use SQL aggregation instead of loading all transactions into memory (P1-7)
   const [totals] = await db
     .select({
-      totalSum: sql<string>`COALESCE(SUM(${transactions.amount}), 0)`,
-      nonOffsetSum: sql<string>`COALESCE(SUM(CASE WHEN ${transactions.sourceTransactionId} IS DISTINCT FROM ${offsetSourceTransactionId} THEN ${transactions.amount} ELSE 0 END), 0)`,
+      totalSumCents: sql<number>`COALESCE(SUM(${transactions.amountCents}), 0)`,
+      nonOffsetSumCents: sql<number>`COALESCE(SUM(CASE WHEN ${transactions.sourceTransactionId} IS DISTINCT FROM ${offsetSourceTransactionId} THEN ${transactions.amountCents} ELSE 0 END), 0)`,
       manualCount: sql<number>`COUNT(CASE WHEN ${transactions.source} = 'manual' THEN 1 END)`,
     })
     .from(transactions)
@@ -467,7 +468,7 @@ async function reconcileAccountBalance(input: {
       ),
     );
 
-  const transactionSumCents = toCents(totals?.nonOffsetSum ?? "0");
+  const transactionSumCents = totals?.nonOffsetSumCents ?? 0;
   const manualTransactionCount = totals?.manualCount ?? 0;
   const reportedBalanceCents =
     input.reportedBalance === undefined ? undefined : toCents(input.reportedBalance);
@@ -489,7 +490,7 @@ async function reconcileAccountBalance(input: {
   };
 
   if (reportedBalanceCents === undefined) {
-    const calculatedBalance = totals?.totalSum ?? "0";
+    const calculatedBalanceCents = totals?.totalSumCents ?? 0;
     const [account] = await db
       .select({ metadata: financialAccounts.metadata })
       .from(financialAccounts)
@@ -504,14 +505,14 @@ async function reconcileAccountBalance(input: {
     await db
       .update(financialAccounts)
       .set({
-        currentBalance: calculatedBalance,
+        currentBalanceCents: calculatedBalanceCents,
         metadata: {
           ...metadata,
           balance: {
             ...existingBalanceMetadata,
             ...balanceMetadata,
             balanceUnavailable: true,
-            calculatedBalance,
+            calculatedBalance: fromCents(calculatedBalanceCents),
           },
         },
         updatedAt: new Date(),
@@ -526,7 +527,7 @@ async function reconcileAccountBalance(input: {
       accountId: input.financialAccountId,
       source: "enable_banking" as const,
       sourceTransactionId: offsetSourceTransactionId,
-      amount: fromCents(offsetCents),
+      amountCents: offsetCents,
       currency: input.currency,
       date: earliestDate,
       merchantName: "Opening balance adjustment",
@@ -552,10 +553,10 @@ async function reconcileAccountBalance(input: {
     await db.delete(transactions).where(eq(transactions.id, existingOffset.id));
   }
 
-  const calculatedBalance =
+  const calculatedBalanceCents =
     reportedBalanceCents === undefined
-      ? fromCents(transactionSumCents)
-      : fromCents(reportedBalanceCents);
+      ? transactionSumCents
+      : reportedBalanceCents;
   const [account] = await db
     .select({ metadata: financialAccounts.metadata })
     .from(financialAccounts)
@@ -570,13 +571,13 @@ async function reconcileAccountBalance(input: {
   await db
     .update(financialAccounts)
     .set({
-      currentBalance: calculatedBalance,
+      currentBalanceCents: calculatedBalanceCents,
       metadata: {
         ...metadata,
         balance: {
           ...existingBalanceMetadata,
           ...balanceMetadata,
-          calculatedBalance,
+          calculatedBalance: fromCents(calculatedBalanceCents),
         },
       },
       updatedAt: new Date(),
@@ -716,7 +717,7 @@ export async function syncEnableBankingConnection(
           providerAccountId: account.providerAccountId,
           providerAccountName: account.name,
           currency: account.currency,
-          lastBalance: reportedBalance ?? null,
+          lastBalanceCents: reportedBalance ? parseMoneyToCents(reportedBalance) : null,
           raw: account.raw,
         })
         .onConflictDoUpdate({
@@ -727,7 +728,7 @@ export async function syncEnableBankingConnection(
           set: {
             providerAccountName: account.name,
             currency: account.currency,
-            lastBalance: reportedBalance ?? null,
+            lastBalanceCents: reportedBalance ? parseMoneyToCents(reportedBalance) : null,
             raw: account.raw,
             updatedAt: new Date(),
           },
@@ -744,7 +745,7 @@ export async function syncEnableBankingConnection(
             name: account.name,
             kind: account.kind ?? "checking",
             currency: account.currency,
-            currentBalance: "0",
+            currentBalanceCents: 0,
             isManual: false,
             institutionName:
               account.institutionName ?? session.aspsp?.name ?? "Enable Banking",
@@ -840,7 +841,7 @@ export async function syncEnableBankingConnection(
               accountId: financialAccountId,
               source: "enable_banking" as const,
               sourceTransactionId: transaction.providerTransactionId,
-              amount: transaction.amount,
+              amountCents: parseMoneyToCents(transaction.amount),
               currency: transaction.currency,
               date: transaction.date,
               merchantName,
@@ -864,8 +865,8 @@ export async function syncEnableBankingConnection(
               values.originalCurrency = String(
                 parsed.metadata.originalCurrency,
               ).toUpperCase();
-              values.originalAmount = parseNorwegianDecimal(
-                String(parsed.metadata.originalAmount),
+              values.originalAmountCents = parseMoneyToCents(
+                parseNorwegianDecimal(String(parsed.metadata.originalAmount)),
               );
             }
 
@@ -971,7 +972,7 @@ export async function syncEnableBankingConnection(
             transactions: importedTransactions.map((transaction) => ({
               providerTransactionId: transaction.sourceTransactionId ?? transaction.id,
               providerAccountId: transaction.accountId,
-              amount: transaction.amount,
+              amount: fromCents(transaction.amountCents),
               currency: transaction.currency,
               date: transaction.date,
               merchantName: transaction.merchantName ?? undefined,
@@ -1005,7 +1006,7 @@ export async function syncEnableBankingConnection(
           transactions: importedTransactions.map((transaction) => ({
             providerTransactionId: transaction.sourceTransactionId ?? transaction.id,
             providerAccountId: transaction.accountId,
-            amount: transaction.amount,
+            amount: fromCents(transaction.amountCents),
             currency: transaction.currency,
             date: transaction.date,
             merchantName: transaction.merchantName ?? undefined,
@@ -1043,7 +1044,7 @@ export async function syncEnableBankingConnection(
       transactions: importedTransactions.map((transaction) => ({
         providerTransactionId: transaction.sourceTransactionId ?? transaction.id,
         providerAccountId: transaction.accountId,
-        amount: transaction.amount,
+        amount: fromCents(transaction.amountCents),
         currency: transaction.currency,
         date: transaction.date,
         merchantName: transaction.merchantName ?? undefined,

@@ -1,6 +1,22 @@
 import { z } from "zod";
 
+import { moneyPreprocessor } from "@/lib/finance/money";
+
 export const currencySchema = z.string().trim().toUpperCase().length(3);
+
+/**
+ * Zod schema for a money field that accepts user input (string or number)
+ * and outputs integer cents. Uses the canonical money parser.
+ */
+const centsField = z.preprocess(moneyPreprocessor, z.number().int());
+const centsFieldNonNegative = z.preprocess(
+  moneyPreprocessor,
+  z.number().int().nonnegative(),
+);
+const centsFieldOptional = z.preprocess(
+  moneyPreprocessor,
+  z.number().int().optional(),
+);
 
 export const createAccountSchema = z.object({
   name: z.string().min(1).max(120),
@@ -18,7 +34,7 @@ export const createAccountSchema = z.object({
     ])
     .default("checking"),
   currency: currencySchema.default("NOK"),
-  currentBalance: z.coerce.number().default(0),
+  currentBalanceCents: centsField.default(0),
   institutionName: z.string().max(120).optional(),
 });
 
@@ -44,7 +60,7 @@ export const updateAccountSchema = z.object({
 export const createTransactionSchema = z.object({
   accountId: z.string().min(1),
   categoryId: z.string().min(1).optional(),
-  amount: z.coerce.number(),
+  amountCents: centsField,
   currency: currencySchema.default("NOK"),
   date: z.string().min(8),
   merchantName: z.string().max(160).optional(),
@@ -55,7 +71,7 @@ export const createTransactionSchema = z.object({
 export const updateTransactionSchema = z.object({
   accountId: z.string().min(1).optional(),
   categoryId: z.string().min(1).nullable().optional(),
-  amount: z.coerce.number().optional(),
+  amountCents: centsFieldOptional,
   currency: currencySchema.optional(),
   date: z.string().min(8).optional(),
   merchantName: z.string().max(160).nullable().optional(),
@@ -86,7 +102,7 @@ export const createAssetSchema = z.object({
   name: z.string().min(1).max(120),
   kind: z.string().min(1).max(80).default("property"),
   currency: currencySchema.default("NOK"),
-  estimatedValue: z.coerce.number().nonnegative(),
+  estimatedValueCents: centsFieldNonNegative,
   valuationDate: z.string().min(8),
   notes: z.string().max(1000).optional(),
 });
@@ -95,9 +111,9 @@ export const createLiabilitySchema = z.object({
   name: z.string().min(1).max(120),
   kind: z.string().min(1).max(80).default("loan"),
   currency: currencySchema.default("NOK"),
-  currentBalance: z.coerce.number().nonnegative(),
+  currentBalanceCents: centsFieldNonNegative,
   interestRate: z.coerce.number().optional(),
-  minimumPayment: z.coerce.number().optional(),
+  minimumPaymentCents: centsFieldOptional,
   dueDay: z.coerce.number().int().min(1).max(31).optional(),
   notes: z.string().max(1000).optional(),
 });

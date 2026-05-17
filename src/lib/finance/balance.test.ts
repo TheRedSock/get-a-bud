@@ -1,7 +1,7 @@
 import { recalculateAccountBalance } from "@/lib/finance/balance";
 
 vi.mock("@/db", () => {
-  const selectResult = { sum: "150.00" };
+  const selectResult = { sum: 15000 };
   return {
     db: {
       select: vi.fn().mockReturnValue({
@@ -20,9 +20,9 @@ vi.mock("@/db", () => {
 });
 
 describe("recalculateAccountBalance", () => {
-  it("returns the SUM of transaction amounts as the new balance", async () => {
+  it("returns the SUM of transaction amounts as the new balance in cents", async () => {
     const result = await recalculateAccountBalance("acc-1");
 
-    expect(result).toBe("150.00");
+    expect(result).toBe(15000);
   });
 });

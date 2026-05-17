@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { db } from "@/db";
 import { assets, financialAccounts, liabilities } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type NetWorthItem = {
   id: string;
@@ -36,19 +36,19 @@ export default async function NetWorthPage() {
       id: a.id,
       name: a.name,
       kind: a.kind,
-      value: Number(a.currentBalance),
+      value: a.currentBalanceCents ?? 0,
     })),
     ...assetRows.map((a) => ({
       id: a.id,
       name: a.name,
       kind: a.kind,
-      value: Number(a.estimatedValue),
+      value: a.estimatedValueCents ?? 0,
     })),
     ...liabilityRows.map((l) => ({
       id: l.id,
       name: l.name,
       kind: l.kind,
-      value: -Number(l.currentBalance),
+      value: -(l.currentBalanceCents ?? 0),
     })),
   ];
 
@@ -61,7 +61,7 @@ export default async function NetWorthPage() {
           <CardTitle>Net worth snapshot</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="mb-6 text-5xl font-semibold">{formatMoney(netWorth)}</p>
+          <p className="mb-6 text-5xl font-semibold">{formatCents(netWorth)}</p>
           <div className="grid gap-3">
             {items.length ? (
               items.map((item) => (
@@ -78,7 +78,7 @@ export default async function NetWorthPage() {
                       item.value < 0 ? "text-destructive" : "text-foreground"
                     }
                   >
-                    {formatMoney(item.value)}
+                    {formatCents(item.value)}
                   </p>
                 </div>
               ))

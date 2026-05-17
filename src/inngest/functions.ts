@@ -30,7 +30,6 @@ import { parseNorwegianDecimal } from "@/lib/classification/parser/norwegian";
 import {
   detectRecurring,
   cadenceToExpectedDays,
-  recurringMerchantKey,
 } from "@/lib/classification/recurring";
 import {
   addDays,
@@ -45,6 +44,7 @@ import {
   resolveMerchantIdentity,
   type MerchantResolutionResult,
 } from "@/lib/finance/merchants";
+import { parseMoneyToCents } from "@/lib/finance/money";
 import { syncEnableBankingConnection } from "@/lib/ingestion/enable-banking/sync";
 import { inngest } from "@/inngest/client";
 import { unexpectedError } from "@/lib/errors/catalog";
@@ -591,7 +591,7 @@ export const categorizeTransactions = inngest.createFunction(
           description: transaction.description,
           merchantName: transaction.merchantName,
           normalizedMerchantName: transaction.normalizedMerchantName,
-          amount: transaction.amount,
+          amount: (transaction.amountCents / 100).toFixed(2),
           date: transaction.date,
           transactionType: transaction.transactionType,
           paymentChannel: transaction.paymentChannel,
@@ -770,13 +770,13 @@ export const linkTransferPairs = inngest.createFunction(
     const PAGE_SIZE = 100;
 
     // Load unlinked transfer candidates
-    const candidates = await step.run("load-candidates", () =>
+    const candidateRows = await step.run("load-candidates", () =>
       db
         .select({
           id: transactions.id,
           householdId: transactions.householdId,
           accountId: transactions.accountId,
-          amount: transactions.amount,
+          amountCents: transactions.amountCents,
           currency: transactions.currency,
           date: transactions.date,
           transactionType: transactions.transactionType,
@@ -799,7 +799,19 @@ export const linkTransferPairs = inngest.createFunction(
         .orderBy(asc(transactions.id))
         .limit(PAGE_SIZE),
     );
-    const lastScannedId = candidates.at(-1)?.id;
+    const lastScannedId = candidateRows.at(-1)?.id;
+
+    // Convert to TransferCandidate shape (amount as decimal string)
+    const candidates: TransferCandidate[] = candidateRows.map((r) => ({
+      id: r.id,
+      householdId: r.householdId,
+      accountId: r.accountId,
+      amount: (r.amountCents / 100).toFixed(2),
+      currency: r.currency,
+      date: r.date,
+      transactionType: r.transactionType,
+      transferGroupId: r.transferGroupId,
+    }));
 
     if (candidates.length === 0) {
       await step.sendEvent("detect-recurring-bills", {
@@ -810,9 +822,7 @@ export const linkTransferPairs = inngest.createFunction(
     }
 
     // Run matching algorithm
-    const matches = findTransferMatches(
-      candidates as TransferCandidate[],
-    );
+    const matches = findTransferMatches(candidates);
 
     let linked = 0;
 
@@ -875,7 +885,7 @@ export const linkTransferPairs = inngest.createFunction(
       matches.flatMap((m) => [m.sourceId, m.destinationId]),
     );
     const oneSidedIds = findOneSidedTransfers(
-      candidates as TransferCandidate[],
+      candidates,
       matchedIds,
     );
 
@@ -916,10 +926,10 @@ export const linkTransferPairs = inngest.createFunction(
 
 type RecurringCandidateRow = {
   id: string;
-  amount: string;
+  amountCents: number;
   currency: string;
   date: string;
-  originalAmount: string | null;
+  originalAmountCents: number | null;
   originalCurrency: string | null;
   merchantId: string | null;
   normalizedMerchantName: string | null;
@@ -937,7 +947,7 @@ type ExistingRecurringBill = {
   id: string;
   merchantPattern: string;
   typicalDayOfMonth: number | null;
-  expectedAmount: string | null;
+  expectedAmountCents: number | null;
   originalCurrency: string | null;
   cadence: string;
   nextDueDate: string | null;
@@ -1053,13 +1063,13 @@ function comparableAmountForBill(
   bill: ExistingRecurringBill,
 ): number | null {
   if (bill.originalCurrency) {
-    if (row.originalCurrency !== bill.originalCurrency || !row.originalAmount) {
+    if (row.originalCurrency !== bill.originalCurrency || row.originalAmountCents == null) {
       return null;
     }
-    return Math.abs(Number(row.originalAmount));
+    return Math.abs(row.originalAmountCents);
   }
 
-  return Math.abs(Number(row.amount));
+  return Math.abs(row.amountCents);
 }
 
 function isRecurringDetectionIgnored(metadata: Record<string, unknown> | null) {
@@ -1095,10 +1105,10 @@ export const detectRecurringBills = inngest.createFunction(
         db
           .select({
             id: transactions.id,
-            amount: transactions.amount,
+            amountCents: transactions.amountCents,
             currency: transactions.currency,
             date: transactions.date,
-            originalAmount: transactions.originalAmount,
+            originalAmountCents: transactions.originalAmountCents,
             originalCurrency: transactions.originalCurrency,
             merchantId: transactions.merchantId,
             normalizedMerchantName: transactions.normalizedMerchantName,
@@ -1109,7 +1119,7 @@ export const detectRecurringBills = inngest.createFunction(
           .where(
             and(
               eq(transactions.householdId, householdId),
-              lt(transactions.amount, "0"),
+              lt(transactions.amountCents, 0),
               gte(transactions.date, cutoffStr),
               eq(transactions.excludedFromBudget, false),
             ),
@@ -1139,7 +1149,7 @@ export const detectRecurringBills = inngest.createFunction(
           id: recurringBills.id,
           merchantPattern: recurringBills.merchantPattern,
           typicalDayOfMonth: recurringBills.typicalDayOfMonth,
-          expectedAmount: recurringBills.expectedAmount,
+          expectedAmountCents: recurringBills.expectedAmountCents,
           originalCurrency: recurringBills.originalCurrency,
           cadence: recurringBills.cadence,
           nextDueDate: recurringBills.nextDueDate,
@@ -1182,18 +1192,19 @@ export const detectRecurringBills = inngest.createFunction(
     for (const bill of existingBills) {
       const newMatches = allRows.filter((r) => {
         if (claimedIds.has(r.id)) return false;
-        if (recurringMerchantKey(r) !== bill.merchantPattern) return false;
+        const key = r.merchantId ? `merchant:${r.merchantId}` : r.normalizedMerchantName;
+        if (key !== bill.merchantPattern) return false;
         if (bill.typicalDayOfMonth != null) {
           if (!dateMatchesBillCadence(r, bill)) return false;
         } else if (!dateMatchesBillCadence(r, bill)) {
           return false;
         }
-        if (bill.expectedAmount) {
+        if (bill.expectedAmountCents != null) {
           const amt = comparableAmountForBill(r, bill);
           if (amt == null) return false;
-          const expected = Number(bill.expectedAmount);
+          const expected = bill.expectedAmountCents;
           if (
-            Math.abs(amt - expected) / Math.max(expected, 0.01) >
+            Math.abs(amt - expected) / Math.max(expected, 1) >
             0.15
           ) {
             return false;
@@ -1205,9 +1216,9 @@ export const detectRecurringBills = inngest.createFunction(
       if (newMatches.length > 0) {
         const historyRows = newMatches.map((t) => ({
           billId: bill.id,
-          amount: Math.abs(Number(t.amount)).toFixed(2),
-          originalAmount: t.originalAmount
-            ? Math.abs(Number(t.originalAmount)).toFixed(2)
+          amountCents: Math.abs(t.amountCents),
+          originalAmountCents: t.originalAmountCents != null
+            ? Math.abs(t.originalAmountCents)
             : null,
           originalCurrency: t.originalCurrency,
           date: t.date,
@@ -1235,14 +1246,14 @@ export const detectRecurringBills = inngest.createFunction(
             .update(recurringBills)
             .set({
               lastDetectedAt: runStartTime,
-              lastAmount: Math.abs(Number(latest.amount)).toFixed(2),
-              expectedAmount:
+              lastAmountCents: Math.abs(latest.amountCents),
+              expectedAmountCents:
                 latestComparableAmount != null
-                  ? latestComparableAmount.toFixed(2)
-                  : bill.expectedAmount,
+                  ? latestComparableAmount
+                  : bill.expectedAmountCents,
               nextDueDate,
-              lastOriginalAmount: latest.originalAmount
-                ? Math.abs(Number(latest.originalAmount)).toFixed(2)
+              lastOriginalAmountCents: latest.originalAmountCents != null
+                ? Math.abs(latest.originalAmountCents)
                 : null,
               originalCurrency: latest.originalCurrency,
               isPossiblyCancelled: false,
@@ -1260,7 +1271,22 @@ export const detectRecurringBills = inngest.createFunction(
     const unclaimed = allRows.filter(
       (r) => !claimedIds.has(r.id) && !isTransferCandidate(r.transactionType),
     );
-    const results = detectRecurring(unclaimed);
+
+    // Convert to RecurringTransactionInput shape for the detection algorithm
+    const unclaimedForDetection = unclaimed.map((r) => ({
+      id: r.id,
+      amount: (r.amountCents / 100).toFixed(2),
+      currency: r.currency,
+      date: r.date,
+      originalAmount: r.originalAmountCents != null
+        ? (r.originalAmountCents / 100).toFixed(2)
+        : null,
+      originalCurrency: r.originalCurrency,
+      merchantId: r.merchantId,
+      normalizedMerchantName: r.normalizedMerchantName,
+      transactionType: r.transactionType,
+    }));
+    const results = detectRecurring(unclaimedForDetection);
 
     // Upsert detected bills and insert history rows in one static step. This
     // keeps Inngest replay deterministic even when merchant names/signatures
@@ -1270,7 +1296,7 @@ export const detectRecurringBills = inngest.createFunction(
 
       for (const result of results) {
         const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
-        const amountStr = lastObs ? Math.abs(lastObs.value).toFixed(2) : null;
+        const amountCents = lastObs ? Math.round(Math.abs(lastObs.value) * 100) : null;
 
         const [bill] = await db
           .insert(recurringBills)
@@ -1280,14 +1306,16 @@ export const detectRecurringBills = inngest.createFunction(
             merchantPattern: result.merchant,
             amountSignature: result.amountSignature,
             cadence: result.cadence,
-            expectedAmount: amountStr,
+            expectedAmountCents: amountCents,
             nextDueDate: result.predictedNextDate,
-            lastAmount: amountStr,
+            lastAmountCents: amountCents,
             detectedCadenceConfidence: result.confidence.toFixed(2),
             pattern: result.pattern,
             typicalDayOfMonth: result.typicalDayOfMonth,
             originalCurrency: result.originalCurrency,
-            lastOriginalAmount: result.lastOriginalAmount?.toFixed(2) ?? null,
+            lastOriginalAmountCents: result.lastOriginalAmount != null
+              ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
+              : null,
             amountTrend: result.amountTrend,
             lastDetectedAt: runStartTime,
             transactionCount: result.transactionCount,
@@ -1302,14 +1330,16 @@ export const detectRecurringBills = inngest.createFunction(
             ],
             set: {
               cadence: result.cadence,
-              expectedAmount: amountStr ?? undefined,
+              expectedAmountCents: amountCents ?? undefined,
               nextDueDate: result.predictedNextDate,
-              lastAmount: amountStr ?? undefined,
+              lastAmountCents: amountCents ?? undefined,
               detectedCadenceConfidence: result.confidence.toFixed(2),
               pattern: result.pattern,
               typicalDayOfMonth: result.typicalDayOfMonth,
               originalCurrency: result.originalCurrency,
-              lastOriginalAmount: result.lastOriginalAmount?.toFixed(2) ?? null,
+              lastOriginalAmountCents: result.lastOriginalAmount != null
+                ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
+                : null,
               amountTrend: result.amountTrend,
               lastDetectedAt: runStartTime,
               transactionCount: result.transactionCount,
@@ -1329,9 +1359,9 @@ export const detectRecurringBills = inngest.createFunction(
             if (!txn) return null;
             return {
               billId: bill.id,
-              amount: Math.abs(Number(txn.amount)).toFixed(2),
-              originalAmount: txn.originalAmount
-                ? Math.abs(Number(txn.originalAmount)).toFixed(2)
+              amountCents: Math.abs(txn.amountCents),
+              originalAmountCents: txn.originalAmountCents != null
+                ? Math.abs(txn.originalAmountCents)
                 : null,
               originalCurrency: txn.originalCurrency,
               date: txn.date,
@@ -1385,7 +1415,7 @@ export const detectRecurringBills = inngest.createFunction(
         .where(
           and(
             eq(recurringBills.householdId, householdId),
-            lt(transactions.amount, "0"),
+            lt(transactions.amountCents, 0),
             eq(transactions.excludedFromBudget, false),
             or(
               isNull(transactions.transactionType),
@@ -1562,7 +1592,7 @@ export const retrainClassificationModel = inngest.createFunction(
           description: transactions.description,
           merchantName: transactions.merchantName,
           normalizedMerchantName: transactions.normalizedMerchantName,
-          amount: transactions.amount,
+          amountCents: transactions.amountCents,
           date: transactions.date,
           transactionType: transactions.transactionType,
           paymentChannel: transactions.paymentChannel,
@@ -1599,7 +1629,7 @@ export const retrainClassificationModel = inngest.createFunction(
         description: t.description,
         merchantName: t.merchantName,
         normalizedMerchantName: t.normalizedMerchantName,
-        amount: t.amount,
+        amount: (t.amountCents / 100).toFixed(2),
         date: t.date,
         transactionType: t.transactionType,
         paymentChannel: t.paymentChannel,
@@ -1783,8 +1813,8 @@ export const backfillParsedFields = inngest.createFunction(
         updates.originalCurrency = String(
           parsed.metadata.originalCurrency,
         ).toUpperCase();
-        updates.originalAmount = parseNorwegianDecimal(
-          String(parsed.metadata.originalAmount),
+        updates.originalAmountCents = parseMoneyToCents(
+          parseNorwegianDecimal(String(parsed.metadata.originalAmount)),
         );
 
         // Store exchange rate in metadata for reference

@@ -8,7 +8,7 @@ import { db } from "@/db";
 import { categories, transactions } from "@/db/schema";
 import { getClassificationUiState } from "@/lib/classification/ui-state";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type SearchPageProps = {
   searchParams?: Promise<{ q?: string }>;
@@ -25,7 +25,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
           id: transactions.id,
           source: transactions.source,
           date: transactions.date,
-          amount: transactions.amount,
+          amountCents: transactions.amountCents,
           currency: transactions.currency,
           merchantName: transactions.merchantName,
           description: transactions.description,
@@ -50,7 +50,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
           id: transactions.id,
           source: transactions.source,
           date: transactions.date,
-          amount: transactions.amount,
+          amountCents: transactions.amountCents,
           currency: transactions.currency,
           merchantName: transactions.merchantName,
           description: transactions.description,
@@ -112,7 +112,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
                     </p>
                   </div>
                   <p className="font-semibold">
-                    {formatMoney(Number(transaction.amount), transaction.currency)}
+                    {formatCents(transaction.amountCents, transaction.currency)}
                   </p>
                 </div>
               ))

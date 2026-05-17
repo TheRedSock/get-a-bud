@@ -1,7 +1,7 @@
 import { ArrowRightLeft, CircleHelp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 export type TransferSummary = {
   groupId: string;
@@ -10,7 +10,7 @@ export type TransferSummary = {
   confirmed: boolean;
   counterpart?: {
     accountName: string;
-    amount: string;
+    amountCents: number;
     currency: string;
     date: string;
   } | null;
@@ -28,8 +28,8 @@ export function TransferLinkBadge({
   }
 
   const counterpart = summary.counterpart
-    ? `${summary.counterpart.accountName}, ${summary.counterpart.date}, ${formatMoney(
-        Number(summary.counterpart.amount),
+    ? `${summary.counterpart.accountName}, ${summary.counterpart.date}, ${formatCents(
+        summary.counterpart.amountCents,
         summary.counterpart.currency,
       )}`
     : "Counterpart not visible";

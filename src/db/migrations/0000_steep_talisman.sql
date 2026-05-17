@@ -1,4 +1,3 @@
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";--> statement-breakpoint
 CREATE TYPE "public"."financial_account_kind" AS ENUM('checking', 'savings', 'credit_card', 'cash', 'investment', 'loan', 'mortgage', 'property', 'other');--> statement-breakpoint
 CREATE TYPE "public"."bill_cadence" AS ENUM('weekly', 'biweekly', 'monthly', 'quarterly', 'semi_annual', 'yearly', 'unknown');--> statement-breakpoint
 CREATE TYPE "public"."budget_type" AS ENUM('monthly', 'weekly', 'zero_based', 'envelope');--> statement-breakpoint
@@ -13,11 +12,25 @@ CREATE TABLE "assets" (
 	"name" text NOT NULL,
 	"kind" text DEFAULT 'property' NOT NULL,
 	"currency" text DEFAULT 'NOK' NOT NULL,
-	"estimated_value" numeric(18, 2) NOT NULL,
+	"estimated_value_cents" bigint NOT NULL,
 	"valuation_date" date NOT NULL,
 	"notes" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "audit_events" (
+	"id" text PRIMARY KEY NOT NULL,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
+	"household_id" text NOT NULL,
+	"actor_user_id" text NOT NULL,
+	"action" text NOT NULL,
+	"resource_type" text NOT NULL,
+	"resource_id" text,
+	"outcome" text NOT NULL,
+	"request_id" text,
+	"ip_hash" text,
+	"metadata" jsonb
 );
 --> statement-breakpoint
 CREATE TABLE "auth_accounts" (
@@ -39,9 +52,9 @@ CREATE TABLE "budget_lines" (
 	"id" text PRIMARY KEY NOT NULL,
 	"budget_id" text NOT NULL,
 	"category_id" text NOT NULL,
-	"allocated_amount" numeric(18, 2) NOT NULL,
+	"allocated_amount_cents" bigint NOT NULL,
 	"rollover_enabled" boolean DEFAULT false NOT NULL,
-	"envelope_balance" numeric(18, 2) DEFAULT '0' NOT NULL
+	"envelope_balance_cents" bigint DEFAULT 0 NOT NULL
 );
 --> statement-breakpoint
 CREATE TABLE "budgets" (
@@ -124,9 +137,9 @@ CREATE TABLE "financial_accounts" (
 	"currency" text DEFAULT 'NOK' NOT NULL,
 	"institution_name" text,
 	"mask" text,
-	"current_balance" numeric(18, 2) DEFAULT '0' NOT NULL,
-	"available_balance" numeric(18, 2),
-	"credit_limit" numeric(18, 2),
+	"current_balance_cents" bigint DEFAULT 0 NOT NULL,
+	"available_balance_cents" bigint,
+	"credit_limit_cents" bigint,
 	"is_manual" boolean DEFAULT true NOT NULL,
 	"is_archived" boolean DEFAULT false NOT NULL,
 	"metadata" jsonb,
@@ -173,9 +186,9 @@ CREATE TABLE "liabilities" (
 	"name" text NOT NULL,
 	"kind" text DEFAULT 'loan' NOT NULL,
 	"currency" text DEFAULT 'NOK' NOT NULL,
-	"current_balance" numeric(18, 2) NOT NULL,
+	"current_balance_cents" bigint NOT NULL,
 	"interest_rate" numeric(8, 4),
-	"minimum_payment" numeric(18, 2),
+	"minimum_payment_cents" bigint,
 	"due_day" integer,
 	"notes" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -225,7 +238,7 @@ CREATE TABLE "provider_accounts" (
 	"provider_account_id" text NOT NULL,
 	"provider_account_name" text,
 	"currency" text DEFAULT 'NOK' NOT NULL,
-	"last_balance" numeric(18, 2),
+	"last_balance_cents" bigint,
 	"sync_cursor" text,
 	"raw" jsonb,
 	"created_at" timestamp DEFAULT now() NOT NULL,
@@ -235,8 +248,8 @@ CREATE TABLE "provider_accounts" (
 CREATE TABLE "recurring_bill_history" (
 	"id" text PRIMARY KEY NOT NULL,
 	"bill_id" text NOT NULL,
-	"amount" numeric(18, 2) NOT NULL,
-	"original_amount" numeric(18, 2),
+	"amount_cents" bigint NOT NULL,
+	"original_amount_cents" bigint,
 	"original_currency" text,
 	"date" date NOT NULL,
 	"transaction_id" text,
@@ -251,9 +264,9 @@ CREATE TABLE "recurring_bills" (
 	"merchant_pattern" text NOT NULL,
 	"amount_signature" text DEFAULT '' NOT NULL,
 	"cadence" "bill_cadence" DEFAULT 'monthly' NOT NULL,
-	"expected_amount" numeric(18, 2),
+	"expected_amount_cents" bigint,
 	"next_due_date" date,
-	"last_amount" numeric(18, 2),
+	"last_amount_cents" bigint,
 	"price_increase_threshold_pct" integer DEFAULT 15 NOT NULL,
 	"is_active" boolean DEFAULT true NOT NULL,
 	"is_possibly_cancelled" boolean DEFAULT false NOT NULL,
@@ -262,7 +275,7 @@ CREATE TABLE "recurring_bills" (
 	"pattern" text DEFAULT 'day_of_month',
 	"typical_day_of_month" integer,
 	"original_currency" text,
-	"last_original_amount" numeric(18, 2),
+	"last_original_amount_cents" bigint,
 	"amount_trend" text DEFAULT 'stable',
 	"last_detected_at" timestamp,
 	"transaction_count" integer DEFAULT 0,
@@ -310,9 +323,9 @@ CREATE TABLE "transactions" (
 	"source" "transaction_source" DEFAULT 'manual' NOT NULL,
 	"source_transaction_id" text,
 	"status" "transaction_status" DEFAULT 'posted' NOT NULL,
-	"amount" numeric(18, 2) NOT NULL,
+	"amount_cents" bigint NOT NULL,
 	"currency" text DEFAULT 'NOK' NOT NULL,
-	"original_amount" numeric(18, 2),
+	"original_amount_cents" bigint,
 	"original_currency" text,
 	"date" date NOT NULL,
 	"booked_at" timestamp,
@@ -398,6 +411,9 @@ ALTER TABLE "transactions" ADD CONSTRAINT "transactions_category_id_categories_i
 ALTER TABLE "transactions" ADD CONSTRAINT "transactions_suggested_category_id_categories_id_fk" FOREIGN KEY ("suggested_category_id") REFERENCES "public"."categories"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "transactions" ADD CONSTRAINT "transactions_linked_transaction_id_transactions_id_fk" FOREIGN KEY ("linked_transaction_id") REFERENCES "public"."transactions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "assets_household_idx" ON "assets" USING btree ("household_id");--> statement-breakpoint
+CREATE INDEX "audit_events_household_created_idx" ON "audit_events" USING btree ("household_id","created_at");--> statement-breakpoint
+CREATE INDEX "audit_events_action_idx" ON "audit_events" USING btree ("action");--> statement-breakpoint
+CREATE INDEX "audit_events_resource_idx" ON "audit_events" USING btree ("resource_type","resource_id");--> statement-breakpoint
 CREATE INDEX "auth_accounts_user_id_idx" ON "auth_accounts" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "budget_lines_budget_category_uidx" ON "budget_lines" USING btree ("budget_id","category_id");--> statement-breakpoint
 CREATE INDEX "budgets_household_idx" ON "budgets" USING btree ("household_id");--> statement-breakpoint

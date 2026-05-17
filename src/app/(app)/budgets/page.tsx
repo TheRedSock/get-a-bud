@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { getBudgetsWithSpending } from "@/lib/finance/budget-calculations";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 export default async function BudgetsPage() {
   const household = await getActiveHousehold();
@@ -30,8 +30,8 @@ export default async function BudgetsPage() {
               <CardContent className="grid gap-5">
                 {budget.lines.length ? (
                   budget.lines.map((line) => {
-                    const allocated = Number(line.allocatedAmount);
-                    const spent = Number(line.spentAmount);
+                    const allocated = line.allocatedAmountCents;
+                    const spent = line.spentAmountCents;
                     const remaining = allocated - spent;
 
                     return (
@@ -49,14 +49,14 @@ export default async function BudgetsPage() {
                             )}
                           </div>
                           <p className="font-semibold">
-                            {formatMoney(remaining)} left
+                            {formatCents(remaining)} left
                           </p>
                         </div>
                         <Progress
                           value={allocated > 0 ? (spent / allocated) * 100 : 0}
                         />
                         <p className="mt-2 text-sm text-muted-foreground">
-                          {formatMoney(spent)} spent of {formatMoney(allocated)}
+                          {formatCents(spent)} spent of {formatCents(allocated)}
                         </p>
                       </div>
                     );

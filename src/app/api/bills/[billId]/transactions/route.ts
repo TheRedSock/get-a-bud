@@ -50,8 +50,8 @@ export const GET = withApiHandler(
     const rows = await db
       .select({
         historyId: recurringBillHistory.id,
-        amount: recurringBillHistory.amount,
-        originalAmount: recurringBillHistory.originalAmount,
+        amountCents: recurringBillHistory.amountCents,
+        originalAmountCents: recurringBillHistory.originalAmountCents,
         originalCurrency: recurringBillHistory.originalCurrency,
         date: recurringBillHistory.date,
         transactionId: recurringBillHistory.transactionId,
@@ -59,7 +59,7 @@ export const GET = withApiHandler(
         merchantName: transactions.merchantName,
         normalizedMerchantName: transactions.normalizedMerchantName,
         currency: transactions.currency,
-        transactionAmount: transactions.amount,
+        transactionAmountCents: transactions.amountCents,
         excludedFromBudget: transactions.excludedFromBudget,
         transactionType: transactions.transactionType,
         accountName: financialAccounts.name,

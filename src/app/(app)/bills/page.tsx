@@ -16,7 +16,7 @@ import { db } from "@/db";
 import { categories, recurringBills } from "@/db/schema";
 import { formatConfidencePercent } from "@/lib/classification/ui-state";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type BillsPageProps = {
   searchParams?: Promise<{ status?: string }>;
@@ -147,7 +147,7 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                   <RecurringBillEditor
                     billId={bill.id}
                     cadence={bill.cadence}
-                    expectedAmount={bill.expectedAmount}
+                    expectedAmount={bill.expectedAmountCents != null ? String(bill.expectedAmountCents / 100) : null}
                     isActive={bill.isActive}
                     isPossiblyCancelled={bill.isPossiblyCancelled}
                     name={bill.name}
@@ -160,13 +160,13 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                 </div>
                 <div className="text-right">
                   <p className="font-semibold">
-                    {bill.originalCurrency && bill.lastOriginalAmount
-                      ? formatMoney(
-                          Number(bill.lastOriginalAmount),
+                    {bill.originalCurrency && bill.lastOriginalAmountCents != null
+                      ? formatCents(
+                          bill.lastOriginalAmountCents,
                           bill.originalCurrency,
                         )
-                      : formatMoney(
-                          Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+                      : formatCents(
+                          bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
                         )}
                   </p>
                   <Badge className="mt-2">

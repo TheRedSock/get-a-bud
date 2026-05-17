@@ -113,7 +113,7 @@ export default async function TransactionsPage({
     description: transactions.description,
     account: financialAccounts.name,
     category: categories.name,
-    amount: transactions.amount,
+    amount: transactions.amountCents,
   } satisfies Record<SortKey, unknown>;
   const sortColumn = sortColumns[sort];
   const orderDirection = direction === "asc" ? asc : desc;
@@ -225,7 +225,7 @@ export default async function TransactionsPage({
       .select({
         id: transactions.id,
         source: transactions.source,
-        amount: transactions.amount,
+        amountCents: transactions.amountCents,
         currency: transactions.currency,
         date: transactions.date,
         merchantName: transactions.merchantName,
@@ -243,7 +243,7 @@ export default async function TransactionsPage({
         transactionType: transactions.transactionType,
         paymentChannel: transactions.paymentChannel,
         parserSource: transactions.parserSource,
-        originalAmount: transactions.originalAmount,
+        originalAmountCents: transactions.originalAmountCents,
         originalCurrency: transactions.originalCurrency,
         linkedTransactionId: transactions.linkedTransactionId,
         transferGroupId: transactions.transferGroupId,
@@ -328,7 +328,7 @@ export default async function TransactionsPage({
             role: transactionLinks.role,
             confidence: transactionLinks.confidence,
             confirmed: transactionLinks.confirmed,
-            amount: transactions.amount,
+            amountCents: transactions.amountCents,
             currency: transactions.currency,
             date: transactions.date,
             accountName: financialAccounts.name,
@@ -408,7 +408,7 @@ export default async function TransactionsPage({
             counterpart: counterpart
               ? {
                   accountName: counterpart.accountName,
-                  amount: counterpart.amount,
+                  amountCents: counterpart.amountCents,
                   currency: counterpart.currency,
                   date: counterpart.date,
                 }

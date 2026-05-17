@@ -4,24 +4,24 @@ import {
 } from "@/lib/finance/validation";
 
 describe("finance validation schemas", () => {
-  it("normalizes account defaults and currency", () => {
+  it("normalizes account defaults, currency, and converts balance to cents", () => {
     const parsed = createAccountSchema.parse({
       name: "Everyday",
       currency: "nok",
-      currentBalance: "1250.50",
+      currentBalanceCents: "1250.50",
     });
 
     expect(parsed).toMatchObject({
       name: "Everyday",
       kind: "checking",
       currency: "NOK",
-      currentBalance: 1250.5,
+      currentBalanceCents: 125050,
     });
   });
 
   it("requires a transaction description and account", () => {
     const parsed = createTransactionSchema.safeParse({
-      amount: "-42",
+      amountCents: "-42",
       date: "2026-05-11",
       description: "",
     });

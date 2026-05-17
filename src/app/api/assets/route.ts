@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { assets } from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
+
 import { createAssetSchema } from "@/lib/finance/validation";
 
 export const GET = withApiHandler("assets.list", async () => {
@@ -32,7 +33,7 @@ export const POST = withApiHandler("assets.create", async (request) => {
       name: assetInput.name,
       kind: assetInput.kind,
       currency: assetInput.currency,
-      estimatedValue: assetInput.estimatedValue.toFixed(2),
+      estimatedValueCents: assetInput.estimatedValueCents,
       valuationDate: assetInput.valuationDate,
       notes: assetInput.notes,
     })

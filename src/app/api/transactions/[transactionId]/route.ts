@@ -22,6 +22,7 @@ import {
   upsertMerchantFromUserCorrection,
 } from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
+
 import { updateTransactionSchema } from "@/lib/finance/validation";
 import { inngest } from "@/inngest/client";
 
@@ -70,7 +71,7 @@ export const PATCH = withApiHandler(
       });
     }
 
-    const syncedImmutableFields = ["accountId", "amount", "currency", "date"] as const;
+    const syncedImmutableFields = ["accountId", "amountCents", "currency", "date"] as const;
     const attemptedSyncedEdits = syncedImmutableFields.filter(
       (field) => transactionInput[field] !== undefined,
     );
@@ -218,8 +219,8 @@ export const PATCH = withApiHandler(
         values.accountId = transactionInput.accountId;
       }
 
-      if (transactionInput.amount !== undefined) {
-        values.amount = transactionInput.amount.toFixed(2);
+      if (transactionInput.amountCents !== undefined) {
+        values.amountCents = transactionInput.amountCents;
       }
 
       if (transactionInput.currency !== undefined) {
@@ -323,8 +324,8 @@ export const PATCH = withApiHandler(
 
     // Recalculate balances when amount or account changes on manual transactions
     const amountChanged =
-      transactionInput.amount !== undefined &&
-      transactionInput.amount.toFixed(2) !== transaction.amount;
+      transactionInput.amountCents !== undefined &&
+      transactionInput.amountCents !== transaction.amountCents;
     const accountChanged =
       transactionInput.accountId !== undefined &&
       transactionInput.accountId !== transaction.accountId;

@@ -26,7 +26,7 @@ import {
 } from "@/lib/demo-data";
 import { getBudgetsWithSpending } from "@/lib/finance/budget-calculations";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type DashboardPageProps = {
   demo?: boolean;
@@ -34,13 +34,13 @@ type DashboardPageProps = {
 
 const monthFormatter = new Intl.DateTimeFormat("en", { month: "short" });
 
-function buildCashFlowData(rows: Array<{ date: string; amount: string }>) {
+function buildCashFlowData(rows: Array<{ date: string; amountCents: number }>) {
   const grouped = new Map<string, { month: string; income: number; expenses: number }>();
 
   for (const row of rows) {
     const date = new Date(`${row.date}T00:00:00`);
     const month = monthFormatter.format(date);
-    const amount = Number(row.amount);
+    const amount = row.amountCents;
     const current = grouped.get(month) ?? { month, income: 0, expenses: 0 };
 
     if (amount >= 0) {
@@ -55,7 +55,7 @@ function buildCashFlowData(rows: Array<{ date: string; amount: string }>) {
   return [...grouped.values()];
 }
 
-function buildSpendingData(rows: Array<{ source: string; amount: string }>) {
+function buildSpendingData(rows: Array<{ source: string; amountCents: number }>) {
   const colors = [
     "var(--chart-1)",
     "var(--chart-2)",
@@ -66,10 +66,9 @@ function buildSpendingData(rows: Array<{ source: string; amount: string }>) {
   const grouped = new Map<string, number>();
 
   for (const row of rows) {
-    const amount = Number(row.amount);
-    if (amount >= 0) continue;
+    if (row.amountCents >= 0) continue;
     const label = row.source === "enable_banking" ? "Bank imports" : "Manual";
-    grouped.set(label, (grouped.get(label) ?? 0) + Math.abs(amount));
+    grouped.set(label, (grouped.get(label) ?? 0) + Math.abs(row.amountCents));
   }
 
   return [...grouped.entries()].map(([name, value], index) => ({
@@ -79,9 +78,9 @@ function buildSpendingData(rows: Array<{ source: string; amount: string }>) {
   }));
 }
 
-function buildBalanceData(accounts: Array<{ currentBalance: string }>) {
+function buildBalanceData(accounts: Array<{ currentBalanceCents: number | null }>) {
   const balance = accounts.reduce(
-    (sum, account) => sum + Number(account.currentBalance),
+    (sum, account) => sum + (account.currentBalanceCents ?? 0),
     0,
   );
 
@@ -140,7 +139,7 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
                   </Badge>
                 </div>
                 <p className="mt-5 text-sm text-muted-foreground">{card.label}</p>
-                <p className="mt-1 text-3xl font-semibold">{formatMoney(card.value)}</p>
+                <p className="mt-1 text-3xl font-semibold">{formatCents(card.value)}</p>
                 <p className="mt-2 text-sm text-muted-foreground">{card.helper}</p>
               </CardContent>
             </Card>
@@ -198,8 +197,8 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
               <div key={row.name}>
                 <div className="mb-2 flex items-center justify-between text-sm">
                   <span>{row.name}</span>
-                  <span className="text-muted-foreground">
-                    {formatMoney(row.spent)} / {formatMoney(row.allocated)}
+                   <span className="text-muted-foreground">
+                    {formatCents(row.spent)} / {formatCents(row.allocated)}
                   </span>
                 </div>
                 <Progress
@@ -228,7 +227,7 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
                   <p className="text-xs text-muted-foreground">{bill.due}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold">{formatMoney(bill.amount)}</p>
+                  <p className="font-semibold">{formatCents(bill.amount)}</p>
                   <p className="text-xs text-muted-foreground">{bill.status}</p>
                 </div>
               </div>
@@ -257,7 +256,7 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
                   <p className="text-sm text-muted-foreground">{account.kind}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-semibold">{formatMoney(account.balance)}</p>
+                  <p className="font-semibold">{formatCents(account.balance)}</p>
                   <p className="text-sm text-muted-foreground">{account.trend}</p>
                 </div>
               </div>
@@ -284,7 +283,7 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
                     {transaction.category} · {transaction.date}
                   </p>
                 </div>
-                <p className="font-semibold">{formatMoney(transaction.amount)}</p>
+                <p className="font-semibold">{formatCents(transaction.amount)}</p>
               </div>
               ))
             ) : (
@@ -325,37 +324,37 @@ async function getLiveDashboardData() {
       .where(eq(recurringBills.householdId, household.householdId)),
   ]);
   const currentBalance = accountRows.reduce(
-    (sum, account) => sum + Number(account.currentBalance),
+    (sum, account) => sum + (account.currentBalanceCents ?? 0),
     0,
   );
   const spending = transactionRows
-    .filter((transaction) => Number(transaction.amount) < 0)
-    .reduce((sum, transaction) => sum + Math.abs(Number(transaction.amount)), 0);
+    .filter((transaction) => transaction.amountCents < 0)
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amountCents), 0);
 
   return {
     accounts: accountRows.map((account) => ({
       name: account.name,
       kind: account.kind,
-      balance: Number(account.currentBalance),
+      balance: account.currentBalanceCents ?? 0,
       trend: account.isManual ? "Manual" : account.institutionName ?? "Synced",
     })),
     transactions: transactionRows.slice(0, 8).map((transaction) => ({
       merchant: transaction.merchantName ?? transaction.description,
       category: transaction.source.replace("_", " "),
-      amount: Number(transaction.amount),
+      amount: transaction.amountCents,
       date: transaction.date,
     })),
     budgetRows: budgetsWithSpending.flatMap((budget) =>
       budget.lines.map((line) => ({
         name: line.categoryName,
-        spent: Number(line.spentAmount),
-        allocated: Number(line.allocatedAmount),
+        spent: line.spentAmountCents,
+        allocated: line.allocatedAmountCents,
       })),
     ),
     bills: billRows.map((bill) => ({
       name: bill.name,
       due: bill.nextDueDate ?? "No due date",
-      amount: Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+      amount: bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
       status: bill.isActive ? "Active" : "Paused",
     })),
     cashFlowData: buildCashFlowData(transactionRows),
@@ -383,7 +382,7 @@ async function getLiveDashboardData() {
       {
         label: "Upcoming bills",
         value: billRows.reduce(
-          (sum, bill) => sum + Number(bill.expectedAmount ?? bill.lastAmount ?? 0),
+          (sum, bill) => sum + (bill.expectedAmountCents ?? bill.lastAmountCents ?? 0),
           0,
         ),
         icon: CalendarClock,

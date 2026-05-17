@@ -97,7 +97,7 @@ describe("transaction category ownership (P0-2)", () => {
         body: JSON.stringify({
           accountId: "acc-1",
           categoryId: "foreign-cat-id",
-          amount: -42,
+          amountCents: "-42.00",
           currency: "NOK",
           date: "2026-05-10",
           description: "Test transaction",
@@ -131,7 +131,7 @@ describe("transaction category ownership (P0-2)", () => {
         body: JSON.stringify({
           accountId: "acc-1",
           categoryId: "cat-1",
-          amount: -42,
+          amountCents: "-42.00",
           currency: "NOK",
           date: "2026-05-10",
           description: "Test transaction",

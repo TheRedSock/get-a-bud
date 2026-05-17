@@ -1,5 +1,5 @@
 {
-  "id": "ec63c305-4282-4aed-99f6-1243e76a60ff",
+  "id": "c967e328-f1ab-4b3e-847d-0b1469b2dfc4",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -40,9 +40,9 @@
           "notNull": true,
           "default": "'NOK'"
         },
-        "estimated_value": {
-          "name": "estimated_value",
-          "type": "numeric(18, 2)",
+        "estimated_value_cents": {
+          "name": "estimated_value_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -105,6 +105,144 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.audit_events": {
+      "name": "audit_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "household_id": {
+          "name": "household_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ip_hash": {
+          "name": "ip_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "audit_events_household_created_idx": {
+          "name": "audit_events_household_created_idx",
+          "columns": [
+            {
+              "expression": "household_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_action_idx": {
+          "name": "audit_events_action_idx",
+          "columns": [
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_resource_idx": {
+          "name": "audit_events_resource_idx",
+          "columns": [
+            {
+              "expression": "resource_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "resource_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -250,9 +388,9 @@
           "primaryKey": false,
           "notNull": true
         },
-        "allocated_amount": {
-          "name": "allocated_amount",
-          "type": "numeric(18, 2)",
+        "allocated_amount_cents": {
+          "name": "allocated_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -263,12 +401,12 @@
           "notNull": true,
           "default": false
         },
-        "envelope_balance": {
-          "name": "envelope_balance",
-          "type": "numeric(18, 2)",
+        "envelope_balance_cents": {
+          "name": "envelope_balance_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
-          "default": "'0'"
+          "default": 0
         }
       },
       "indexes": {
@@ -1139,22 +1277,22 @@
           "primaryKey": false,
           "notNull": false
         },
-        "current_balance": {
-          "name": "current_balance",
-          "type": "numeric(18, 2)",
+        "current_balance_cents": {
+          "name": "current_balance_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true,
-          "default": "'0'"
+          "default": 0
         },
-        "available_balance": {
-          "name": "available_balance",
-          "type": "numeric(18, 2)",
+        "available_balance_cents": {
+          "name": "available_balance_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
-        "credit_limit": {
-          "name": "credit_limit",
-          "type": "numeric(18, 2)",
+        "credit_limit_cents": {
+          "name": "credit_limit_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -1538,9 +1676,9 @@
           "notNull": true,
           "default": "'NOK'"
         },
-        "current_balance": {
-          "name": "current_balance",
-          "type": "numeric(18, 2)",
+        "current_balance_cents": {
+          "name": "current_balance_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -1550,9 +1688,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "minimum_payment": {
-          "name": "minimum_payment",
-          "type": "numeric(18, 2)",
+        "minimum_payment_cents": {
+          "name": "minimum_payment_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2082,9 +2220,9 @@
           "notNull": true,
           "default": "'NOK'"
         },
-        "last_balance": {
-          "name": "last_balance",
-          "type": "numeric(18, 2)",
+        "last_balance_cents": {
+          "name": "last_balance_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2188,15 +2326,15 @@
           "primaryKey": false,
           "notNull": true
         },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(18, 2)",
+        "amount_cents": {
+          "name": "amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
-        "original_amount": {
-          "name": "original_amount",
-          "type": "numeric(18, 2)",
+        "original_amount_cents": {
+          "name": "original_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2347,9 +2485,9 @@
           "notNull": true,
           "default": "'monthly'"
         },
-        "expected_amount": {
-          "name": "expected_amount",
-          "type": "numeric(18, 2)",
+        "expected_amount_cents": {
+          "name": "expected_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2359,9 +2497,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "last_amount": {
-          "name": "last_amount",
-          "type": "numeric(18, 2)",
+        "last_amount_cents": {
+          "name": "last_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2418,9 +2556,9 @@
           "primaryKey": false,
           "notNull": false
         },
-        "last_original_amount": {
-          "name": "last_original_amount",
-          "type": "numeric(18, 2)",
+        "last_original_amount_cents": {
+          "name": "last_original_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -2912,9 +3050,9 @@
           "notNull": true,
           "default": "'posted'"
         },
-        "amount": {
-          "name": "amount",
-          "type": "numeric(18, 2)",
+        "amount_cents": {
+          "name": "amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": true
         },
@@ -2925,9 +3063,9 @@
           "notNull": true,
           "default": "'NOK'"
         },
-        "original_amount": {
-          "name": "original_amount",
-          "type": "numeric(18, 2)",
+        "original_amount_cents": {
+          "name": "original_amount_cents",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },

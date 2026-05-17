@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type AccountKind =
   | "checking"
@@ -37,7 +37,7 @@ type AccountEditorProps = {
     name: string;
     kind: AccountKind;
     currency: string;
-    currentBalance: string;
+    currentBalanceCents: number;
     institutionName: string | null;
     isManual: boolean;
     balanceWarning?: {
@@ -175,7 +175,7 @@ export function AccountEditor({ account }: AccountEditorProps) {
         {balanceWarning?.discrepancy ? (
           <p className="mt-2 text-sm text-amber-600">
             Added an opening balance adjustment of{" "}
-            {formatMoney(Number(balanceWarning.offsetAmount ?? 0), account.currency)}
+            {formatCents(Number(balanceWarning.offsetAmount ?? 0) * 100, account.currency)}
             .
           </p>
         ) : null}
@@ -191,7 +191,7 @@ export function AccountEditor({ account }: AccountEditorProps) {
       <div className="grid gap-3 sm:justify-items-end">
         <div className="sm:text-right">
           <p className="text-2xl font-semibold">
-            {formatMoney(Number(account.currentBalance), account.currency)}
+            {formatCents(account.currentBalanceCents, account.currency)}
           </p>
           <p className="text-sm text-muted-foreground">
             Calculated from transactions

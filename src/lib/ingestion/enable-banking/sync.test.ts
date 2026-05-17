@@ -185,7 +185,7 @@ function transactionRow(overrides: Record<string, unknown> = {}) {
     id: "txdb-1",
     sourceTransactionId: "tx-1",
     accountId: "fa-1",
-    amount: "100.00",
+    amountCents: 10000,
     currency: "NOK",
     date: "2026-01-15",
     merchantName: "Provider Merchant",
@@ -219,7 +219,7 @@ function setupFullSyncMocks(options: {
   const fa = financialAccountRow(options.financialAccount);
   const existingTxs = options.existingTransactions ?? [];
   const insertedTxs = options.insertedTransactions ?? [transactionRow()];
-  const totals = options.reconTotals ?? { totalSum: "100.00", nonOffsetSum: "100.00", manualCount: 0 };
+  const totals = options.reconTotals ?? { totalSumCents: 10000, nonOffsetSumCents: 10000, manualCount: 0 };
   const offset = options.reconOffset ?? [];
   const earliest = options.reconEarliest ?? { date: "2026-01-15" };
   const accountMeta = options.reconAccountMeta ?? { metadata: {} };
@@ -374,7 +374,7 @@ describe("sync pagination behavior", () => {
       .mockReturnValueOnce(selectChain([]))
       // No batch lookup for page 3 (empty transactions)
       // Reconciliation
-      .mockReturnValueOnce(selectChain([{ totalSum: "100.00", nonOffsetSum: "100.00", manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 10000, nonOffsetSumCents: 10000, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))
       .mockReturnValueOnce(selectChain([{ date: "2026-01-15" }]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -451,7 +451,7 @@ describe("sync checkpoint resume", () => {
       .mockReturnValueOnce(selectChain([conn]))
       .mockReturnValueOnce(selectChain([{ metadata: runMetadata }]))
       .mockReturnValueOnce(selectChain([]))
-      .mockReturnValueOnce(selectChain([{ totalSum: "100.00", nonOffsetSum: "100.00", manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 10000, nonOffsetSumCents: 10000, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))
       .mockReturnValueOnce(selectChain([{ date: "2026-01-15" }]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -506,7 +506,7 @@ describe("sync checkpoint resume", () => {
       .mockReturnValueOnce(selectChain([conn]))
       .mockReturnValueOnce(selectChain([{ metadata: runMetadata }]))
       .mockReturnValueOnce(selectChain([]))
-      .mockReturnValueOnce(selectChain([{ totalSum: "100.00", nonOffsetSum: "100.00", manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 10000, nonOffsetSumCents: 10000, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))
       .mockReturnValueOnce(selectChain([{ date: "2026-01-15" }]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -633,7 +633,7 @@ describe("sync user-edit preservation", () => {
       // Batch lookup returns the existing transaction
       .mockReturnValueOnce(selectChain([existingTx]))
       // Reconciliation
-      .mockReturnValueOnce(selectChain([{ totalSum: "100.00", nonOffsetSum: "100.00", manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 10000, nonOffsetSumCents: 10000, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))
       .mockReturnValueOnce(selectChain([{ date: "2026-01-15" }]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -706,7 +706,7 @@ describe("sync balance reconciliation", () => {
       .mockReturnValueOnce(selectChain([{ metadata: {} }]))
       // No batch lookup (empty page)
       // Reconciliation: sum is 0 but reported balance is 500.00
-      .mockReturnValueOnce(selectChain([{ totalSum: "0", nonOffsetSum: "0", manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 0, nonOffsetSumCents: 0, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))        // no existing offset
       .mockReturnValueOnce(selectChain([{ date: null }])) // no earliest date
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -770,15 +770,15 @@ describe("sync balance reconciliation", () => {
       return typeof v?.description === "string" && v.description.includes("Opening balance");
     });
     expect(offsetInsert).toBeDefined();
-    expect((offsetInsert!.values as Record<string, unknown>).amount).toBe("500.00");
+    expect((offsetInsert!.values as Record<string, unknown>).amountCents).toBe(50000);
     expect((offsetInsert!.values as Record<string, unknown>).currency).toBe("NOK");
 
     // Financial account balance should be set to the reported balance
     const balanceUpdate = capturedSets.find(
-      (s) => typeof s === "object" && s !== null && "currentBalance" in s,
+      (s) => typeof s === "object" && s !== null && "currentBalanceCents" in s,
     ) as Record<string, unknown> | undefined;
     expect(balanceUpdate).toBeDefined();
-    expect(balanceUpdate!.currentBalance).toBe("500.00");
+    expect(balanceUpdate!.currentBalanceCents).toBe(50000);
   });
 
   it("sets balance from transaction sum when provider does not report a balance", async () => {
@@ -788,8 +788,8 @@ describe("sync balance reconciliation", () => {
       .mockReturnValueOnce(selectChain([conn]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]))
       .mockReturnValueOnce(selectChain([]))
-      // Reconciliation: transactions sum to 200.00, no reported balance
-      .mockReturnValueOnce(selectChain([{ totalSum: "200.00", nonOffsetSum: "200.00", manualCount: 0 }]))
+      // Reconciliation: transactions sum to 20000 cents, no reported balance
+      .mockReturnValueOnce(selectChain([{ totalSumCents: 20000, nonOffsetSumCents: 20000, manualCount: 0 }]))
       .mockReturnValueOnce(selectChain([]))
       .mockReturnValueOnce(selectChain([{ date: "2026-01-15" }]))
       .mockReturnValueOnce(selectChain([{ metadata: {} }]));
@@ -797,7 +797,7 @@ describe("sync balance reconciliation", () => {
     mockDbInsert
       .mockReturnValueOnce(insertChain([providerAccountRow()]))
       .mockReturnValueOnce(insertChain([financialAccountRow()]))
-      .mockReturnValueOnce(insertChain([transactionRow({ amount: "200.00" })]));
+      .mockReturnValueOnce(insertChain([transactionRow({ amountCents: 20000 })]));
 
     const capturedSets: unknown[] = [];
     mockDbUpdate.mockImplementation(() => {
@@ -831,10 +831,10 @@ describe("sync balance reconciliation", () => {
 
     // Balance set from transaction sum, not a reported balance
     const balanceUpdate = capturedSets.find(
-      (s) => typeof s === "object" && s !== null && "currentBalance" in s,
+      (s) => typeof s === "object" && s !== null && "currentBalanceCents" in s,
     ) as Record<string, unknown> | undefined;
     expect(balanceUpdate).toBeDefined();
-    expect(balanceUpdate!.currentBalance).toBe("200.00");
+    expect(balanceUpdate!.currentBalanceCents).toBe(20000);
 
     // Balance metadata should indicate balance was unavailable
     expect(balanceUpdate!.metadata).toMatchObject({

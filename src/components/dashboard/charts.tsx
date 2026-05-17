@@ -15,7 +15,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { formatMoney } from "@/lib/utils";
+import { formatCents } from "@/lib/finance/money";
 
 type CashFlowPoint = {
   month: string;
@@ -56,7 +56,7 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
 
   return (
     <div>
-      <div role="img" aria-label={`Cash flow chart: ${formatMoney(totalIncome)} income, ${formatMoney(totalExpenses)} expenses over ${data.length} months`}>
+      <div role="img" aria-label={`Cash flow chart: ${formatCents(totalIncome)} income, ${formatCents(totalExpenses)} expenses over ${data.length} months`}>
         <ResponsiveContainer width="100%" height={260}>
         <BarChart data={data}>
           <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" vertical={false} />
@@ -68,7 +68,7 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
           />
           <Tooltip
             contentStyle={tooltipStyle}
-            formatter={(value) => formatMoney(Number(value))}
+            formatter={(value) => formatCents(Number(value))}
           />
           <Bar dataKey="income" fill="var(--chart-2)" radius={[8, 8, 0, 0]} />
           <Bar dataKey="expenses" fill="var(--chart-4)" radius={[8, 8, 0, 0]} />
@@ -79,8 +79,8 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
         {data.map((d) => (
           <tr key={d.month}>
             <th scope="row">{d.month}</th>
-            <td>Income: {formatMoney(d.income)}</td>
-            <td>Expenses: {formatMoney(d.expenses)}</td>
+            <td>Income: {formatCents(d.income)}</td>
+            <td>Expenses: {formatCents(d.expenses)}</td>
           </tr>
         ))}
       </SrTable>
@@ -89,7 +89,7 @@ export function CashFlowChart({ data }: { data: CashFlowPoint[] }) {
 }
 
 export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
-  const summary = data.map((d) => `${d.name}: ${formatMoney(d.value)}`).join(", ");
+  const summary = data.map((d) => `${d.name}: ${formatCents(d.value)}`).join(", ");
 
   return (
     <div>
@@ -110,7 +110,7 @@ export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
           </Pie>
           <Tooltip
             contentStyle={tooltipStyle}
-            formatter={(value) => formatMoney(Number(value))}
+            formatter={(value) => formatCents(Number(value))}
           />
         </PieChart>
         </ResponsiveContainer>
@@ -119,7 +119,7 @@ export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
         {data.map((d) => (
           <tr key={d.name}>
             <th scope="row">{d.name}</th>
-            <td>{formatMoney(d.value)}</td>
+            <td>{formatCents(d.value)}</td>
           </tr>
         ))}
       </SrTable>
@@ -128,7 +128,7 @@ export function SpendingPieChart({ data }: { data: SpendingPoint[] }) {
 }
 
 export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
-  const latest = data.length ? formatMoney(data[data.length - 1].balance) : "no data";
+  const latest = data.length ? formatCents(data[data.length - 1].balance) : "no data";
 
   return (
     <div>
@@ -146,7 +146,7 @@ export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
           <YAxis hide domain={["dataMin - 5000", "dataMax + 5000"]} />
           <Tooltip
             contentStyle={tooltipStyle}
-            formatter={(value) => formatMoney(Number(value))}
+            formatter={(value) => formatCents(Number(value))}
           />
           <Area
             dataKey="balance"
@@ -162,7 +162,7 @@ export function BalanceTrendChart({ data }: { data: BalancePoint[] }) {
         {data.map((d) => (
           <tr key={d.day}>
             <th scope="row">{d.day}</th>
-            <td>{formatMoney(d.balance)}</td>
+            <td>{formatCents(d.balance)}</td>
           </tr>
         ))}
       </SrTable>

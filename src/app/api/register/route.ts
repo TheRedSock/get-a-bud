@@ -154,7 +154,7 @@ export const POST = withApiHandler("auth.register", async (request) => {
         .map((category) => ({
           budgetId: budget.id,
           categoryId: category.id,
-          allocatedAmount: "0",
+          allocatedAmountCents: 0,
         })),
     );
   });

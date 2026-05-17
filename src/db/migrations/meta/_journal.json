@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1778769690123,
-      "tag": "0000_loose_banshee",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1778939028633,
-      "tag": "0001_hot_genesis",
+      "when": 1779008082325,
+      "tag": "0000_steep_talisman",
       "breakpoints": true
     }
   ]

@@ -14,6 +14,7 @@ import {
   upsertMerchantFromUserCorrection,
 } from "@/lib/finance/merchants";
 import { getActiveHousehold } from "@/lib/finance/household";
+
 import { createTransactionSchema } from "@/lib/finance/validation";
 import { rateLimitedError } from "@/lib/errors/catalog";
 import { authenticatedMutationRateLimit } from "@/lib/security/arcjet";
@@ -147,7 +148,7 @@ export const POST = withApiHandler("transactions.create", async (request, _ctx, 
       categoryId,
       categorySource,
       categoryConfidence,
-      amount: transactionInput.amount.toFixed(2),
+      amountCents: transactionInput.amountCents,
       currency: transactionInput.currency,
       date: transactionInput.date,
       merchantName: nextMerchantName,

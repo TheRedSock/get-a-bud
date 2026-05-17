@@ -6,6 +6,7 @@ import { financialAccounts, transactions } from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { rateLimitedError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
+
 import { createAccountSchema } from "@/lib/finance/validation";
 import { authenticatedMutationRateLimit } from "@/lib/security/arcjet";
 
@@ -32,7 +33,7 @@ export const POST = withApiHandler("accounts.create", async (request) => {
     "Please provide a valid account name, type, currency and balance.",
   );
 
-  const openingBalance = accountInput.currentBalance;
+  const openingBalanceCents = accountInput.currentBalanceCents;
 
   const account = await db.transaction(async (tx) => {
     const [createdAccount] = await tx
@@ -42,19 +43,19 @@ export const POST = withApiHandler("accounts.create", async (request) => {
         name: accountInput.name,
         kind: accountInput.kind,
         currency: accountInput.currency,
-        currentBalance: openingBalance.toFixed(2),
+        currentBalanceCents: openingBalanceCents,
         institutionName: accountInput.institutionName,
         isManual: true,
       })
       .returning();
 
     // Model the opening balance as a transaction so that the ledger sum
-    // matches `currentBalance` — consistent with the sync-side pattern.
-    if (openingBalance !== 0) {
+    // matches `currentBalanceCents` — consistent with the sync-side pattern.
+    if (openingBalanceCents !== 0) {
       await tx.insert(transactions).values({
         householdId: household.householdId,
         accountId: createdAccount.id,
-        amount: openingBalance.toFixed(2),
+        amountCents: openingBalanceCents,
         currency: accountInput.currency,
         date: new Date().toISOString().slice(0, 10),
         description: "Opening balance",

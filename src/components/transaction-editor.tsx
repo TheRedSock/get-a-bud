@@ -39,7 +39,8 @@ import {
   getClassificationUiState,
 } from "@/lib/classification/ui-state";
 import { showErrorToast } from "@/lib/toast-errors";
-import { cn, formatMoney } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { centsToDecimalString, formatCents } from "@/lib/finance/money";
 
 type TransactionStatus = "pending" | "posted" | "excluded";
 type TransactionMetadata = Record<string, unknown> & {
@@ -64,7 +65,7 @@ type TransactionEditorProps = {
   transaction: {
     id: string;
     source: "manual" | "enable_banking" | "import";
-    amount: string;
+    amountCents: number;
     currency: string;
     date: string;
     merchantName: string | null;
@@ -83,7 +84,7 @@ type TransactionEditorProps = {
     transactionType: string | null;
     paymentChannel: string | null;
     parserSource: string | null;
-    originalAmount: string | null;
+    originalAmountCents: number | null;
     originalCurrency: string | null;
     linkedTransactionId: string | null;
     transferGroupId: string | null;
@@ -117,7 +118,7 @@ export function TransactionEditor({
   const [excludedFromBudget, setExcludedFromBudget] = useState(
     transaction.excludedFromBudget,
   );
-  const [amount, setAmount] = useState(transaction.amount);
+  const [amount, setAmount] = useState(centsToDecimalString(transaction.amountCents));
   const [date, setDate] = useState(transaction.date);
   const [savingCategory, setSavingCategory] = useState(false);
   const classificationState = getClassificationUiState(transaction);
@@ -366,9 +367,9 @@ export function TransactionEditor({
               <Fact
                 label="Original currency"
                 value={
-                  transaction.originalAmount && transaction.originalCurrency
-                    ? formatMoney(
-                        Number(transaction.originalAmount),
+                  transaction.originalAmountCents && transaction.originalCurrency
+                    ? formatCents(
+                        transaction.originalAmountCents,
                         transaction.originalCurrency,
                       )
                     : "N/A"
@@ -586,7 +587,7 @@ export function TransactionEditor({
         </Select>
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right font-semibold">
-        {formatMoney(Number(transaction.amount), transaction.currency)}
+        {formatCents(transaction.amountCents, transaction.currency)}
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right">
         <div className="inline-flex flex-nowrap items-center justify-end gap-1">

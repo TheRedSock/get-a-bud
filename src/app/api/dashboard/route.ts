@@ -13,8 +13,6 @@ import {
 import { withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
 
-const toNumber = (value: string | null | undefined) => Number(value ?? 0);
-
 export const GET = withApiHandler("dashboard.get", async () => {
   const household = await getActiveHousehold();
 
@@ -45,32 +43,32 @@ export const GET = withApiHandler("dashboard.get", async () => {
         .where(eq(liabilities.householdId, household.householdId)),
     ]);
 
-  const cashBalance = accounts.reduce(
-    (sum, account) => sum + toNumber(account.currentBalance),
+  const cashBalanceCents = accounts.reduce(
+    (sum, account) => sum + (account.currentBalanceCents ?? 0),
     0,
   );
-  const manualAssets = assetRows.reduce(
-    (sum, asset) => sum + toNumber(asset.estimatedValue),
+  const manualAssetsCents = assetRows.reduce(
+    (sum, asset) => sum + (asset.estimatedValueCents ?? 0),
     0,
   );
-  const debts = debtRows.reduce(
-    (sum, debt) => sum + toNumber(debt.currentBalance),
+  const debtsCents = debtRows.reduce(
+    (sum, debt) => sum + (debt.currentBalanceCents ?? 0),
     0,
   );
-  const monthSpend = recentTransactions
-    .filter((transaction) => toNumber(transaction.amount) < 0)
-    .reduce((sum, transaction) => sum + Math.abs(toNumber(transaction.amount)), 0);
-  const monthIncome = recentTransactions
-    .filter((transaction) => toNumber(transaction.amount) > 0)
-    .reduce((sum, transaction) => sum + toNumber(transaction.amount), 0);
+  const monthSpendCents = recentTransactions
+    .filter((transaction) => (transaction.amountCents ?? 0) < 0)
+    .reduce((sum, transaction) => sum + Math.abs(transaction.amountCents ?? 0), 0);
+  const monthIncomeCents = recentTransactions
+    .filter((transaction) => (transaction.amountCents ?? 0) > 0)
+    .reduce((sum, transaction) => sum + (transaction.amountCents ?? 0), 0);
 
   return NextResponse.json({
     household,
     summary: {
-      cashBalance,
-      netWorth: cashBalance + manualAssets - debts,
-      monthSpend,
-      monthIncome,
+      cashBalanceCents,
+      netWorthCents: cashBalanceCents + manualAssetsCents - debtsCents,
+      monthSpendCents,
+      monthIncomeCents,
       upcomingBills: billRows.length,
       activeBudgets: activeBudgets.length,
     },

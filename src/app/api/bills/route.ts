@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { recurringBills } from "@/db/schema";
 import { validateJsonBody, withApiHandler } from "@/lib/errors/api";
 import { getActiveHousehold } from "@/lib/finance/household";
+import { parseMoneyToCents } from "@/lib/finance/money";
 
 const billSchema = z.object({
   name: z.string().min(1).max(120),
@@ -51,7 +52,9 @@ export const POST = withApiHandler("bills.create", async (request) => {
       name: billInput.name,
       merchantPattern: billInput.merchantPattern,
       cadence: billInput.cadence,
-      expectedAmount: billInput.expectedAmount?.toFixed(2),
+      expectedAmountCents: billInput.expectedAmount
+        ? parseMoneyToCents(billInput.expectedAmount)
+        : null,
       nextDueDate: billInput.nextDueDate,
     })
     .returning();

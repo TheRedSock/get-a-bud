@@ -1,4 +1,4 @@
-import { and, eq, gte, lt, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { budgetLines, budgets, categories, transactions } from "@/db/schema";
@@ -9,8 +9,8 @@ type BudgetLineWithSpent = {
   categoryName: string;
   categoryColor: string;
   categoryIcon: string;
-  allocatedAmount: string;
-  spentAmount: string;
+  allocatedAmountCents: number;
+  spentAmountCents: number;
   rolloverEnabled: boolean;
 };
 
@@ -22,8 +22,8 @@ type BudgetWithLines = {
   periodStartDay: number;
   isActive: boolean;
   lines: BudgetLineWithSpent[];
-  totalAllocated: number;
-  totalSpent: number;
+  totalAllocatedCents: number;
+  totalSpentCents: number;
 };
 
 /**
@@ -95,10 +95,10 @@ export async function getBudgetsWithSpending(
         categoryName: categories.name,
         categoryColor: categories.color,
         categoryIcon: categories.icon,
-        allocatedAmount: budgetLines.allocatedAmount,
+        allocatedAmountCents: budgetLines.allocatedAmountCents,
         rolloverEnabled: budgetLines.rolloverEnabled,
-        spentAmount: sql<string>`COALESCE(
-          (SELECT ABS(SUM(${transactions.amount}))
+        spentAmountCents: sql<number>`COALESCE(
+          (SELECT ABS(SUM(${transactions.amountCents}))
            FROM ${transactions}
            WHERE (
              ${transactions.categoryId} = ${budgetLines.categoryId}
@@ -112,20 +112,20 @@ export async function getBudgetsWithSpending(
              AND ${transactions.householdId} = ${householdId}
              AND ${transactions.date} >= ${period.from}
              AND ${transactions.date} < ${period.to}
-             AND ${transactions.amount} < 0
+             AND ${transactions.amountCents} < 0
              AND ${transactions.excludedFromBudget} = false
-          ), 0)`,
+          ), 0)::bigint`,
       })
       .from(budgetLines)
       .innerJoin(categories, eq(categories.id, budgetLines.categoryId))
       .where(eq(budgetLines.budgetId, budget.id));
 
-    const totalAllocated = lines.reduce(
-      (sum, line) => sum + Number(line.allocatedAmount),
+    const totalAllocatedCents = lines.reduce(
+      (sum, line) => sum + line.allocatedAmountCents,
       0,
     );
-    const totalSpent = lines.reduce(
-      (sum, line) => sum + Number(line.spentAmount),
+    const totalSpentCents = lines.reduce(
+      (sum, line) => sum + line.spentAmountCents,
       0,
     );
 
@@ -137,8 +137,8 @@ export async function getBudgetsWithSpending(
       periodStartDay: budget.periodStartDay,
       isActive: budget.isActive,
       lines,
-      totalAllocated,
-      totalSpent,
+      totalAllocatedCents,
+      totalSpentCents,
     });
   }
 
