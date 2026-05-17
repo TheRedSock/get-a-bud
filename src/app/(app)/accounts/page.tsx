@@ -36,7 +36,16 @@ export default async function AccountsPage() {
   const household = await getActiveHousehold();
   const [accounts, connections] = await Promise.all([
     db
-      .select()
+      .select({
+        id: financialAccounts.id,
+        name: financialAccounts.name,
+        kind: financialAccounts.kind,
+        currency: financialAccounts.currency,
+        currentBalanceCents: financialAccounts.currentBalanceCents,
+        institutionName: financialAccounts.institutionName,
+        isManual: financialAccounts.isManual,
+        metadata: financialAccounts.metadata,
+      })
       .from(financialAccounts)
       .where(eq(financialAccounts.householdId, household.householdId)),
     getHouseholdConnections(household.householdId),

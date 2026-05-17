@@ -1,5 +1,5 @@
 import { ArrowUpRight, CalendarClock, Landmark, Wallet } from "lucide-react";
-import { desc, eq } from "drizzle-orm";
+import type { LucideIcon } from "lucide-react";
 
 import {
   BalanceTrendChart,
@@ -9,12 +9,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { db } from "@/db";
-import {
-  financialAccounts,
-  recurringBills,
-  transactions,
-} from "@/db/schema";
 import {
   accounts as demoAccounts,
   balanceData as demoBalanceData,
@@ -24,107 +18,33 @@ import {
   spendingData as demoSpendingData,
   transactions as demoTransactions,
 } from "@/lib/demo-data";
-import { getBudgetsWithSpending } from "@/lib/finance/budget-calculations";
+import { getDashboardData } from "@/lib/finance/dashboard";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatCents } from "@/lib/finance/money";
+
+import type { DashboardData, SummaryCardIcon } from "@/lib/finance/dashboard";
 
 type DashboardPageProps = {
   demo?: boolean;
 };
 
-const monthFormatter = new Intl.DateTimeFormat("en", { month: "short" });
-
-function buildCashFlowData(rows: Array<{ date: string; amountCents: number }>) {
-  const grouped = new Map<string, { month: string; income: number; expenses: number }>();
-
-  for (const row of rows) {
-    const date = new Date(`${row.date}T00:00:00`);
-    const month = monthFormatter.format(date);
-    const amount = row.amountCents;
-    const current = grouped.get(month) ?? { month, income: 0, expenses: 0 };
-
-    if (amount >= 0) {
-      current.income += amount;
-    } else {
-      current.expenses += Math.abs(amount);
-    }
-
-    grouped.set(month, current);
-  }
-
-  return [...grouped.values()];
-}
-
-function buildSpendingData(rows: Array<{ source: string; amountCents: number }>) {
-  const colors = [
-    "var(--chart-1)",
-    "var(--chart-2)",
-    "var(--chart-3)",
-    "var(--chart-4)",
-    "var(--chart-5)",
-  ];
-  const grouped = new Map<string, number>();
-
-  for (const row of rows) {
-    if (row.amountCents >= 0) continue;
-    const label = row.source === "enable_banking" ? "Bank imports" : "Manual";
-    grouped.set(label, (grouped.get(label) ?? 0) + Math.abs(row.amountCents));
-  }
-
-  return [...grouped.entries()].map(([name, value], index) => ({
-    name,
-    value,
-    color: colors[index % colors.length],
-  }));
-}
-
-function buildBalanceData(accounts: Array<{ currentBalanceCents: number | null }>) {
-  const balance = accounts.reduce(
-    (sum, account) => sum + (account.currentBalanceCents ?? 0),
-    0,
-  );
-
-  return balance ? [{ day: "Now", balance }] : [];
-}
+/** Maps domain icon keys to actual Lucide components (UI layer concern). */
+const SUMMARY_ICONS: Record<SummaryCardIcon, LucideIcon> = {
+  wallet: Wallet,
+  landmark: Landmark,
+  "calendar-clock": CalendarClock,
+};
 
 export default async function DashboardPage({ demo = false }: DashboardPageProps = {}) {
-  const data = demo
-    ? {
-        accounts: demoAccounts,
-        transactions: demoTransactions,
-        budgetRows: demoBudgetRows,
-        bills: demoBills,
-        cashFlowData: demoCashFlowData,
-        spendingData: demoSpendingData,
-        balanceData: demoBalanceData,
-        summaryCards: [
-          {
-            label: "Current balance",
-            value: 118400,
-            icon: Wallet,
-            helper: "+12.5% after payday",
-          },
-          {
-            label: "Remaining budget",
-            value: 23900,
-            icon: Landmark,
-            helper: "18 days left",
-          },
-          {
-            label: "Upcoming bills",
-            value: 20599,
-            icon: CalendarClock,
-            helper: "4 expected",
-          },
-        ],
-      }
-    : await getLiveDashboardData();
+  const data: DashboardData = demo
+    ? buildDemoData()
+    : await getLiveData();
 
   return (
     <div className="grid gap-6">
       <section className="grid gap-4 md:grid-cols-3">
         {data.summaryCards.map((card) => {
-          const Icon = card.icon;
+          const Icon = SUMMARY_ICONS[card.icon];
 
           return (
             <Card key={card.label} className="overflow-hidden">
@@ -304,89 +224,42 @@ function EmptyDashboardState({ message }: { message: string }) {
   );
 }
 
-async function getLiveDashboardData() {
-  const household = await getActiveHousehold();
-  const [accountRows, transactionRows, budgetsWithSpending, billRows] = await Promise.all([
-    db
-      .select()
-      .from(financialAccounts)
-      .where(eq(financialAccounts.householdId, household.householdId)),
-    db
-      .select()
-      .from(transactions)
-      .where(eq(transactions.householdId, household.householdId))
-      .orderBy(desc(transactions.date))
-      .limit(50),
-    getBudgetsWithSpending(household.householdId),
-    db
-      .select()
-      .from(recurringBills)
-      .where(eq(recurringBills.householdId, household.householdId)),
-  ]);
-  const currentBalance = accountRows.reduce(
-    (sum, account) => sum + (account.currentBalanceCents ?? 0),
-    0,
-  );
-  const spending = transactionRows
-    .filter((transaction) => transaction.amountCents < 0)
-    .reduce((sum, transaction) => sum + Math.abs(transaction.amountCents), 0);
+// ---------------------------------------------------------------------------
+// Data loaders
+// ---------------------------------------------------------------------------
 
+async function getLiveData(): Promise<DashboardData> {
+  const household = await getActiveHousehold();
+  return getDashboardData(household.householdId);
+}
+
+function buildDemoData(): DashboardData {
   return {
-    accounts: accountRows.map((account) => ({
-      name: account.name,
-      kind: account.kind,
-      balance: account.currentBalanceCents ?? 0,
-      trend: account.isManual ? "Manual" : account.institutionName ?? "Synced",
-    })),
-    transactions: transactionRows.slice(0, 8).map((transaction) => ({
-      merchant: transaction.merchantName ?? transaction.description,
-      category: transaction.source.replace("_", " "),
-      amount: transaction.amountCents,
-      date: transaction.date,
-    })),
-    budgetRows: budgetsWithSpending.flatMap((budget) =>
-      budget.lines.map((line) => ({
-        name: line.categoryName,
-        spent: line.spentAmountCents,
-        allocated: line.allocatedAmountCents,
-      })),
-    ),
-    bills: billRows.map((bill) => ({
-      name: bill.name,
-      due: bill.nextDueDate ?? "No due date",
-      amount: bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
-      status: bill.isActive ? "Active" : "Paused",
-    })),
-    cashFlowData: buildCashFlowData(transactionRows),
-    spendingData: buildSpendingData(transactionRows),
-    balanceData: buildBalanceData(accountRows),
+    accounts: demoAccounts,
+    transactions: demoTransactions,
+    budgetRows: demoBudgetRows,
+    bills: demoBills,
+    cashFlowData: demoCashFlowData,
+    spendingData: demoSpendingData,
+    balanceData: demoBalanceData,
     summaryCards: [
       {
         label: "Current balance",
-        value: currentBalance,
-        icon: Wallet,
-        helper: accountRows.length
-          ? `${accountRows.length} account${accountRows.length === 1 ? "" : "s"}`
-          : "No accounts connected",
+        value: 118400,
+        icon: "wallet",
+        helper: "+12.5% after payday",
       },
       {
-        label: "Month spending",
-        value: spending,
-        icon: Landmark,
-        helper: transactionRows.length
-          ? `${transactionRows.length} recent transaction${
-              transactionRows.length === 1 ? "" : "s"
-            }`
-          : "No transactions yet",
+        label: "Remaining budget",
+        value: 23900,
+        icon: "landmark",
+        helper: "18 days left",
       },
       {
         label: "Upcoming bills",
-        value: billRows.reduce(
-          (sum, bill) => sum + (bill.expectedAmountCents ?? bill.lastAmountCents ?? 0),
-          0,
-        ),
-        icon: CalendarClock,
-        helper: `${billRows.length} expected`,
+        value: 20599,
+        icon: "calendar-clock",
+        helper: "4 expected",
       },
     ],
   };

@@ -1,58 +1,12 @@
-import { eq } from "drizzle-orm";
-
 import { CreateNetWorthItemForm } from "@/components/forms/create-net-worth-item-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { db } from "@/db";
-import { assets, financialAccounts, liabilities } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatCents } from "@/lib/finance/money";
-
-type NetWorthItem = {
-  id: string;
-  name: string;
-  kind: string;
-  value: number;
-};
+import { getNetWorthSummary } from "@/lib/finance/net-worth";
 
 export default async function NetWorthPage() {
   const household = await getActiveHousehold();
-  const [accountRows, assetRows, liabilityRows] = await Promise.all([
-    db
-      .select()
-      .from(financialAccounts)
-      .where(eq(financialAccounts.householdId, household.householdId)),
-    db
-      .select()
-      .from(assets)
-      .where(eq(assets.householdId, household.householdId)),
-    db
-      .select()
-      .from(liabilities)
-      .where(eq(liabilities.householdId, household.householdId)),
-  ]);
-
-  const items: NetWorthItem[] = [
-    ...accountRows.map((a) => ({
-      id: a.id,
-      name: a.name,
-      kind: a.kind,
-      value: a.currentBalanceCents ?? 0,
-    })),
-    ...assetRows.map((a) => ({
-      id: a.id,
-      name: a.name,
-      kind: a.kind,
-      value: a.estimatedValueCents ?? 0,
-    })),
-    ...liabilityRows.map((l) => ({
-      id: l.id,
-      name: l.name,
-      kind: l.kind,
-      value: -(l.currentBalanceCents ?? 0),
-    })),
-  ];
-
-  const netWorth = items.reduce((sum, item) => sum + item.value, 0);
+  const { items, netWorth } = await getNetWorthSummary(household.householdId);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_380px]">

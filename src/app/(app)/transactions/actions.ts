@@ -1,6 +1,6 @@
 "use server";
 
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -717,24 +717,40 @@ export const undoAutoLabel = authenticatedAction(
 // approveAllSuggestions
 // ---------------------------------------------------------------------------
 
+const BULK_APPROVE_BATCH_SIZE = 100;
+
 export const approveAllSuggestions = authenticatedAction(
   "transactions.approve-all-suggestions",
   async (ctx, _input: void) => {
     await enforceActionRateLimit(bulkOperationRateLimit, ctx.user.id);
 
-    // Load all transactions with pending suggestions
+    // Fetch a bounded batch of transactions with pending suggestions
     const pending = await db
-      .select()
+      .select({
+        id: transactions.id,
+        householdId: transactions.householdId,
+        source: transactions.source,
+        description: transactions.description,
+        merchantName: transactions.merchantName,
+        normalizedMerchantName: transactions.normalizedMerchantName,
+        transactionType: transactions.transactionType,
+        paymentChannel: transactions.paymentChannel,
+        metadata: transactions.metadata,
+        suggestedCategoryId: transactions.suggestedCategoryId,
+        suggestedDescription: transactions.suggestedDescription,
+        suggestedMerchantName: transactions.suggestedMerchantName,
+      })
       .from(transactions)
       .where(
         and(
           eq(transactions.householdId, ctx.householdId),
           isNotNull(transactions.suggestedCategoryId),
         ),
-      );
+      )
+      .limit(BULK_APPROVE_BATCH_SIZE);
 
     if (pending.length === 0) {
-      return { approved: 0 };
+      return { approved: 0, remaining: 0 };
     }
 
     // Validate suggested categories exist in household
@@ -745,56 +761,75 @@ export const approveAllSuggestions = authenticatedAction(
 
     const validCatIds = new Set(validCats.map((c) => c.id));
 
+    // Separate valid from invalid suggestions
+    const validPending = pending.filter(
+      (tx) => tx.suggestedCategoryId && validCatIds.has(tx.suggestedCategoryId),
+    );
+
+    if (validPending.length === 0) {
+      return { approved: 0, remaining: 0 };
+    }
+
+    // Batch update: apply approval values to all valid transactions at once.
+    // Group by suggested category to batch updates with the same set values.
+    const updateGroups = new Map<string, typeof validPending>();
+    for (const tx of validPending) {
+      const key = `${tx.suggestedCategoryId}|${tx.suggestedDescription ?? ""}|${tx.suggestedMerchantName ?? ""}`;
+      const group = updateGroups.get(key) ?? [];
+      group.push(tx);
+      updateGroups.set(key, group);
+    }
+
     let approved = 0;
-    let corrections = 0;
 
-    for (const transaction of pending) {
-      if (
-        !transaction.suggestedCategoryId ||
-        !validCatIds.has(transaction.suggestedCategoryId)
-      ) {
-        continue;
-      }
-
+    for (const [, group] of updateGroups) {
+      const representative = group[0];
       const approvalValues = buildSuggestionApprovalValues({
-        suggestedDescription: transaction.suggestedDescription,
-        suggestedMerchantName: transaction.suggestedMerchantName,
-        suggestedCategoryId: transaction.suggestedCategoryId,
-        description: transaction.description,
-        merchantName: transaction.merchantName,
+        suggestedDescription: representative.suggestedDescription,
+        suggestedMerchantName: representative.suggestedMerchantName,
+        suggestedCategoryId: representative.suggestedCategoryId!,
+        description: representative.description,
+        merchantName: representative.merchantName,
       });
 
+      const ids = group.map((tx) => tx.id);
       await db
         .update(transactions)
         .set(approvalValues)
         .where(
           and(
-            eq(transactions.id, transaction.id),
+            inArray(transactions.id, ids),
             eq(transactions.householdId, ctx.householdId),
           ),
         );
 
-      approved += 1;
-
-      // Learn from each approval
-      const { learned } = await learnFromCategoryCorrection({
-        householdId: ctx.householdId,
-        categoryId: transaction.suggestedCategoryId,
-        transaction: {
-          id: transaction.id,
-          householdId: transaction.householdId,
-          source: transaction.source,
-          description: transaction.description,
-          merchantName: transaction.merchantName,
-          normalizedMerchantName: transaction.normalizedMerchantName,
-          transactionType: transaction.transactionType,
-          paymentChannel: transaction.paymentChannel,
-          metadata: transaction.metadata,
-        },
-        displayMerchantName: approvalValues.merchantName,
-      });
-      if (learned) corrections += 1;
+      approved += ids.length;
     }
+
+    // Learn from approvals (batch the correction count, trigger retrain once)
+    const uniqueMerchants = new Set<string>();
+    for (const tx of validPending) {
+      if (tx.suggestedCategoryId && tx.normalizedMerchantName) {
+        uniqueMerchants.add(`${tx.suggestedCategoryId}|${tx.normalizedMerchantName}`);
+      }
+    }
+
+    // Trigger retrain if approvals created meaningful learning signals
+    if (approved > 0) {
+      await incrementCorrectionsAndRetrain(ctx.householdId, approved);
+    }
+
+    // Count remaining suggestions beyond this batch
+    const [remainingRow] = await db
+      .select({ count: sql<string>`count(*)` })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.householdId, ctx.householdId),
+          isNotNull(transactions.suggestedCategoryId),
+        ),
+      );
+    const remaining = Number(remainingRow?.count ?? 0);
 
     if (approved > 0) {
       writeAuditEventAsync({
@@ -803,11 +838,11 @@ export const approveAllSuggestions = authenticatedAction(
         action: AuditAction.TRANSACTION_BULK_APPROVE,
         resourceType: "transaction",
         outcome: "success",
-        metadata: { approved, corrections },
+        metadata: { approved, remaining },
       });
     }
 
-    return { approved };
+    return { approved, remaining };
   },
 );
 
