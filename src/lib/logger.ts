@@ -3,18 +3,26 @@ import * as Sentry from "@sentry/nextjs";
 import type { AppError, ErrorLogLevel } from "@/lib/errors/app-error";
 
 const SENSITIVE_KEYS = [
+  "accountnumber",
   "authorization",
   "code",
   "cookie",
+  "creditcard",
+  "cvv",
   "encryptedPrivateKey",
   "encryptedPrivateKeyIv",
   "encryptedPrivateKeyTag",
+  "iban",
   "password",
   "pem",
   "pemPrivateKey",
   "privateKey",
+  "routingnumber",
+  "secret",
   "session",
   "sessionId",
+  "sortcode",
+  "ssn",
   "state",
   "token",
 ];
@@ -75,6 +83,10 @@ function emit(level: Exclude<ErrorLogLevel, "silent">, message: string, context?
   }
 }
 
+function stringTag(value: unknown) {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
 export const logger = {
   info(message: string, context?: LogContext) {
     emit("info", message, context);
@@ -90,7 +102,7 @@ export const logger = {
       return;
     }
 
-    const logContext = {
+    const logContext: LogContext = {
       ...context,
       code: error.code,
       status: error.status,
@@ -108,6 +120,8 @@ export const logger = {
         tags: {
           code: error.code,
           status: String(error.status),
+          operation: stringTag(logContext.operation),
+          requestId: stringTag(logContext.requestId),
         },
         extra: sanitizeForLog(logContext) as Record<string, unknown>,
       });

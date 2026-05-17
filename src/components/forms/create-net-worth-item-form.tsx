@@ -52,15 +52,15 @@ export function CreateNetWorthItemForm() {
     }
 
     if (itemType === "asset") {
-      payload.estimatedValue = Number(value);
+      payload.estimatedValueCents = value;
       payload.valuationDate = valuationDate;
     } else {
-      payload.currentBalance = Number(value);
+      payload.currentBalanceCents = value;
       if (interestRate) {
         payload.interestRate = Number(interestRate);
       }
       if (minimumPayment) {
-        payload.minimumPayment = Number(minimumPayment);
+        payload.minimumPaymentCents = minimumPayment;
       }
       if (dueDay) {
         payload.dueDay = Number(dueDay);

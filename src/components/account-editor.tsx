@@ -19,7 +19,7 @@ import {
 import { updateAccount } from "@/app/(app)/accounts/actions";
 import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
-import { formatCents } from "@/lib/finance/money";
+import { formatCents, parseMoneyToCents } from "@/lib/finance/money";
 
 type AccountKind =
   | "checking"
@@ -176,7 +176,10 @@ export function AccountEditor({ account }: AccountEditorProps) {
         {balanceWarning?.discrepancy ? (
           <p className="mt-2 text-sm text-amber-600">
             Added an opening balance adjustment of{" "}
-            {formatCents(Number(balanceWarning.offsetAmount ?? 0) * 100, account.currency)}
+            {formatCents(
+              parseMoneyToCents(balanceWarning.offsetAmount ?? "0"),
+              account.currency,
+            )}
             .
           </p>
         ) : null}

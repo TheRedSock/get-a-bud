@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   amountToBucket,
   extractFeatures,
@@ -89,7 +87,7 @@ describe("extractFeatures", () => {
       description:
         "Varekjøp, Kl. 17.25 Versjon 1 Aut. 044936, Kiwi 425 Rødtve Sandåsveien Oslo",
       merchantName: "Kiwi 425 Rødtve",
-      amount: "-814.07",
+      amountCents: -81407,
       date: "2025-11-03",
       transactionType: "card_purchase",
       paymentChannel: "debit_card",
@@ -113,7 +111,7 @@ describe("extractFeatures", () => {
 
   it("handles minimal transaction (only amount and date)", () => {
     const tokens = extractFeatures({
-      amount: "150.00",
+      amountCents: 15000,
       date: "2025-11-15",
     });
 
@@ -132,7 +130,7 @@ describe("extractFeatures", () => {
   it("uses normalized merchant name as text signal", () => {
     const tokens = extractFeatures({
       normalizedMerchantName: "kiwi 425 rødtve",
-      amount: "-593.16",
+      amountCents: -59316,
       date: "2026-04-10",
     });
 
@@ -150,7 +148,7 @@ describe("extractFeatures", () => {
     const tokens = extractFeatures({
       description: "Visa, Eur 21,99 Netflix.Com, Valutakurs: 12,1132",
       merchantName: "Netflix.Com",
-      amount: "-266.29",
+      amountCents: -26629,
       date: "2025-10-15",
       transactionType: "foreign_purchase",
       paymentChannel: "visa",
@@ -169,7 +167,7 @@ describe("extractFeatures", () => {
 
   it("handles credit/debit indicator", () => {
     const tokens = extractFeatures({
-      amount: "-100.00",
+      amountCents: -10000,
       creditDebitIndicator: "debit",
     });
 
@@ -201,7 +199,7 @@ describe("extractFeatures", () => {
     const tokens = extractFeatures({
       description: null,
       merchantName: null,
-      amount: "-30.00",
+      amountCents: -3000,
     });
 
     // No word or bigram tokens
@@ -212,7 +210,7 @@ describe("extractFeatures", () => {
   });
 
   it("handles non-finite amount gracefully", () => {
-    const tokens = extractFeatures({ amount: "not_a_number" });
+    const tokens = extractFeatures({ amountCents: NaN });
     // No amount token produced
     expect(tokens.filter((t) => t.startsWith("amt:"))).toHaveLength(0);
   });

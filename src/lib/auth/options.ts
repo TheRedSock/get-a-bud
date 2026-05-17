@@ -6,6 +6,7 @@ import GitHubProvider from "next-auth/providers/github";
 import GoogleProvider from "next-auth/providers/google";
 import { z } from "zod";
 
+import { serverEnv } from "@/config/env";
 import { db } from "@/db";
 import {
   authAccounts,
@@ -22,20 +23,20 @@ const credentialsSchema = z.object({
 
 const oauthProviders: NextAuthOptions["providers"] = [];
 
-if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+if (serverEnv.GOOGLE_CLIENT_ID && serverEnv.GOOGLE_CLIENT_SECRET) {
   oauthProviders.push(
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      clientId: serverEnv.GOOGLE_CLIENT_ID,
+      clientSecret: serverEnv.GOOGLE_CLIENT_SECRET,
     }),
   );
 }
 
-if (process.env.GITHUB_ID && process.env.GITHUB_SECRET) {
+if (serverEnv.GITHUB_ID && serverEnv.GITHUB_SECRET) {
   oauthProviders.push(
     GitHubProvider({
-      clientId: process.env.GITHUB_ID,
-      clientSecret: process.env.GITHUB_SECRET,
+      clientId: serverEnv.GITHUB_ID,
+      clientSecret: serverEnv.GITHUB_SECRET,
     }),
   );
 }

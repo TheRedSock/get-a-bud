@@ -30,6 +30,7 @@ import {
   transactions,
 } from "@/db/schema";
 import { getActiveHousehold } from "@/lib/finance/household";
+import { getHouseholdConnections } from "@/lib/ingestion/enable-banking/queries";
 
 type TransactionsPageProps = {
   searchParams?: Promise<{
@@ -220,6 +221,7 @@ export default async function TransactionsPage({
     uncategorizedCount,
     linkedTransfersCount,
     transferReviewCount,
+    bankConnections,
   ] = await Promise.all([
     db
       .select({
@@ -312,6 +314,7 @@ export default async function TransactionsPage({
         ),
       )
       .then(([row]) => Number(row?.count ?? 0)),
+    getHouseholdConnections(household.householdId),
   ]);
   const hasNextPage = rows.length > pageSize;
   const visibleRows = rows.slice(0, pageSize);
@@ -558,7 +561,7 @@ export default async function TransactionsPage({
           </CardContent>
         </Card>
 
-        <BankSyncPanel />
+        <BankSyncPanel initialConnections={bankConnections} />
       </div>
     </div>
   );

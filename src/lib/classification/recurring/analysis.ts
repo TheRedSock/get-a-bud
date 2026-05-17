@@ -71,12 +71,13 @@ export function mode(values: number[]): number {
 // ---------------------------------------------------------------------------
 
 /**
- * Get the comparable amount for a transaction, preferring original currency.
+ * Get the comparable amount for a transaction (absolute cents), preferring
+ * original currency.
  */
 function getComparableAmount(t: RecurringTransactionInput): number {
-  return t.originalAmount
-    ? Math.abs(Number(t.originalAmount))
-    : Math.abs(Number(t.amount));
+  return t.originalAmountCents !== null
+    ? Math.abs(t.originalAmountCents)
+    : Math.abs(t.amountCents);
 }
 
 /**
@@ -329,9 +330,9 @@ export function analyzeRecurrence(
 
   // 5. Amount analysis (in original currency when available)
   const amounts: AmountObservation[] = sorted.map((t) => ({
-    value: t.originalAmount
-      ? Math.abs(Number(t.originalAmount))
-      : Math.abs(Number(t.amount)),
+    value: t.originalAmountCents !== null
+      ? Math.abs(t.originalAmountCents)
+      : Math.abs(t.amountCents),
     currency: t.originalCurrency ?? t.currency,
     date: t.date,
   }));
@@ -359,8 +360,8 @@ export function analyzeRecurrence(
     priceChangeDetected,
     transactionCount: sorted.length,
     originalCurrency: lastTxn.originalCurrency,
-    lastOriginalAmount: lastTxn.originalAmount
-      ? Math.abs(Number(lastTxn.originalAmount))
+    lastOriginalAmount: lastTxn.originalAmountCents !== null
+      ? Math.abs(lastTxn.originalAmountCents)
       : null,
     amountSignature: computeAmountSignature(amounts),
     transactionIds: sorted.map((t) => t.id),
@@ -439,9 +440,9 @@ export function analyzeCluster(
   // distinct signatures (append ~0 / ~1) and the duplicate flag.
   const baseSig = analysisA.amountSignature || computeAmountSignature(
     even.map((t) => ({
-      value: t.originalAmount
-        ? Math.abs(Number(t.originalAmount))
-        : Math.abs(Number(t.amount)),
+      value: t.originalAmountCents !== null
+        ? Math.abs(t.originalAmountCents)
+        : Math.abs(t.amountCents),
       currency: t.originalCurrency ?? t.currency,
       date: t.date,
     })),
@@ -724,9 +725,9 @@ function detectWeeklyPattern(
 
   // Weekly patterns must have consistent amounts
   const amounts: AmountObservation[] = sorted.map((t) => ({
-    value: t.originalAmount
-      ? Math.abs(Number(t.originalAmount))
-      : Math.abs(Number(t.amount)),
+    value: t.originalAmountCents !== null
+      ? Math.abs(t.originalAmountCents)
+      : Math.abs(t.amountCents),
     currency: t.originalCurrency ?? t.currency,
     date: t.date,
   }));
@@ -762,8 +763,8 @@ function detectWeeklyPattern(
     priceChangeDetected,
     transactionCount: sorted.length,
     originalCurrency: lastTxn.originalCurrency,
-    lastOriginalAmount: lastTxn.originalAmount
-      ? Math.abs(Number(lastTxn.originalAmount))
+    lastOriginalAmount: lastTxn.originalAmountCents !== null
+      ? Math.abs(lastTxn.originalAmountCents)
       : null,
     amountSignature: computeAmountSignature(amounts),
     transactionIds: sorted.map((t) => t.id),
@@ -863,9 +864,9 @@ export function extractPatterns(
 
     // Amount analysis
     const amounts: AmountObservation[] = allMatched.map((t) => ({
-      value: t.originalAmount
-        ? Math.abs(Number(t.originalAmount))
-        : Math.abs(Number(t.amount)),
+      value: t.originalAmountCents !== null
+        ? Math.abs(t.originalAmountCents)
+        : Math.abs(t.amountCents),
       currency: t.originalCurrency ?? t.currency,
       date: t.date,
     }));
@@ -912,8 +913,8 @@ export function extractPatterns(
       priceChangeDetected,
       transactionCount: allMatched.length,
       originalCurrency: lastTxn.originalCurrency,
-      lastOriginalAmount: lastTxn.originalAmount
-        ? Math.abs(Number(lastTxn.originalAmount))
+      lastOriginalAmount: lastTxn.originalAmountCents !== null
+        ? Math.abs(lastTxn.originalAmountCents)
         : null,
       amountSignature: computeAmountSignature(amounts),
       transactionIds: allMatched.map((t) => t.id),

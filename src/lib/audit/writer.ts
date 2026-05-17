@@ -5,10 +5,10 @@ import { logger } from "@/lib/logger";
 import type { AuditEventInput } from "./types";
 
 /**
- * Writes an audit event to the database.
+ * Writes an audit event to the database (awaited / durable).
  *
- * This is a low-level writer. Prefer using `logAuditEvent()` from the
- * public API which handles error suppression.
+ * Use this for critical financial mutations where losing the audit record
+ * is unacceptable. The caller awaits the write, so failures propagate.
  */
 export async function writeAuditEvent(input: AuditEventInput): Promise<void> {
   await db.insert(auditEvents).values({
@@ -27,8 +27,12 @@ export async function writeAuditEvent(input: AuditEventInput): Promise<void> {
 /**
  * Fire-and-forget audit event writer.
  *
- * Audit write failures are logged but never propagate to the caller.
- * Business operations must not fail because of audit infrastructure issues.
+ * Use for non-critical audit events where the business operation must not
+ * fail because of audit infrastructure issues (e.g., enqueue-only actions,
+ * read-side events).
+ *
+ * For critical financial mutations (transaction create/update/delete, account
+ * changes, bulk approvals), prefer `writeAuditEvent` (awaited).
  */
 export function writeAuditEventAsync(input: AuditEventInput): void {
   writeAuditEvent(input).catch((error) => {

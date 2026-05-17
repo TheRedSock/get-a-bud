@@ -1,6 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { serverEnv } from "@/config/env";
 import { db } from "@/db";
 import { ingestionConnections } from "@/db/schema";
 import { withApiHandler } from "@/lib/errors/api";
@@ -55,7 +56,7 @@ export const GET = withApiHandler(
   const client = new EnableBankingClient({
     applicationId: connection.externalApplicationId,
     pemPrivateKey: decryptPrivateKey(connection),
-    baseUrl: process.env.ENABLE_BANKING_BASE_URL,
+    baseUrl: serverEnv.ENABLE_BANKING_BASE_URL,
   });
 
   const result = await client.listAspsps({

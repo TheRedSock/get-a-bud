@@ -19,9 +19,9 @@ describe("middleware auth guards", () => {
     for (const path of [
       "/api/auth/session",
       "/api/auth/signin",
-      "/api/register",
       "/api/inngest",
       "/api/callback",
+      "/api/health",
     ]) {
       const response = await middleware(createRequest(path));
       expect(response.status).not.toBe(401);

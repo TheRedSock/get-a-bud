@@ -1,11 +1,9 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-
 describe("src/config/env", () => {
   const VALID_ENV = {
     DATABASE_URL: "postgresql://user:pass@localhost:5432/testdb?sslmode=require",
     NEXTAUTH_SECRET: "test-secret-32-bytes-long-enough",
     NEXTAUTH_URL: "http://localhost:3000",
-    FIELD_ENCRYPTION_KEY: "dGVzdC1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw==",
+    FIELD_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
     NODE_ENV: "test" as const,
   } satisfies Partial<NodeJS.ProcessEnv>;
 
@@ -56,6 +54,14 @@ describe("src/config/env", () => {
 
     await expect(import("@/config/env")).rejects.toThrow(
       /NEXTAUTH_URL/,
+    );
+  });
+
+  it("throws when FIELD_ENCRYPTION_KEY does not decode to 32 bytes", async () => {
+    process.env = { ...VALID_ENV, FIELD_ENCRYPTION_KEY: "dG9vLXNob3J0" };
+
+    await expect(import("@/config/env")).rejects.toThrow(
+      /FIELD_ENCRYPTION_KEY/,
     );
   });
 

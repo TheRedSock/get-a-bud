@@ -178,7 +178,7 @@ export function TransactionEditor({
       };
 
       if (isManual) {
-        payload.amount = amount;
+        payload.amountCents = amount;
         payload.date = date;
       }
 

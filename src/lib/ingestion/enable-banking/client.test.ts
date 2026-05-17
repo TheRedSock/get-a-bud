@@ -18,7 +18,7 @@ describe("Enable Banking mapping", () => {
       providerAccountId: "account-1",
       name: "Everyday spending",
       currency: "NOK",
-      balance: "123.45",
+      balanceCents: 12345,
       kind: "savings",
     });
   });
@@ -44,7 +44,7 @@ describe("Enable Banking mapping", () => {
     ).toMatchObject({
       providerTransactionId: "txn-1",
       providerAccountId: "account-1",
-      amount: "-100.00",
+      amountCents: -10000,
       currency: "NOK",
       date: "2026-05-10",
       description: "Groceries",
@@ -56,7 +56,7 @@ describe("Enable Banking mapping", () => {
       mapEnableBankingTransaction(
         {
           transaction_id: "txn-2",
-          transaction_amount: { amount: "420.1", currency: "NOK" },
+          transaction_amount: { amount: "420.10", currency: "NOK" },
           credit_debit_indicator: "CRDT",
           value_date: "2026-05-11",
           bank_transaction_code: { description: "Incoming transfer" },
@@ -64,7 +64,7 @@ describe("Enable Banking mapping", () => {
         "account-1",
       ),
     ).toMatchObject({
-      amount: "420.10",
+      amountCents: 42010,
       currency: "NOK",
       description: "Incoming transfer",
     });

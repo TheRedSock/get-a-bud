@@ -2,7 +2,7 @@ export type NormalizedAccount = {
   providerAccountId: string;
   name: string;
   currency: string;
-  balance: string;
+  balanceCents: number;
   kind?: "checking" | "savings" | "credit_card" | "investment" | "loan" | "other";
   institutionName?: string;
   raw?: Record<string, unknown>;
@@ -11,12 +11,14 @@ export type NormalizedAccount = {
 export type NormalizedTransaction = {
   providerTransactionId: string;
   providerAccountId: string;
-  amount: string;
+  amountCents: number;
   currency: string;
   date: string;
   bookedAt?: Date;
   merchantName?: string;
   description: string;
+  originalAmountCents?: number;
+  originalCurrency?: string;
   raw?: Record<string, unknown>;
 };
 

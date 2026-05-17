@@ -5,7 +5,7 @@ export type ImportRow = Record<string, ImportRowValue>;
 export type ImportTransactionDraft = {
   kind: "transaction";
   source: "import";
-  amount: string;
+  amountCents: number;
   currency: string;
   date: string;
   merchantName: string | null;
@@ -15,7 +15,7 @@ export type ImportTransactionDraft = {
   transactionType: "card_purchase" | "internal_transfer";
   paymentChannel: "credit_card";
   excludedFromBudget: boolean;
-  originalAmount: string | null;
+  originalAmountCents: number | null;
   originalCurrency: string | null;
   metadata: Record<string, unknown>;
 };

@@ -15,8 +15,6 @@
  * 9. Reject clears suggestion without applying
  */
 
-import { describe, it, expect } from "vitest";
-
 import { generateRelabel, type AutoLabelMetadata } from "./relabel";
 import type { ParsedDescription } from "./parser/types";
 import type { RelabelTransactionInput } from "./relabel";
@@ -131,7 +129,7 @@ describe("Stabilization: manual Tier 2 enqueue", () => {
     const result = generateRelabel(null, txn());
     expect(result).toBeNull();
     // The actual enqueue logic: if (!categoryId) { inngest.send("transactions.categorize") }
-    // is in src/app/api/transactions/route.ts and verified separately.
+    // is in src/app/(app)/transactions/actions.ts (createTransaction).
   });
 
   it("manual transaction with Tier 2 model match: relabel still returns null for manual source", () => {

@@ -6,31 +6,26 @@ import userEvent from "@testing-library/user-event";
 import { signInMock } from "@/test/mocks/next-auth-react";
 import { toastErrorMock } from "@/test/mocks/sonner";
 
+vi.mock("@/app/register/actions", () => ({
+  registerUser: vi.fn(),
+}));
+
 describe("RegisterForm", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
   it("shows the server's human-readable error message", async () => {
-    const { RegisterForm } = await import("@/components/auth/register-form");
+    const { registerUser } = await import("@/app/register/actions");
+    const registerUserMock = vi.mocked(registerUser);
+    registerUserMock.mockResolvedValue({
+      error: {
+        code: "conflict",
+        message: "An account already exists for that email.",
+      },
+    });
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () =>
-        Response.json(
-          {
-            ok: false,
-            error: {
-              code: "conflict",
-              message: "An account already exists for that email.",
-              requestId: "req_123",
-            },
-          },
-          { status: 409 },
-        ),
-      ),
-    );
+    const { RegisterForm } = await import("@/components/auth/register-form");
 
     render(<RegisterForm />);
 

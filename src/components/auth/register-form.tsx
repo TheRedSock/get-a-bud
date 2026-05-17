@@ -7,7 +7,7 @@ import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseApiResponse } from "@/lib/api-client";
+import { registerUser } from "@/app/register/actions";
 import { showErrorToast } from "@/lib/toast-errors";
 
 export function RegisterForm() {
@@ -21,20 +21,22 @@ export function RegisterForm() {
     const form = event.currentTarget;
     const formData = new FormData(form);
     const payload = {
-      name: formData.get("name"),
-      email: formData.get("email"),
-      password: formData.get("password"),
-      currency: formData.get("currency") || "NOK",
+      name: formData.get("name") as string,
+      email: formData.get("email") as string,
+      password: formData.get("password") as string,
+      currency: (formData.get("currency") as string) || "NOK",
     };
 
     try {
-      await parseApiResponse<{ ok: true }>(
-        await fetch("/api/register", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        }),
-      );
+      const result = await registerUser(payload);
+      if ("error" in result && result.error) {
+        showErrorToast(
+          "Could not create account",
+          new Error(result.error.message),
+        );
+        setLoading(false);
+        return;
+      }
     } catch (error) {
       showErrorToast("Could not create account", error);
       setLoading(false);

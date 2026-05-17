@@ -4,6 +4,7 @@ import {
   type PsuHeaders,
 } from "@/lib/ingestion/enable-banking/psu-headers";
 import { providerError } from "@/lib/errors/catalog";
+import { parseMoneyToCents, negateCents } from "@/lib/finance/money";
 
 type EnableBankingClientOptions = {
   applicationId: string;
@@ -326,30 +327,35 @@ export function mapEnableBankingAccount(account: EnableBankingAccount) {
     });
   }
 
+  const balanceStr = account.balance?.amount ?? "0";
+
   return {
     providerAccountId,
     name: account.details ?? account.name ?? "Enable Banking account",
     currency: account.balance?.currency ?? account.currency ?? "NOK",
-    balance: account.balance?.amount ?? "0",
+    balanceCents: parseMoneyToCents(balanceStr),
     kind: accountKindFromCashAccountType(account.cash_account_type),
     institutionName: account.account_servicer?.name,
     raw: account as Record<string, unknown>,
   };
 }
 
-function signedAmount(
+function signedAmountCents(
   amount: string | undefined,
   indicator: EnableBankingTransaction["credit_debit_indicator"],
-) {
-  const numericAmount = Number(amount ?? 0);
-
-  if (!Number.isFinite(numericAmount)) {
-    return "0.00";
+): number {
+  if (!amount || amount.trim() === "") {
+    return 0;
   }
 
-  const signed = indicator === "DBIT" ? -Math.abs(numericAmount) : numericAmount;
+  const cents = parseMoneyToCents(amount);
 
-  return signed.toFixed(2);
+  if (indicator === "DBIT") {
+    // Debit should be negative; if already negative, keep as is
+    return cents > 0 ? negateCents(cents) : cents;
+  }
+
+  return cents;
 }
 
 export function mapEnableBankingTransaction(
@@ -378,7 +384,7 @@ export function mapEnableBankingTransaction(
   return {
     providerTransactionId,
     providerAccountId,
-    amount: signedAmount(amount?.amount, transaction.credit_debit_indicator),
+    amountCents: signedAmountCents(amount?.amount, transaction.credit_debit_indicator),
     currency: amount?.currency ?? "NOK",
     date:
       transaction.booking_date ??

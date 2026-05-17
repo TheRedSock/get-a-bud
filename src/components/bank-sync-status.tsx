@@ -14,6 +14,8 @@ import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
+import { queueEnableBankingSync } from "@/app/(app)/settings/integrations/actions";
+import { unwrapAction } from "@/lib/actions/client";
 
 export type SyncRun = {
   id: string;
@@ -143,25 +145,31 @@ export function useBankSyncRuns() {
 
   const queueSync = useCallback(async (connectionId: string) => {
     try {
-      const response = await fetch(
-        `/api/integrations/enable-banking/${connectionId}/sync`,
-        { method: "POST" },
+      const { run } = await unwrapAction(
+        queueEnableBankingSync({ connectionId }),
+        "Could not queue bank sync",
       );
-      const body = await parseApiResponse<{ run?: SyncRun }>(response);
-
-      if (!body.run) {
-        throw new Error("The sync run was not returned. Please try again.");
-      }
 
       setRunsByConnectionId((current) => ({
         ...current,
-        [connectionId]: body.run!,
+        [connectionId]: {
+          id: run.id,
+          connectionId,
+          status: run.status,
+          startedAt: null,
+          finishedAt: null,
+          importedAccounts: 0,
+          importedTransactions: 0,
+          errorCode: null,
+          errorMessage: null,
+          progress: null,
+        },
       }));
       toast.info("Bank sync queued", {
         description: "We will import accounts and transactions in the background.",
       });
 
-      return body.run;
+      return { id: run.id, connectionId, status: run.status } as SyncRun;
     } catch (error) {
       showErrorToast("Could not queue bank sync", error, "Please try again later.");
 

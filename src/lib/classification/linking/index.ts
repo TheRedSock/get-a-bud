@@ -20,7 +20,7 @@ export interface TransferCandidate {
   id: string;
   householdId: string;
   accountId: string;
-  amount: string;
+  amountCents: number;
   currency: string;
   date: string;
   transactionType: string | null;
@@ -104,8 +104,8 @@ function scoreMatch(
   if (candidate.currency !== counterpart.currency) return null;
 
   // Must have opposite signs
-  const amtA = Number(candidate.amount);
-  const amtB = Number(counterpart.amount);
+  const amtA = candidate.amountCents;
+  const amtB = counterpart.amountCents;
   if (amtA === 0 || amtB === 0) return null;
   if (Math.sign(amtA) === Math.sign(amtB)) return null;
 
@@ -113,7 +113,7 @@ function scoreMatch(
   const absA = Math.abs(amtA);
   const absB = Math.abs(amtB);
   const amountDiff = Math.abs(absA - absB);
-  const exactAmount = amountDiff <= 0.01;
+  const exactAmount = amountDiff === 0;
   const nearAmount = amountDiff / Math.max(absA, absB) <= 0.01;
 
   if (!exactAmount && !nearAmount) return null;
@@ -153,10 +153,10 @@ export function findTransferMatches(
 
   // Separate by sign: debits (source) and credits (destination)
   const debits = candidates.filter(
-    (c) => Number(c.amount) < 0 && !c.transferGroupId,
+    (c) => c.amountCents < 0 && !c.transferGroupId,
   );
   const credits = candidates.filter(
-    (c) => Number(c.amount) > 0 && !c.transferGroupId,
+    (c) => c.amountCents > 0 && !c.transferGroupId,
   );
 
   // For each debit, find the best matching credit

@@ -16,7 +16,7 @@ import { db } from "@/db";
 import { categories, recurringBills } from "@/db/schema";
 import { formatConfidencePercent } from "@/lib/classification/ui-state";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatCents } from "@/lib/finance/money";
+import { formatCents, centsToDecimalString } from "@/lib/finance/money";
 
 type BillsPageProps = {
   searchParams?: Promise<{ status?: string }>;
@@ -147,7 +147,7 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                   <RecurringBillEditor
                     billId={bill.id}
                     cadence={bill.cadence}
-                    expectedAmount={bill.expectedAmountCents != null ? String(bill.expectedAmountCents / 100) : null}
+                    expectedAmount={bill.expectedAmountCents != null ? centsToDecimalString(bill.expectedAmountCents) : null}
                     isActive={bill.isActive}
                     isPossiblyCancelled={bill.isPossiblyCancelled}
                     name={bill.name}

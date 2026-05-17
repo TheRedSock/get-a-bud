@@ -591,7 +591,7 @@ export const categorizeTransactions = inngest.createFunction(
           description: transaction.description,
           merchantName: transaction.merchantName,
           normalizedMerchantName: transaction.normalizedMerchantName,
-          amount: (transaction.amountCents / 100).toFixed(2),
+          amountCents: transaction.amountCents,
           date: transaction.date,
           transactionType: transaction.transactionType,
           paymentChannel: transaction.paymentChannel,
@@ -806,7 +806,7 @@ export const linkTransferPairs = inngest.createFunction(
       id: r.id,
       householdId: r.householdId,
       accountId: r.accountId,
-      amount: (r.amountCents / 100).toFixed(2),
+      amountCents: r.amountCents,
       currency: r.currency,
       date: r.date,
       transactionType: r.transactionType,
@@ -1275,12 +1275,10 @@ export const detectRecurringBills = inngest.createFunction(
     // Convert to RecurringTransactionInput shape for the detection algorithm
     const unclaimedForDetection = unclaimed.map((r) => ({
       id: r.id,
-      amount: (r.amountCents / 100).toFixed(2),
+      amountCents: r.amountCents,
       currency: r.currency,
       date: r.date,
-      originalAmount: r.originalAmountCents != null
-        ? (r.originalAmountCents / 100).toFixed(2)
-        : null,
+      originalAmountCents: r.originalAmountCents ?? null,
       originalCurrency: r.originalCurrency,
       merchantId: r.merchantId,
       normalizedMerchantName: r.normalizedMerchantName,
@@ -1296,7 +1294,7 @@ export const detectRecurringBills = inngest.createFunction(
 
       for (const result of results) {
         const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
-        const amountCents = lastObs ? Math.round(Math.abs(lastObs.value) * 100) : null;
+        const amountCents = lastObs ? Math.abs(Math.round(lastObs.value)) : null;
 
         const [bill] = await db
           .insert(recurringBills)
@@ -1629,7 +1627,7 @@ export const retrainClassificationModel = inngest.createFunction(
         description: t.description,
         merchantName: t.merchantName,
         normalizedMerchantName: t.normalizedMerchantName,
-        amount: (t.amountCents / 100).toFixed(2),
+        amountCents: t.amountCents,
         date: t.date,
         transactionType: t.transactionType,
         paymentChannel: t.paymentChannel,

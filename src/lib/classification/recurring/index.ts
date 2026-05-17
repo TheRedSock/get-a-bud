@@ -32,7 +32,7 @@ export function groupByMerchant(
   const groups = new Map<string, RecurringTransactionInput[]>();
 
   for (const txn of transactions) {
-    if (Number(txn.amount) >= 0) continue;
+    if (txn.amountCents >= 0) continue;
     if (
       txn.transactionType &&
       NON_BILL_TRANSACTION_TYPES.has(txn.transactionType)

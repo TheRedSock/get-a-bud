@@ -24,7 +24,8 @@ const formatterCache = new Map<string, Intl.NumberFormat>();
  * cents. Handles both dot and comma as decimal separators, ignores thousands
  * separators (spaces, dots when comma is decimal, commas when dot is decimal).
  *
- * Returns integer cents. Throws if the input cannot be parsed.
+ * Returns integer cents. Throws if the input cannot be parsed or has sub-cent
+ * precision.
  *
  * Examples:
  *   "1234.56"   → 123456
@@ -34,15 +35,7 @@ const formatterCache = new Map<string, Intl.NumberFormat>();
  *   "0.5"       → 50
  *   "100"       → 10000
  */
-export function parseMoneyToCents(input: string | number): number {
-  if (typeof input === "number") {
-    if (!Number.isFinite(input)) {
-      throw new Error(`Invalid money value: ${String(input)}`);
-    }
-    // If given a number, treat it as major units (e.g., 12.34 → 1234 cents)
-    return decimalNumberToCents(input);
-  }
-
+export function parseMoneyToCents(input: string): number {
   const trimmed = input.trim();
   if (trimmed === "" || trimmed === "-") {
     throw new Error(`Invalid money value: "${input}"`);
@@ -97,8 +90,8 @@ export function parseMoneyToCents(input: string | number): number {
  * thousands separators) into integer cents. Uses string manipulation to avoid
  * float precision issues.
  *
- * The input must have at most 2 decimal places. If more decimal places are
- * provided, the value is rounded to the nearest cent using banker's rounding.
+ * The input must have at most 2 decimal places. Values with sub-cent precision
+ * are rejected instead of rounded.
  *
  * Examples:
  *   "1234.56" → 123456
@@ -118,63 +111,28 @@ export function decimalStringToCents(decimal: string): number {
 
   const [integerPart, fractionalPart = ""] = absolute.split(".");
 
-  // Pad or truncate fractional part to exactly 2 digits
-  let centsFraction: string;
-  if (fractionalPart.length <= 2) {
-    centsFraction = fractionalPart.padEnd(2, "0");
-  } else {
-    // More than 2 decimal places: round to nearest cent
-    const thirdDigit = Number(fractionalPart[2]);
-    let twoDigitValue = Number(fractionalPart.slice(0, 2));
-
-    if (thirdDigit > 5) {
-      twoDigitValue += 1;
-    } else if (thirdDigit === 5) {
-      // Banker's rounding: round to even
-      const remaining = fractionalPart.slice(3);
-      if (remaining.length > 0 && Number(remaining) > 0) {
-        // Not exactly half — round up
-        twoDigitValue += 1;
-      } else {
-        // Exactly half — round to even
-        if (twoDigitValue % 2 !== 0) {
-          twoDigitValue += 1;
-        }
-      }
-    }
-    // If rounding pushed us to 100, carry into integer part
-    if (twoDigitValue >= 100) {
-      const intValue = Number(integerPart) + 1;
-      centsFraction = "00";
-      const result = intValue * 100;
-      return isNegative ? -result : result;
-    }
-    centsFraction = String(twoDigitValue).padStart(2, "0");
+  if (fractionalPart.length > 2) {
+    throw new Error(
+      `Sub-cent precision is not allowed: "${decimal}" has ${fractionalPart.length} decimal places. Use exact minor-unit values.`,
+    );
   }
 
-  const centsValue = Number(integerPart) * 100 + Number(centsFraction);
+  const centsFraction = fractionalPart.padEnd(2, "0");
+  const centsValue =
+    BigInt(integerPart) * 100n + BigInt(centsFraction || "0");
+  const signedCentsValue = isNegative ? -centsValue : centsValue;
+  const maxSafeInteger = BigInt(Number.MAX_SAFE_INTEGER);
 
-  if (!Number.isSafeInteger(isNegative ? -centsValue : centsValue)) {
+  if (signedCentsValue > maxSafeInteger || signedCentsValue < -maxSafeInteger) {
     throw new Error(
       `Money value exceeds safe integer range: "${decimal}"`,
     );
   }
 
   // Avoid returning -0
-  if (centsValue === 0) return 0;
+  if (centsValue === 0n) return 0;
 
-  return isNegative ? -centsValue : centsValue;
-}
-
-/**
- * Convert a JS number representing major units to integer cents.
- * Uses string conversion to avoid float multiplication precision issues.
- */
-function decimalNumberToCents(value: number): number {
-  // Convert to string to avoid float multiplication issues
-  // e.g., 0.1 + 0.2 !== 0.3 in float, but "0.30" string works fine
-  const str = value.toFixed(2);
-  return decimalStringToCents(str);
+  return Number(signedCentsValue);
 }
 
 /**
@@ -193,8 +151,8 @@ export function formatCents(
     formatter = new Intl.NumberFormat(locale, {
       style: "currency",
       currency,
-      maximumFractionDigits: 0,
-      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
     });
     formatterCache.set(key, formatter);
   }
@@ -275,12 +233,14 @@ export function absCents(cents: number): number {
  * Zod preprocessor for money input fields. Transforms a user-entered string
  * (potentially with locale formatting) into integer cents for server-side use.
  *
+ * Numeric inputs are rejected: user/provider boundaries should send strings so
+ * we never round money through JavaScript number formatting.
+ *
  * Usage in Zod schemas:
  *   amount: z.preprocess(moneyPreprocessor, z.number().int())
  */
 export function moneyPreprocessor(val: unknown): number | undefined {
   if (val === undefined || val === null || val === "") return undefined;
-  if (typeof val === "number") return parseMoneyToCents(val);
   if (typeof val === "string") return parseMoneyToCents(val);
   return undefined;
 }

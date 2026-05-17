@@ -1,7 +1,7 @@
 "use client";
 
 import { KeyRound, Loader2, ShieldCheck } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -20,20 +20,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
-
-type ConnectionSummary = {
-  id: string;
-  displayName: string;
-  status: string;
-  externalApplicationId: string | null;
-  hasConsentSession: boolean;
-  authorizationId: string | null;
-  consentExpiresAt: string | null;
-  lastSyncedAt: string | null;
-  rateLimitedUntil: string | null;
-};
+import {
+  createEnableBankingConnection,
+  startEnableBankingAuth,
+} from "@/app/(app)/settings/integrations/actions";
+import { unwrapAction } from "@/lib/actions/client";
+import type { ConnectionSummary } from "@/lib/ingestion/enable-banking/queries";
 
 type FormState = {
   displayName: string;
@@ -97,13 +90,15 @@ const callbackMessages: Record<
 
 export function EnableBankingCard({
   callbackResult,
+  initialConnections,
   initialSyncRunId,
 }: {
   callbackResult?: string;
+  initialConnections: ConnectionSummary[];
   initialSyncRunId?: string;
 }) {
   const [form, setForm] = useState<FormState>(initialFormState);
-  const [connections, setConnections] = useState<ConnectionSummary[]>([]);
+  const [connections, setConnections] = useState<ConnectionSummary[]>(initialConnections);
   const [loading, setLoading] = useState(false);
   const trackedInitialSyncRunId = useRef<string | null>(null);
   const {
@@ -125,29 +120,10 @@ export function EnableBankingCard({
     [callbackResult],
   );
 
-  const loadConnections = useCallback(async () => {
-    const response = await fetch("/api/integrations/enable-banking", {
-      cache: "no-store",
-    });
-
-    try {
-      const body = await parseApiResponse<{ connections: ConnectionSummary[] }>(
-        response,
-      );
-      setConnections(body.connections);
-      void loadLatestRuns(body.connections);
-    } catch (error) {
-      showErrorToast("Could not load bank connections", error);
-    }
-  }, [loadLatestRuns]);
-
   useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => {
-      void loadConnections();
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [loadConnections]);
+    void loadLatestRuns(initialConnections);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (
@@ -199,37 +175,27 @@ export function EnableBankingCard({
     setLoading(true);
 
     try {
-      const connectionResponse = await fetch("/api/integrations/enable-banking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const { connection } = await unwrapAction(
+        createEnableBankingConnection({
           displayName: form.displayName,
           applicationId: form.applicationId.trim(),
           pemPrivateKey: form.pemPrivateKey.trim(),
         }),
-      });
-
-      const { connection } = await parseApiResponse<{
-        connection: { id: string };
-      }>(connectionResponse);
-      const authResponse = await fetch(
-        `/api/integrations/enable-banking/${connection.id}/auth`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            aspspName: form.aspspName.trim(),
-            aspspCountry: form.aspspCountry.trim(),
-            psuType: form.psuType,
-            language: form.language.trim(),
-            validDays: Number(form.validDays),
-          }),
-        },
+        "Enable Banking connection failed",
       );
 
-      const { redirectUrl } = await parseApiResponse<{
-        redirectUrl: string;
-      }>(authResponse);
+      const { redirectUrl } = await unwrapAction(
+        startEnableBankingAuth({
+          connectionId: connection.id,
+          aspspName: form.aspspName.trim(),
+          aspspCountry: form.aspspCountry.trim(),
+          psuType: form.psuType,
+          language: form.language.trim(),
+          validDays: Number(form.validDays),
+        }),
+        "Enable Banking authorization failed",
+      );
+
       window.location.assign(redirectUrl);
     } catch (error) {
       showErrorToast(

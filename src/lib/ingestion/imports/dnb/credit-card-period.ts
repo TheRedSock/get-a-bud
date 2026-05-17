@@ -2,9 +2,9 @@ import {
   firstCommaSegment,
   normalizedMerchantOrNull,
   parseDateByPattern,
-  parseLocalizedNumber,
   toLocaleDisplayName,
 } from "@/lib/ingestion/imports/normalization";
+import { parseMoneyToCents, negateCents, absCents } from "@/lib/finance/money";
 import type {
   ImportDraft,
   ImportFormatAdapter,
@@ -31,6 +31,11 @@ function isPriorStatementBalance(description: string) {
 
 function isCardPayment(description: string) {
   return /^innbetaling$/i.test(description);
+}
+
+function moneyCellToCents(value: ImportRowValue): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  return parseMoneyToCents(String(value));
 }
 
 export function isDnbCreditCardPeriodRow(
@@ -73,21 +78,24 @@ export function normalizeDnbCreditCardPeriodRow(
     };
   }
 
-  const incoming = parseLocalizedNumber(row.Inn);
-  const outgoing = parseLocalizedNumber(row.Ut);
-  if (incoming === null && outgoing === null) return null;
+  const incomingCents = moneyCellToCents(row.Inn);
+  const outgoingCents = moneyCellToCents(row.Ut);
+  if (incomingCents === null && outgoingCents === null) return null;
 
   const merchantName = extractDnbCreditCardMerchant(description);
   const normalizedMerchantName = normalizedMerchantOrNull(merchantName);
   const isPayment = isCardPayment(description);
-  const amount = incoming !== null ? incoming : -Math.abs(outgoing ?? 0);
+
+  const amountCents =
+    incomingCents !== null ? incomingCents : negateCents(absCents(outgoingCents!));
+
   const rowCurrency = row.Valuta?.trim().toUpperCase() || "NOK";
   const originalCurrency = rowCurrency === "NOK" ? null : rowCurrency;
 
   return {
     kind: "transaction",
     source: "import",
-    amount: amount.toFixed(2),
+    amountCents,
     currency: "NOK",
     date,
     merchantName,
@@ -97,8 +105,8 @@ export function normalizeDnbCreditCardPeriodRow(
     transactionType: isPayment ? "internal_transfer" : "card_purchase",
     paymentChannel: "credit_card",
     excludedFromBudget: isPayment,
-    originalAmount:
-      originalCurrency && outgoing !== null ? Math.abs(outgoing).toFixed(2) : null,
+    originalAmountCents:
+      originalCurrency && outgoingCents !== null ? absCents(outgoingCents) : null,
     originalCurrency,
     metadata: {
       ...metadata,

@@ -4,15 +4,15 @@ import { NextResponse, type NextRequest } from "next/server";
 /**
  * Routes that are intentionally public or use their own auth model:
  * - /api/auth/*  – NextAuth sign-in/callback/session endpoints
- * - /api/register – public registration
  * - /api/inngest  – Inngest webhook (authenticated by Inngest signing key)
  * - /api/callback – Enable Banking OAuth redirect (state-validated internally)
+ * - /api/health – uptime probe with minimal safe output
  */
 const publicApiPrefixes = [
   "/api/auth",
-  "/api/register",
   "/api/inngest",
   "/api/callback",
+  "/api/health",
 ];
 
 /** Pages that are accessible without authentication. */

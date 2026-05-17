@@ -42,7 +42,7 @@ export function CreateTransactionForm({
     try {
       const payload: {
         description: string;
-        amount: number;
+        amountCents: string;
         accountId: string;
         currency: string;
         date: string;
@@ -51,7 +51,7 @@ export function CreateTransactionForm({
         notes?: string;
       } = {
         description,
-        amount: Number(amount),
+        amountCents: amount,
         accountId,
         currency,
         date,

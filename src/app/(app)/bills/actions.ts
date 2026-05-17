@@ -1,11 +1,12 @@
 "use server";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
 import {
   categories,
+  financialAccounts,
   recurringBillHistory,
   recurringBills,
   transactions,
@@ -15,8 +16,32 @@ import {
   authenticatedAction,
   validateActionInput,
 } from "@/lib/actions/safe-action";
+import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
-import { parseMoneyToCents } from "@/lib/finance/money";
+import { moneyPreprocessor } from "@/lib/finance/money";
+import {
+  authenticatedMutationRateLimit,
+  enforceActionRateLimit,
+  queueEnqueueRateLimit,
+} from "@/lib/security/arcjet";
+
+// ---------------------------------------------------------------------------
+// Envelope schemas
+// ---------------------------------------------------------------------------
+
+const billIdEnvelope = z.object({
+  billId: z.string().min(1),
+});
+
+const billUpdateEnvelope = z.object({
+  billId: z.string().min(1),
+  data: z.unknown(),
+});
+
+const billCategoryEnvelope = z.object({
+  billId: z.string().min(1),
+  data: z.unknown(),
+});
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -36,7 +61,7 @@ const billCreateSchema = z.object({
       "unknown",
     ])
     .default("monthly"),
-  expectedAmount: z.coerce.number().optional(),
+  expectedAmountCents: z.preprocess(moneyPreprocessor, z.number().int().optional()),
   nextDueDate: z.string().min(8).optional(),
 });
 
@@ -53,7 +78,10 @@ const billUpdateSchema = z.object({
       "unknown",
     ])
     .optional(),
-  expectedAmount: z.coerce.number().nonnegative().nullable().optional(),
+  expectedAmountCents: z.preprocess(
+    moneyPreprocessor,
+    z.number().int().nonnegative().nullable().optional(),
+  ),
   nextDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
   isActive: z.boolean().optional(),
   isPossiblyCancelled: z.boolean().optional(),
@@ -85,6 +113,8 @@ type TransactionMetadata = Record<string, unknown> & {
 export const createBill = authenticatedAction(
   "bills.create",
   async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
     const validated = validateActionInput(
       billCreateSchema,
       input,
@@ -100,12 +130,19 @@ export const createBill = authenticatedAction(
         name: billInput.name,
         merchantPattern: billInput.merchantPattern,
         cadence: billInput.cadence,
-        expectedAmountCents: billInput.expectedAmount
-          ? parseMoneyToCents(billInput.expectedAmount)
-          : null,
+        expectedAmountCents: billInput.expectedAmountCents ?? null,
         nextDueDate: billInput.nextDueDate,
       })
       .returning();
+
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.BILL_CREATE,
+      resourceType: "recurring_bill",
+      resourceId: bill.id,
+      outcome: "success",
+    });
 
     return { bill };
   },
@@ -117,10 +154,20 @@ export const createBill = authenticatedAction(
 
 export const updateBill = authenticatedAction(
   "bills.update",
-  async (ctx, input: { billId: string; data: unknown }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      billUpdateEnvelope,
+      input,
+      "Please provide a valid bill ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { billId, data } = envelope.data;
+
     const validated = validateActionInput(
       billUpdateSchema,
-      input.data,
+      data,
       "Please provide valid bill details.",
     );
     if (validated.error) throw validationError(validated.error.message, { fieldErrors: validated.error.fieldErrors });
@@ -131,7 +178,7 @@ export const updateBill = authenticatedAction(
       .from(recurringBills)
       .where(
         and(
-          eq(recurringBills.id, input.billId),
+          eq(recurringBills.id, billId),
           eq(recurringBills.householdId, ctx.householdId),
         ),
       )
@@ -139,7 +186,7 @@ export const updateBill = authenticatedAction(
 
     if (!bill) {
       throw notFoundError("Recurring bill not found.", {
-        billId: input.billId,
+        billId,
         householdId: ctx.householdId,
       });
     }
@@ -149,12 +196,10 @@ export const updateBill = authenticatedAction(
       .set({
         ...(billInput.name !== undefined ? { name: billInput.name } : {}),
         ...(billInput.cadence !== undefined ? { cadence: billInput.cadence } : {}),
-        ...(billInput.expectedAmount !== undefined
+        ...(billInput.expectedAmountCents !== undefined
           ? {
-              expectedAmount:
-                billInput.expectedAmount == null
-                  ? null
-                  : billInput.expectedAmount.toFixed(2),
+              expectedAmountCents:
+                billInput.expectedAmountCents ?? null,
             }
           : {}),
         ...(billInput.nextDueDate !== undefined
@@ -166,8 +211,22 @@ export const updateBill = authenticatedAction(
           : {}),
         updatedAt: new Date(),
       })
-      .where(eq(recurringBills.id, bill.id))
+      .where(
+        and(
+          eq(recurringBills.id, billId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
       .returning();
+
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.BILL_UPDATE,
+      resourceType: "recurring_bill",
+      resourceId: billId,
+      outcome: "success",
+    });
 
     return { bill: updatedBill };
   },
@@ -179,7 +238,17 @@ export const updateBill = authenticatedAction(
 
 export const rejectBill = authenticatedAction(
   "bills.reject",
-  async (ctx, input: { billId: string }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      billIdEnvelope,
+      input,
+      "Please provide a valid bill ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { billId } = envelope.data;
+
     const result = await db.transaction(async (tx) => {
       const [bill] = await tx
         .select({
@@ -190,7 +259,7 @@ export const rejectBill = authenticatedAction(
         .from(recurringBills)
         .where(
           and(
-            eq(recurringBills.id, input.billId),
+            eq(recurringBills.id, billId),
             eq(recurringBills.householdId, ctx.householdId),
           ),
         )
@@ -198,7 +267,7 @@ export const rejectBill = authenticatedAction(
 
       if (!bill) {
         throw notFoundError("Recurring bill not found.", {
-          billId: input.billId,
+          billId,
           householdId: ctx.householdId,
         });
       }
@@ -247,13 +316,32 @@ export const rejectBill = authenticatedAction(
               },
               updatedAt: new Date(),
             })
-            .where(eq(transactions.id, transaction.id));
+            .where(
+              and(
+                eq(transactions.id, transaction.id),
+                eq(transactions.householdId, ctx.householdId),
+              ),
+            );
         }
       }
 
-      await tx.delete(recurringBills).where(eq(recurringBills.id, bill.id));
+      await tx.delete(recurringBills).where(
+        and(
+          eq(recurringBills.id, bill.id),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      );
 
       return { ignoredTransactions: transactionIds.length };
+    });
+
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.BILL_REJECT,
+      resourceType: "recurring_bill",
+      resourceId: billId,
+      outcome: "success",
     });
 
     return { rejected: true, ...result };
@@ -266,10 +354,20 @@ export const rejectBill = authenticatedAction(
 
 export const updateBillCategory = authenticatedAction(
   "bills.update-category",
-  async (ctx, input: { billId: string; data: unknown }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      billCategoryEnvelope,
+      input,
+      "Please provide a valid bill ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { billId, data } = envelope.data;
+
     const validated = validateActionInput(
       billCategorySchema,
-      input.data,
+      data,
       "Please choose a valid bill category.",
     );
     if (validated.error) throw validationError(validated.error.message, { fieldErrors: validated.error.fieldErrors });
@@ -280,7 +378,7 @@ export const updateBillCategory = authenticatedAction(
       .from(recurringBills)
       .where(
         and(
-          eq(recurringBills.id, input.billId),
+          eq(recurringBills.id, billId),
           eq(recurringBills.householdId, ctx.householdId),
         ),
       )
@@ -288,7 +386,7 @@ export const updateBillCategory = authenticatedAction(
 
     if (!bill) {
       throw notFoundError("Recurring bill not found.", {
-        billId: input.billId,
+        billId,
         householdId: ctx.householdId,
       });
     }
@@ -317,7 +415,12 @@ export const updateBillCategory = authenticatedAction(
     const [updatedBill] = await db
       .update(recurringBills)
       .set({ categoryId: categoryInput.categoryId, updatedAt: new Date() })
-      .where(eq(recurringBills.id, bill.id))
+      .where(
+        and(
+          eq(recurringBills.id, billId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
       .returning();
 
     let applied = 0;
@@ -333,7 +436,12 @@ export const updateBillCategory = authenticatedAction(
           transactions,
           eq(transactions.id, recurringBillHistory.transactionId),
         )
-        .where(eq(recurringBillHistory.billId, bill.id));
+        .where(
+          and(
+            eq(recurringBillHistory.billId, bill.id),
+            eq(transactions.householdId, ctx.householdId),
+          ),
+        );
 
       const applicableIds = matchedRows
         .filter((row) => row.categorySource !== "user")
@@ -351,7 +459,12 @@ export const updateBillCategory = authenticatedAction(
             suggestedMerchantName: null,
             updatedAt: new Date(),
           })
-          .where(inArray(transactions.id, applicableIds))
+          .where(
+            and(
+              inArray(transactions.id, applicableIds),
+              eq(transactions.householdId, ctx.householdId),
+            ),
+          )
           .returning({ id: transactions.id });
         applied = updatedRows.length;
       }
@@ -364,6 +477,16 @@ export const updateBillCategory = authenticatedAction(
       });
     }
 
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.BILL_UPDATE,
+      resourceType: "recurring_bill",
+      resourceId: billId,
+      outcome: "success",
+      metadata: { operation: "update_category", applied },
+    });
+
     return { bill: updatedBill, applied };
   },
 );
@@ -375,11 +498,98 @@ export const updateBillCategory = authenticatedAction(
 export const detectRecurringBills = authenticatedAction(
   "bills.detect-recurring",
   async (ctx, _input: void) => {
+    await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+
     await inngest.send({
       name: "transactions.recurring.detect",
       data: { householdId: ctx.householdId },
     });
 
     return { queued: true };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getBillTransactions
+// ---------------------------------------------------------------------------
+
+export const getBillTransactions = authenticatedAction(
+  "bills.transactions",
+  async (ctx, input: unknown) => {
+    const envelope = validateActionInput(
+      billIdEnvelope,
+      input,
+      "Please provide a valid bill ID.",
+    );
+    if (envelope.error)
+      throw validationError(envelope.error.message, {
+        fieldErrors: envelope.error.fieldErrors,
+      });
+    const { billId } = envelope.data;
+
+    const [bill] = await db
+      .select({
+        id: recurringBills.id,
+        cadence: recurringBills.cadence,
+        pattern: recurringBills.pattern,
+        typicalDayOfMonth: recurringBills.typicalDayOfMonth,
+        merchantPattern: recurringBills.merchantPattern,
+        amountSignature: recurringBills.amountSignature,
+      })
+      .from(recurringBills)
+      .where(
+        and(
+          eq(recurringBills.id, billId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!bill) {
+      throw notFoundError("Recurring bill not found.", {
+        billId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    const rows = await db
+      .select({
+        historyId: recurringBillHistory.id,
+        amountCents: recurringBillHistory.amountCents,
+        originalAmountCents: recurringBillHistory.originalAmountCents,
+        originalCurrency: recurringBillHistory.originalCurrency,
+        date: recurringBillHistory.date,
+        transactionId: recurringBillHistory.transactionId,
+        description: transactions.description,
+        merchantName: transactions.merchantName,
+        normalizedMerchantName: transactions.normalizedMerchantName,
+        currency: transactions.currency,
+        transactionAmountCents: transactions.amountCents,
+        excludedFromBudget: transactions.excludedFromBudget,
+        transactionType: transactions.transactionType,
+        accountName: financialAccounts.name,
+      })
+      .from(recurringBillHistory)
+      .leftJoin(
+        transactions,
+        eq(transactions.id, recurringBillHistory.transactionId),
+      )
+      .leftJoin(
+        financialAccounts,
+        eq(financialAccounts.id, transactions.accountId),
+      )
+      .where(eq(recurringBillHistory.billId, bill.id))
+      .orderBy(desc(recurringBillHistory.date));
+
+    return {
+      pattern: {
+        cadence: bill.cadence,
+        pattern: bill.pattern,
+        typicalDayOfMonth: bill.typicalDayOfMonth,
+        merchantPattern: bill.merchantPattern,
+        amountSignature: bill.amountSignature,
+      },
+      transactions: rows,
+    };
   },
 );

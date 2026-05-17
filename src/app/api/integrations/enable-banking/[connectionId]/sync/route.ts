@@ -3,11 +3,9 @@ import { NextResponse } from "next/server";
 
 import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
-import { inngest } from "@/inngest/client";
 import { withApiHandler } from "@/lib/errors/api";
-import { notFoundError, providerError, rateLimitedError, validationError } from "@/lib/errors/catalog";
+import { notFoundError } from "@/lib/errors/catalog";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { queueEnqueueRateLimit } from "@/lib/security/arcjet";
 
 function serializeRun(run: typeof syncRuns.$inferSelect) {
   const metadata = run.metadata as
@@ -58,73 +56,6 @@ async function getConnectionForHousehold(connectionId: string) {
 
   return connection;
 }
-
-export const POST = withApiHandler(
-  "enableBanking.sync.queue",
-  async (
-    request: Request,
-    { params }: { params: Promise<{ connectionId: string }> },
-  ) => {
-  const decision = await queueEnqueueRateLimit.protect(request);
-  if (decision.isDenied()) {
-    throw rateLimitedError("Too many sync requests. Please try again shortly.");
-  }
-
-  const { connectionId } = await params;
-  const connection = await getConnectionForHousehold(connectionId);
-
-  if (!connection) {
-    throw notFoundError("Enable Banking connection not found.", { connectionId });
-  }
-
-  if (!connection.consentSessionId) {
-    throw validationError("Bank authorization is not complete yet.", {
-      fieldErrors: {
-        connection: ["Finish bank authorization before starting a sync."],
-      },
-      context: { connectionId },
-    });
-  }
-
-  const [run] = await db
-    .insert(syncRuns)
-    .values({
-      connectionId,
-      provider: "enable_banking",
-      status: "queued",
-    })
-    .returning();
-
-  try {
-    await inngest.send({
-      name: "bank.connection.sync",
-      data: { connectionId, runId: run.id },
-    });
-
-    return NextResponse.json({ run: serializeRun(run) }, { status: 202 });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Could not queue bank sync";
-
-    await db
-      .update(syncRuns)
-      .set({
-        status: "failed",
-        finishedAt: new Date(),
-        errorMessage: message,
-      })
-      .where(eq(syncRuns.id, run.id));
-
-    throw providerError(message, {
-      cause: error,
-      userMessage:
-        "The bank sync could not be queued. Please try again in a moment.",
-      context: { connectionId, runId: run.id },
-      status: 500,
-    });
-  }
-  },
-);
 
 export const GET = withApiHandler(
   "enableBanking.sync.get",

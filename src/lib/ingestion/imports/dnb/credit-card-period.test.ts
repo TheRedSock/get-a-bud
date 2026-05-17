@@ -15,7 +15,7 @@ describe("DNB credit card period export normalization", () => {
     expect(draft).toMatchObject({
       kind: "transaction",
       source: "import",
-      amount: "-593.16",
+      amountCents: -59316,
       date: "2026-04-10",
       merchantName: "Kiwi 425 Rødtve",
       normalizedMerchantName: "kiwi 425 rødtve",
@@ -40,9 +40,22 @@ describe("DNB credit card period export normalization", () => {
       }),
     ).toMatchObject({
       kind: "transaction",
-      amount: "9983.90",
+      amountCents: 998390,
       transactionType: "internal_transfer",
       excludedFromBudget: true,
+    });
+  });
+
+  it("parses localized comma amounts without a float bridge", () => {
+    expect(
+      normalizeDnbCreditCardPeriodRow({
+        Dato: "10.04.2026",
+        "Beløpet gjelder": "REMA 1000, Oslo",
+        Ut: "1 234,56",
+      }),
+    ).toMatchObject({
+      kind: "transaction",
+      amountCents: -123456,
     });
   });
 

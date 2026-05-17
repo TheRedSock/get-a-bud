@@ -1,5 +1,3 @@
-import { describe, expect, it, vi } from "vitest";
-
 // Mock the db module to avoid importing the real database connection
 vi.mock("@/db", () => ({
   pingDatabase: vi.fn(),

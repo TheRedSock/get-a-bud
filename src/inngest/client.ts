@@ -1,5 +1,7 @@
 import { Inngest } from "inngest";
 
+import { serverEnv } from "@/config/env";
+
 /**
  * Inngest client instance.
  *
@@ -14,5 +16,5 @@ import { Inngest } from "inngest";
 export const inngest = new Inngest({
   id: "get-a-bud",
   name: "Get a Bud",
-  eventKey: process.env.INNGEST_EVENT_KEY,
+  eventKey: serverEnv.INNGEST_EVENT_KEY,
 });

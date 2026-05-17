@@ -1,6 +1,7 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 
+import { serverEnv } from "@/config/env";
 import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
 import { inngest } from "@/inngest/client";
@@ -9,9 +10,13 @@ import {
   hashAuthorizationState,
   safeCompareStateHash,
 } from "@/lib/ingestion/enable-banking/state";
-import { providerError } from "@/lib/errors/catalog";
+import { configurationError, providerError } from "@/lib/errors/catalog";
 import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
+import {
+  integrationAuthRateLimit,
+  enforceActionRateLimit,
+} from "@/lib/security/arcjet";
 
 function getPrivateKey(connection: typeof ingestionConnections.$inferSelect) {
   if (
@@ -19,7 +24,9 @@ function getPrivateKey(connection: typeof ingestionConnections.$inferSelect) {
     !connection.encryptedPrivateKeyIv ||
     !connection.encryptedPrivateKeyTag
   ) {
-    throw new Error("Enable Banking private key is missing");
+    throw configurationError("Enable Banking private key is missing", {
+      context: { connectionId: connection.id },
+    });
   }
 
   return decryptSecret({
@@ -31,6 +38,48 @@ function getPrivateKey(connection: typeof ingestionConnections.$inferSelect) {
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
+
+  try {
+    // Rate limit: prevent abuse of the public callback endpoint
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+      "127.0.0.1";
+    const rateLimitReq = new Request("http://localhost/api/callback", {
+      headers: request.headers,
+    });
+    Object.defineProperty(rateLimitReq, "ip", { value: ip });
+    const decision = await integrationAuthRateLimit.protect(rateLimitReq);
+    if (decision.isDenied()) {
+      return NextResponse.redirect(
+        new URL("/settings/integrations?enable_banking=rate_limited", url.origin),
+      );
+    }
+  } catch {
+    // Fail open on rate limit infrastructure errors (local dev, missing key)
+  }
+
+  try {
+    return await handleCallback(request, url);
+  } catch (error) {
+    // Top-level safety net: redirect to error state for unexpected failures
+    logger.exception(
+      providerError(
+        error instanceof Error ? error.message : "Unexpected callback error",
+        {
+          cause: error,
+          userMessage: "An unexpected error occurred during bank connection.",
+          status: 500,
+        },
+      ),
+    );
+
+    return NextResponse.redirect(
+      new URL("/settings/integrations?enable_banking=unexpected_error", url.origin),
+    );
+  }
+}
+
+async function handleCallback(request: Request, url: URL) {
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const error = url.searchParams.get("error");
@@ -70,7 +119,12 @@ export async function GET(request: Request) {
         authorizationStateExpiresAt: null,
         updatedAt: new Date(),
       })
-      .where(eq(ingestionConnections.id, connection.id));
+      .where(
+        and(
+          eq(ingestionConnections.id, connection.id),
+          eq(ingestionConnections.householdId, connection.householdId),
+        ),
+      );
 
     return NextResponse.redirect(
       new URL("/settings/integrations?enable_banking=expired", url.origin),
@@ -94,7 +148,12 @@ export async function GET(request: Request) {
         },
         updatedAt: new Date(),
       })
-      .where(eq(ingestionConnections.id, connection.id));
+      .where(
+        and(
+          eq(ingestionConnections.id, connection.id),
+          eq(ingestionConnections.householdId, connection.householdId),
+        ),
+      );
 
     return NextResponse.redirect(
       new URL("/settings/integrations?enable_banking=denied", url.origin),
@@ -116,7 +175,7 @@ export async function GET(request: Request) {
   const client = new EnableBankingClient({
     applicationId: connection.externalApplicationId,
     pemPrivateKey: getPrivateKey(connection),
-    baseUrl: process.env.ENABLE_BANKING_BASE_URL,
+    baseUrl: serverEnv.ENABLE_BANKING_BASE_URL,
   });
 
   try {
@@ -152,7 +211,12 @@ export async function GET(request: Request) {
         },
         updatedAt: new Date(),
       })
-      .where(eq(ingestionConnections.id, connection.id));
+      .where(
+        and(
+          eq(ingestionConnections.id, connection.id),
+          eq(ingestionConnections.householdId, connection.householdId),
+        ),
+      );
 
     const [run] = await db
       .insert(syncRuns)
@@ -213,16 +277,18 @@ export async function GET(request: Request) {
         metadata: {
           ...(connection.metadata ?? {}),
           lastSessionError: {
-            message:
-              sessionError instanceof Error
-                ? sessionError.message
-                : "Unknown session error",
+            code: "session_exchange_failed",
             at: new Date().toISOString(),
           },
         },
         updatedAt: new Date(),
       })
-      .where(eq(ingestionConnections.id, connection.id));
+      .where(
+        and(
+          eq(ingestionConnections.id, connection.id),
+          eq(ingestionConnections.householdId, connection.householdId),
+        ),
+      );
 
     logger.exception(
       providerError(

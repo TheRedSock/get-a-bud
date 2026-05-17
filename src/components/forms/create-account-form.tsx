@@ -52,13 +52,13 @@ export function CreateAccountForm() {
         name: string;
         kind: AccountKind;
         currency: string;
-        currentBalance: number;
+        currentBalanceCents: string;
         institutionName?: string;
       } = {
         name,
         kind,
         currency,
-        currentBalance: Number(currentBalance),
+        currentBalanceCents: currentBalance,
       };
 
       const trimmedInstitution = institutionName.trim();

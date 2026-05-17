@@ -34,9 +34,9 @@ function makeTxn(
 ): RecurringTransactionInput {
   return {
     id: crypto.randomUUID(),
-    amount: "-199.00",
+    amountCents: -19900,
     currency: "NOK",
-    originalAmount: null,
+    originalAmountCents: null,
     originalCurrency: null,
     normalizedMerchantName: "netflix com",
     transactionType: "online_purchase",
@@ -49,7 +49,7 @@ function monthlySequence(
   merchant: string,
   n: number,
   baseDate: string,
-  amount: string = "-199.00",
+  amountCents: number = -19900,
 ): RecurringTransactionInput[] {
   const txns: RecurringTransactionInput[] = [];
   const [y, m, d] = baseDate.split("-").map(Number);
@@ -58,7 +58,7 @@ function monthlySequence(
     txns.push(
       makeTxn({
         date: date.toISOString().slice(0, 10),
-        amount,
+        amountCents,
         normalizedMerchantName: merchant,
       }),
     );
@@ -124,10 +124,10 @@ describe("mode", () => {
 describe("clusterByAmount", () => {
   it("groups similar amounts together", () => {
     const txns = [
-      makeTxn({ date: "2025-01-01", amount: "-199.00" }),
-      makeTxn({ date: "2025-02-01", amount: "-199.00" }),
-      makeTxn({ date: "2025-03-01", amount: "-199.00" }),
-      makeTxn({ date: "2025-04-01", amount: "-500.00" }),
+      makeTxn({ date: "2025-01-01", amountCents: -19900 }),
+      makeTxn({ date: "2025-02-01", amountCents: -19900 }),
+      makeTxn({ date: "2025-03-01", amountCents: -19900 }),
+      makeTxn({ date: "2025-04-01", amountCents: -50000 }),
     ];
 
     const clusters = clusterByAmount(txns);
@@ -140,20 +140,20 @@ describe("clusterByAmount", () => {
     const txns = [
       makeTxn({
         date: "2025-01-01",
-        amount: "-250.00",
-        originalAmount: "21.99",
+        amountCents: -25000,
+        originalAmountCents: 2199,
         originalCurrency: "EUR",
       }),
       makeTxn({
         date: "2025-02-01",
-        amount: "-260.00",
-        originalAmount: "21.99",
+        amountCents: -26000,
+        originalAmountCents: 2199,
         originalCurrency: "EUR",
       }),
       makeTxn({
         date: "2025-03-01",
-        amount: "-270.00",
-        originalAmount: "21.99",
+        amountCents: -27000,
+        originalAmountCents: 2199,
         originalCurrency: "EUR",
       }),
     ];
@@ -168,14 +168,14 @@ describe("clusterByAmount", () => {
     const txns = [
       makeTxn({
         date: "2025-01-01",
-        amount: "-200.00",
-        originalAmount: "20.00",
+        amountCents: -20000,
+        originalAmountCents: 2000,
         originalCurrency: "EUR",
       }),
       makeTxn({
         date: "2025-02-01",
-        amount: "-200.00",
-        originalAmount: "20.00",
+        amountCents: -20000,
+        originalAmountCents: 2000,
         originalCurrency: "USD",
       }),
     ];
@@ -444,7 +444,7 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: date.toISOString().slice(0, 10),
-          amount: "-2500.00",
+          amountCents: -250000,
           normalizedMerchantName: "insurance co",
         }),
       );
@@ -464,7 +464,7 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: date.toISOString().slice(0, 10),
-          amount: `-${50 + Math.floor(i * 3)}.00`,
+          amountCents: -(5000 + Math.floor(i * 3) * 100),
           normalizedMerchantName: "kiwi 425",
         }),
       );
@@ -483,11 +483,11 @@ describe("analyzeRecurrence", () => {
   });
 
   it("detects price increase", () => {
-    const txns = monthlySequence("streaming svc", 5, "2025-01-15", "-199.00");
+    const txns = monthlySequence("streaming svc", 5, "2025-01-15", -19900);
     // Bump the last transaction
     txns[4] = makeTxn({
       date: "2025-05-15",
-      amount: "-249.00",
+      amountCents: -24900,
       normalizedMerchantName: "streaming svc",
     });
 
@@ -505,8 +505,8 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: date.toISOString().slice(0, 10),
-          amount: `-${250 + i * 5}.00`, // varying NOK due to exchange rate
-          originalAmount: "21.99",
+          amountCents: -(25000 + i * 500), // varying NOK due to exchange rate
+          originalAmountCents: 2199,
           originalCurrency: "EUR",
           normalizedMerchantName: "netflix com",
         }),
@@ -518,7 +518,7 @@ describe("analyzeRecurrence", () => {
 
     expect(result.isRecurring).toBe(true);
     expect(result.originalCurrency).toBe("EUR");
-    expect(result.lastOriginalAmount).toBe(21.99);
+    expect(result.lastOriginalAmount).toBe(2199);
   });
 
   it("detects weekly subscription", () => {
@@ -528,7 +528,7 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: date.toISOString().slice(0, 10),
-          amount: "-99.00",
+          amountCents: -9900,
           normalizedMerchantName: "laundry svc",
         }),
       );
@@ -554,7 +554,7 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: d,
-          amount: "-8500.00",
+          amountCents: -850000,
           normalizedMerchantName: "insurance co",
         }),
       );
@@ -573,7 +573,7 @@ describe("analyzeRecurrence", () => {
     const result = analyzeRecurrence(sorted, "netflix com");
 
     expect(result.isRecurring).toBe(true);
-    expect(result.amountSignature).toBe("NOK~199");
+    expect(result.amountSignature).toBe("NOK~19900");
   });
 
   it("populates amountSignature with original currency", () => {
@@ -583,8 +583,8 @@ describe("analyzeRecurrence", () => {
       txns.push(
         makeTxn({
           date: date.toISOString().slice(0, 10),
-          amount: `-${250 + i * 5}.00`,
-          originalAmount: "21.99",
+          amountCents: -(25000 + i * 500),
+          originalAmountCents: 2199,
           originalCurrency: "EUR",
           normalizedMerchantName: "netflix com",
         }),
@@ -595,7 +595,7 @@ describe("analyzeRecurrence", () => {
     const result = analyzeRecurrence(sorted, "netflix com");
 
     expect(result.isRecurring).toBe(true);
-    expect(result.amountSignature).toBe("EUR~22");
+    expect(result.amountSignature).toBe("EUR~2199");
   });
 
   it("populates transactionIds", () => {
@@ -730,14 +730,14 @@ describe("extractPatterns", () => {
       txns.push(
         makeTxn({
           date: new Date(Date.UTC(2025, i, 5)).toISOString().slice(0, 10),
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "netflix com",
         }),
       );
       txns.push(
         makeTxn({
           date: new Date(Date.UTC(2025, i, 20)).toISOString().slice(0, 10),
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "netflix com",
         }),
       );
@@ -762,7 +762,7 @@ describe("extractPatterns", () => {
       txns.push(
         makeTxn({
           date: new Date(Date.UTC(2025, i, 1)).toISOString().slice(0, 10),
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "blizzard",
         }),
       );
@@ -771,14 +771,14 @@ describe("extractPatterns", () => {
     txns.push(
       makeTxn({
         date: "2025-02-15",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "blizzard",
       }),
     );
     txns.push(
       makeTxn({
         date: "2025-04-22",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "blizzard",
       }),
     );
@@ -811,7 +811,7 @@ describe("extractPatterns", () => {
           date: new Date(Date.UTC(2025, month, day))
             .toISOString()
             .slice(0, 10),
-          amount: `-${100 + (i % 17) * 23}.00`, // varying amounts
+          amountCents: -(10000 + (i % 17) * 2300), // varying amounts
           normalizedMerchantName: "kiwi 425",
         }),
       );
@@ -841,7 +841,7 @@ describe("extractPatterns", () => {
       txns.push(
         makeTxn({
           date: d,
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "streaming svc",
         }),
       );
@@ -862,29 +862,29 @@ describe("extractPatterns", () => {
   it("reconciles delayed payments posted in the following month", () => {
     const late = makeTxn({
       date: "2025-04-03",
-      amount: "-199.00",
+      amountCents: -19900,
       normalizedMerchantName: "streaming svc",
     });
     const txns = [
       makeTxn({
         date: "2025-01-28",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "streaming svc",
       }),
       makeTxn({
         date: "2025-02-28",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "streaming svc",
       }),
       late,
       makeTxn({
         date: "2025-04-28",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "streaming svc",
       }),
       makeTxn({
         date: "2025-05-28",
-        amount: "-199.00",
+        amountCents: -19900,
         normalizedMerchantName: "streaming svc",
       }),
     ];
@@ -911,7 +911,7 @@ describe("extractPatterns", () => {
       txns.push(
         makeTxn({
           date: d,
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "streaming svc",
         }),
       );
@@ -935,7 +935,7 @@ describe("extractPatterns", () => {
           date: new Date(Date.UTC(2025, 0, 8 + i * 7))
             .toISOString()
             .slice(0, 10),
-          amount: "-99.00",
+          amountCents: -9900,
           normalizedMerchantName: "laundry svc",
         }),
       );
@@ -975,7 +975,7 @@ describe("detectRecurring", () => {
       ...Array.from({ length: 30 }, (_, i) =>
         makeTxn({
           date: new Date(Date.UTC(2025, 0, 1 + i)).toISOString().slice(0, 10),
-          amount: `-${50 + i * 2}.00`,
+          amountCents: -(5000 + i * 200),
           normalizedMerchantName: "kiwi 425 rodtvet",
         }),
       ),
@@ -990,7 +990,7 @@ describe("detectRecurring", () => {
   });
 
   it("filters out positive amounts", () => {
-    const txns = monthlySequence("salary co", 6, "2025-01-01", "50000.00");
+    const txns = monthlySequence("salary co", 6, "2025-01-01", 5000000);
     const results = detectRecurring(txns);
     expect(results).toHaveLength(0);
   });
@@ -1008,14 +1008,14 @@ describe("detectRecurring", () => {
       txns.push(
         makeTxn({
           date: new Date(Date.UTC(2025, i, 5)).toISOString().slice(0, 10),
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "netflix com",
         }),
       );
       txns.push(
         makeTxn({
           date: new Date(Date.UTC(2025, i, 20)).toISOString().slice(0, 10),
-          amount: "-199.00",
+          amountCents: -19900,
           normalizedMerchantName: "netflix com",
         }),
       );
@@ -1035,8 +1035,8 @@ describe("detectRecurring", () => {
       ...Array.from({ length: 6 }, (_, i) =>
         makeTxn({
           date: new Date(Date.UTC(2025, i, 15)).toISOString().slice(0, 10),
-          amount: `-${250 + i * 3}.00`,
-          originalAmount: "21.99",
+          amountCents: -(25000 + i * 300),
+          originalAmountCents: 2199,
           originalCurrency: "EUR",
           normalizedMerchantName: "netflix com",
         }),
@@ -1045,8 +1045,8 @@ describe("detectRecurring", () => {
       ...Array.from({ length: 6 }, (_, i) =>
         makeTxn({
           date: new Date(Date.UTC(2025, i, 20)).toISOString().slice(0, 10),
-          amount: `-${170 + i * 2}.00`,
-          originalAmount: "15.99",
+          amountCents: -(17000 + i * 200),
+          originalAmountCents: 1599,
           originalCurrency: "USD",
           normalizedMerchantName: "netflix com",
         }),
@@ -1084,7 +1084,7 @@ describe("groupByMerchant", () => {
 
   it("skips positive amounts", () => {
     const txns = [
-      makeTxn({ date: "2025-01-01", amount: "100.00" }),
+      makeTxn({ date: "2025-01-01", amountCents: 10000 }),
     ];
     const groups = groupByMerchant(txns);
     expect(groups.size).toBe(0);

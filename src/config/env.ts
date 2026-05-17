@@ -20,7 +20,12 @@ const serverSchema = z.object({
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
   NEXTAUTH_SECRET: z.string().min(1, "NEXTAUTH_SECRET is required"),
   NEXTAUTH_URL: z.string().url("NEXTAUTH_URL must be a valid URL"),
-  FIELD_ENCRYPTION_KEY: z.string().min(1, "FIELD_ENCRYPTION_KEY is required"),
+  FIELD_ENCRYPTION_KEY: z
+    .string()
+    .min(1, "FIELD_ENCRYPTION_KEY is required")
+    .refine((value) => Buffer.from(value, "base64").length === 32, {
+      message: "FIELD_ENCRYPTION_KEY must decode to 32 bytes",
+    }),
 
   // Platform environment (provided by runtime, not user-configured)
   NODE_ENV: z

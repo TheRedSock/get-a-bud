@@ -17,12 +17,12 @@ import {
 } from "@/components/ui/select";
 import {
   detectRecurringBills,
+  getBillTransactions,
   rejectBill,
   updateBill,
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
-import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { formatCents } from "@/lib/finance/money";
 
@@ -211,9 +211,7 @@ export function RecurringBillEditor({
           data: {
             name: form.name,
             cadence: form.cadence,
-            expectedAmount: form.expectedAmount
-              ? Number(form.expectedAmount)
-              : null,
+            expectedAmountCents: form.expectedAmount || null,
             nextDueDate: form.nextDueDate || null,
             isActive: form.isActive,
             isPossiblyCancelled: form.isPossiblyCancelled,
@@ -439,11 +437,10 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
 
     setLoading(true);
     try {
-      const response = await fetch(`/api/bills/${billId}/transactions`);
-      const body = await parseApiResponse<{
-        pattern: NonNullable<typeof pattern>;
-        transactions: BillTransactionRow[];
-      }>(response);
+      const body = await unwrapAction(
+        getBillTransactions({ billId }),
+        "Could not load matching transactions",
+      );
       setPattern(body.pattern);
       setRows(body.transactions);
     } catch (error) {

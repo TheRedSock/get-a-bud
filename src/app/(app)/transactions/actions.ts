@@ -1,12 +1,12 @@
 "use server";
 
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull } from "drizzle-orm";
+import { z } from "zod";
 
 import { db } from "@/db";
 import {
   categories,
   financialAccounts,
-  households,
   transactions,
 } from "@/db/schema";
 import { inngest } from "@/inngest/client";
@@ -14,35 +14,53 @@ import {
   authenticatedAction,
   validateActionInput,
 } from "@/lib/actions/safe-action";
-import type { ActionResult } from "@/lib/actions/types";
-import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
-import { RETRAIN_CORRECTION_THRESHOLD } from "@/lib/classification/types";
-import type { AutoLabelMetadata } from "@/lib/classification/relabel";
+import { AuditAction, writeAuditEvent, writeAuditEventAsync } from "@/lib/audit";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
 import { recalculateAccountBalance } from "@/lib/finance/balance";
 import {
   detectCategory,
-  learnCategoryCorrection,
   normalizeMerchant,
 } from "@/lib/finance/categorization";
 import {
-  getCategoryLearningTarget,
   resolveMerchantIdentity,
   updateMerchantCanonicalName,
   upsertMerchantFromUserCorrection,
 } from "@/lib/finance/merchants";
+import {
+  buildSuggestionApprovalValues,
+  buildUndoAutoLabelValues,
+  incrementCorrectionsAndRetrain,
+  learnFromCategoryCorrection,
+} from "@/lib/finance/transactions";
+import {
+  authenticatedMutationRateLimit,
+  bulkOperationRateLimit,
+  enforceActionRateLimit,
+  queueEnqueueRateLimit,
+} from "@/lib/security/arcjet";
 import {
   createTransactionSchema,
   updateTransactionSchema,
 } from "@/lib/finance/validation";
 
 // ---------------------------------------------------------------------------
-// Types
+// Envelope schemas — validate IDs at the boundary
+// ---------------------------------------------------------------------------
+
+const updateTransactionEnvelope = z.object({
+  transactionId: z.string().min(1),
+  data: z.unknown(),
+});
+
+const transactionIdEnvelope = z.object({
+  transactionId: z.string().min(1),
+});
+
+// ---------------------------------------------------------------------------
+// Types (action-local metadata shape for user edit tracking)
 // ---------------------------------------------------------------------------
 
 type TransactionMetadata = Record<string, unknown> & {
-  parsed?: { counterparty?: string | null };
-  autoLabel?: AutoLabelMetadata;
   userEdits?: {
     descriptionEdited?: boolean;
     merchantNameEdited?: boolean;
@@ -59,6 +77,8 @@ type TransactionMetadata = Record<string, unknown> & {
 export const createTransaction = authenticatedAction(
   "transactions.create",
   async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
     const validated = validateActionInput(
       createTransactionSchema,
       input,
@@ -203,7 +223,7 @@ export const createTransaction = authenticatedAction(
       });
     }
 
-    writeAuditEventAsync({
+    await writeAuditEvent({
       householdId: ctx.householdId,
       actorUserId: ctx.user.id,
       action: AuditAction.TRANSACTION_CREATE,
@@ -222,10 +242,20 @@ export const createTransaction = authenticatedAction(
 
 export const updateTransaction = authenticatedAction(
   "transactions.update",
-  async (ctx, input: { transactionId: string; data: unknown }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      updateTransactionEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { transactionId, data } = envelope.data;
+
     const validated = validateActionInput(
       updateTransactionSchema,
-      input.data,
+      data,
       "Please provide valid transaction details.",
     );
     if (validated.error) throw validationError(validated.error.message, { fieldErrors: validated.error.fieldErrors });
@@ -237,7 +267,7 @@ export const updateTransaction = authenticatedAction(
       .from(transactions)
       .where(
         and(
-          eq(transactions.id, input.transactionId),
+          eq(transactions.id, transactionId),
           eq(transactions.householdId, ctx.householdId),
         ),
       )
@@ -245,7 +275,7 @@ export const updateTransaction = authenticatedAction(
 
     if (!transaction) {
       throw notFoundError("Transaction not found.", {
-        transactionId: input.transactionId,
+        transactionId,
         householdId: ctx.householdId,
       });
     }
@@ -266,7 +296,7 @@ export const updateTransaction = authenticatedAction(
               ["This value comes from the bank and cannot be edited."],
             ]),
           ),
-          context: { transactionId: input.transactionId, source: transaction.source },
+          context: { transactionId, source: transaction.source },
         },
       );
     }
@@ -388,7 +418,12 @@ export const updateTransaction = authenticatedAction(
     const [updatedTransaction] = await db
       .update(transactions)
       .set(values)
-      .where(eq(transactions.id, transaction.id))
+      .where(
+        and(
+          eq(transactions.id, transaction.id),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
       .returning();
 
     // Update merchant canonical name if merchant name changed
@@ -411,59 +446,22 @@ export const updateTransaction = authenticatedAction(
       txInput.categoryId !== null &&
       txInput.categoryId !== transaction.categoryId
     ) {
-      const learningTarget = getCategoryLearningTarget({
-        id: transaction.id,
-        householdId: transaction.householdId,
-        source: transaction.source,
-        description: transaction.description,
-        merchantName: transaction.merchantName,
-        normalizedMerchantName: transaction.normalizedMerchantName,
-        transactionType: transaction.transactionType,
-        paymentChannel: transaction.paymentChannel,
-        metadata: transaction.metadata,
+      await learnFromCategoryCorrection({
+        householdId: ctx.householdId,
+        categoryId: txInput.categoryId,
+        transaction: {
+          id: transaction.id,
+          householdId: transaction.householdId,
+          source: transaction.source,
+          description: transaction.description,
+          merchantName: transaction.merchantName,
+          normalizedMerchantName: transaction.normalizedMerchantName,
+          transactionType: transaction.transactionType,
+          paymentChannel: transaction.paymentChannel,
+          metadata: transaction.metadata,
+        },
+        displayMerchantName: updatedTransaction.merchantName,
       });
-
-      if (learningTarget) {
-        await learnCategoryCorrection({
-          householdId: ctx.householdId,
-          categoryId: txInput.categoryId,
-          matcher: learningTarget.matcher,
-          matchField: learningTarget.matchField,
-          transactionId: transaction.id,
-        });
-
-        await upsertMerchantFromUserCorrection({
-          householdId: ctx.householdId,
-          categoryId: txInput.categoryId,
-          transaction: {
-            id: transaction.id,
-            householdId: transaction.householdId,
-            source: transaction.source,
-            description: transaction.description,
-            merchantName: transaction.merchantName,
-            normalizedMerchantName: transaction.normalizedMerchantName,
-            transactionType: transaction.transactionType,
-            paymentChannel: transaction.paymentChannel,
-            metadata: transaction.metadata,
-          },
-          displayMerchantName: updatedTransaction.merchantName,
-        });
-
-        const [updated] = await db
-          .update(households)
-          .set({
-            classificationCorrectionsSinceTrain: sql`${households.classificationCorrectionsSinceTrain} + 1`,
-          })
-          .where(eq(households.id, ctx.householdId))
-          .returning({ corrections: households.classificationCorrectionsSinceTrain });
-
-        if (updated && updated.corrections >= RETRAIN_CORRECTION_THRESHOLD) {
-          await inngest.send({
-            name: "model.retrain",
-            data: { householdId: ctx.householdId },
-          });
-        }
-      }
     }
 
     // Recalculate balances when amount or account changes
@@ -477,6 +475,15 @@ export const updateTransaction = authenticatedAction(
       }
     }
 
+    await writeAuditEvent({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.TRANSACTION_UPDATE,
+      resourceType: "transaction",
+      resourceId: transactionId,
+      outcome: "success",
+    });
+
     return { transaction: updatedTransaction };
   },
 );
@@ -487,13 +494,23 @@ export const updateTransaction = authenticatedAction(
 
 export const approveSuggestion = authenticatedAction(
   "transactions.approve-suggestion",
-  async (ctx, input: { transactionId: string }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      transactionIdEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { transactionId } = envelope.data;
+
     const [transaction] = await db
       .select()
       .from(transactions)
       .where(
         and(
-          eq(transactions.id, input.transactionId),
+          eq(transactions.id, transactionId),
           eq(transactions.householdId, ctx.householdId),
         ),
       )
@@ -501,7 +518,7 @@ export const approveSuggestion = authenticatedAction(
 
     if (!transaction) {
       throw notFoundError("Transaction not found.", {
-        transactionId: input.transactionId,
+        transactionId,
         householdId: ctx.householdId,
       });
     }
@@ -528,81 +545,52 @@ export const approveSuggestion = authenticatedAction(
       );
     }
 
-    const nextDescription = transaction.suggestedDescription ?? transaction.description;
-    const nextMerchantName = transaction.suggestedMerchantName ?? transaction.merchantName;
+    const approvalValues = buildSuggestionApprovalValues({
+      suggestedDescription: transaction.suggestedDescription,
+      suggestedMerchantName: transaction.suggestedMerchantName,
+      suggestedCategoryId: transaction.suggestedCategoryId,
+      description: transaction.description,
+      merchantName: transaction.merchantName,
+    });
 
     const [updated] = await db
       .update(transactions)
-      .set({
-        categoryId: transaction.suggestedCategoryId,
-        description: nextDescription,
-        merchantName: nextMerchantName,
-        normalizedMerchantName: normalizeMerchant(nextMerchantName ?? nextDescription),
-        searchText: `${nextDescription} ${nextMerchantName ?? ""}`,
-        categorySource: "user",
-        categoryConfidence: "1.00",
-        suggestedCategoryId: null,
-        suggestedDescription: null,
-        suggestedMerchantName: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.id, input.transactionId))
+      .set(approvalValues)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
       .returning();
 
     // Learn from approval
-    const learningTarget = getCategoryLearningTarget({
-      id: transaction.id,
-      householdId: transaction.householdId,
-      source: transaction.source,
-      description: transaction.description,
-      merchantName: transaction.merchantName,
-      normalizedMerchantName: transaction.normalizedMerchantName,
-      transactionType: transaction.transactionType,
-      paymentChannel: transaction.paymentChannel,
-      metadata: transaction.metadata,
+    await learnFromCategoryCorrection({
+      householdId: ctx.householdId,
+      categoryId: transaction.suggestedCategoryId,
+      transaction: {
+        id: transaction.id,
+        householdId: transaction.householdId,
+        source: transaction.source,
+        description: transaction.description,
+        merchantName: transaction.merchantName,
+        normalizedMerchantName: transaction.normalizedMerchantName,
+        transactionType: transaction.transactionType,
+        paymentChannel: transaction.paymentChannel,
+        metadata: transaction.metadata,
+      },
+      displayMerchantName: approvalValues.merchantName,
     });
 
-    if (learningTarget) {
-      await learnCategoryCorrection({
-        householdId: ctx.householdId,
-        categoryId: transaction.suggestedCategoryId,
-        matcher: learningTarget.matcher,
-        matchField: learningTarget.matchField,
-        transactionId: input.transactionId,
-      });
-
-      await upsertMerchantFromUserCorrection({
-        householdId: ctx.householdId,
-        categoryId: transaction.suggestedCategoryId,
-        transaction: {
-          id: transaction.id,
-          householdId: transaction.householdId,
-          source: transaction.source,
-          description: transaction.description,
-          merchantName: transaction.merchantName,
-          normalizedMerchantName: transaction.normalizedMerchantName,
-          transactionType: transaction.transactionType,
-          paymentChannel: transaction.paymentChannel,
-          metadata: transaction.metadata,
-        },
-        displayMerchantName: nextMerchantName,
-      });
-
-      const [hh] = await db
-        .update(households)
-        .set({
-          classificationCorrectionsSinceTrain: sql`${households.classificationCorrectionsSinceTrain} + 1`,
-        })
-        .where(eq(households.id, ctx.householdId))
-        .returning({ corrections: households.classificationCorrectionsSinceTrain });
-
-      if (hh && hh.corrections >= RETRAIN_CORRECTION_THRESHOLD) {
-        await inngest.send({
-          name: "model.retrain",
-          data: { householdId: ctx.householdId },
-        });
-      }
-    }
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.TRANSACTION_ENRICH,
+      resourceType: "transaction",
+      resourceId: transactionId,
+      outcome: "success",
+      metadata: { operation: "approve_suggestion" },
+    });
 
     return { transaction: updated };
   },
@@ -614,13 +602,23 @@ export const approveSuggestion = authenticatedAction(
 
 export const rejectSuggestion = authenticatedAction(
   "transactions.reject-suggestion",
-  async (ctx, input: { transactionId: string }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      transactionIdEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { transactionId } = envelope.data;
+
     const [transaction] = await db
       .select()
       .from(transactions)
       .where(
         and(
-          eq(transactions.id, input.transactionId),
+          eq(transactions.id, transactionId),
           eq(transactions.householdId, ctx.householdId),
         ),
       )
@@ -628,7 +626,7 @@ export const rejectSuggestion = authenticatedAction(
 
     if (!transaction) {
       throw notFoundError("Transaction not found.", {
-        transactionId: input.transactionId,
+        transactionId,
         householdId: ctx.householdId,
       });
     }
@@ -645,7 +643,12 @@ export const rejectSuggestion = authenticatedAction(
         suggestedMerchantName: null,
         updatedAt: new Date(),
       })
-      .where(eq(transactions.id, input.transactionId))
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
       .returning();
 
     return { transaction: updated };
@@ -658,13 +661,23 @@ export const rejectSuggestion = authenticatedAction(
 
 export const undoAutoLabel = authenticatedAction(
   "transactions.undo-auto-label",
-  async (ctx, input: { transactionId: string }) => {
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      transactionIdEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { transactionId } = envelope.data;
+
     const [transaction] = await db
       .select()
       .from(transactions)
       .where(
         and(
-          eq(transactions.id, input.transactionId),
+          eq(transactions.id, transactionId),
           eq(transactions.householdId, ctx.householdId),
         ),
       )
@@ -672,55 +685,29 @@ export const undoAutoLabel = authenticatedAction(
 
     if (!transaction) {
       throw notFoundError("Transaction not found.", {
-        transactionId: input.transactionId,
+        transactionId,
         householdId: ctx.householdId,
       });
     }
 
-    const metadata = (transaction.metadata ?? {}) as TransactionMetadata;
-    const autoLabel = metadata.autoLabel;
-
-    if (!autoLabel || autoLabel.undone) {
+    const undoResult = buildUndoAutoLabelValues(transaction.metadata);
+    if (!undoResult) {
       throw validationError("No auto-label to undo.");
     }
 
-    const restoredDescription = autoLabel.originalDescription;
-    const restoredMerchantName = autoLabel.originalMerchantName;
-
     const [updated] = await db
       .update(transactions)
-      .set({
-        description: restoredDescription,
-        merchantName: restoredMerchantName,
-        normalizedMerchantName: normalizeMerchant(restoredMerchantName ?? restoredDescription),
-        searchText: `${restoredDescription} ${restoredMerchantName ?? ""}`,
-        categoryId: null,
-        categorySource: null,
-        categoryConfidence: null,
-        suggestedCategoryId: null,
-        suggestedDescription: null,
-        suggestedMerchantName: null,
-        metadata: { ...metadata, autoLabel: { ...autoLabel, undone: true } },
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.id, input.transactionId))
+      .set(undoResult.values)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
       .returning();
 
     // Undo counts as a negative signal for retraining
-    const [hh] = await db
-      .update(households)
-      .set({
-        classificationCorrectionsSinceTrain: sql`${households.classificationCorrectionsSinceTrain} + 1`,
-      })
-      .where(eq(households.id, ctx.householdId))
-      .returning({ corrections: households.classificationCorrectionsSinceTrain });
-
-    if (hh && hh.corrections >= RETRAIN_CORRECTION_THRESHOLD) {
-      await inngest.send({
-        name: "model.retrain",
-        data: { householdId: ctx.householdId },
-      });
-    }
+    await incrementCorrectionsAndRetrain(ctx.householdId, 1);
 
     return { transaction: updated };
   },
@@ -733,6 +720,8 @@ export const undoAutoLabel = authenticatedAction(
 export const approveAllSuggestions = authenticatedAction(
   "transactions.approve-all-suggestions",
   async (ctx, _input: void) => {
+    await enforceActionRateLimit(bulkOperationRateLimit, ctx.user.id);
+
     // Load all transactions with pending suggestions
     const pending = await db
       .select()
@@ -767,88 +756,111 @@ export const approveAllSuggestions = authenticatedAction(
         continue;
       }
 
-      const nextDescription = transaction.suggestedDescription ?? transaction.description;
-      const nextMerchantName = transaction.suggestedMerchantName ?? transaction.merchantName;
+      const approvalValues = buildSuggestionApprovalValues({
+        suggestedDescription: transaction.suggestedDescription,
+        suggestedMerchantName: transaction.suggestedMerchantName,
+        suggestedCategoryId: transaction.suggestedCategoryId,
+        description: transaction.description,
+        merchantName: transaction.merchantName,
+      });
 
       await db
         .update(transactions)
-        .set({
-          categoryId: transaction.suggestedCategoryId,
-          description: nextDescription,
-          merchantName: nextMerchantName,
-          normalizedMerchantName: normalizeMerchant(nextMerchantName ?? nextDescription),
-          searchText: `${nextDescription} ${nextMerchantName ?? ""}`,
-          categorySource: "user",
-          categoryConfidence: "1.00",
-          suggestedCategoryId: null,
-          suggestedDescription: null,
-          suggestedMerchantName: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, transaction.id));
+        .set(approvalValues)
+        .where(
+          and(
+            eq(transactions.id, transaction.id),
+            eq(transactions.householdId, ctx.householdId),
+          ),
+        );
 
       approved += 1;
 
       // Learn from each approval
-      const learningTarget = getCategoryLearningTarget({
-        id: transaction.id,
-        householdId: transaction.householdId,
-        source: transaction.source,
-        description: transaction.description,
-        merchantName: transaction.merchantName,
-        normalizedMerchantName: transaction.normalizedMerchantName,
-        transactionType: transaction.transactionType,
-        paymentChannel: transaction.paymentChannel,
-        metadata: transaction.metadata,
+      const { learned } = await learnFromCategoryCorrection({
+        householdId: ctx.householdId,
+        categoryId: transaction.suggestedCategoryId,
+        transaction: {
+          id: transaction.id,
+          householdId: transaction.householdId,
+          source: transaction.source,
+          description: transaction.description,
+          merchantName: transaction.merchantName,
+          normalizedMerchantName: transaction.normalizedMerchantName,
+          transactionType: transaction.transactionType,
+          paymentChannel: transaction.paymentChannel,
+          metadata: transaction.metadata,
+        },
+        displayMerchantName: approvalValues.merchantName,
       });
-
-      if (learningTarget) {
-        await learnCategoryCorrection({
-          householdId: ctx.householdId,
-          categoryId: transaction.suggestedCategoryId,
-          matcher: learningTarget.matcher,
-          matchField: learningTarget.matchField,
-          transactionId: transaction.id,
-        });
-        await upsertMerchantFromUserCorrection({
-          householdId: ctx.householdId,
-          categoryId: transaction.suggestedCategoryId,
-          transaction: {
-            id: transaction.id,
-            householdId: transaction.householdId,
-            source: transaction.source,
-            description: transaction.description,
-            merchantName: transaction.merchantName,
-            normalizedMerchantName: transaction.normalizedMerchantName,
-            transactionType: transaction.transactionType,
-            paymentChannel: transaction.paymentChannel,
-            metadata: transaction.metadata,
-          },
-          displayMerchantName: nextMerchantName,
-        });
-        corrections += 1;
-      }
+      if (learned) corrections += 1;
     }
 
-    // Batch correction counter increment
-    if (corrections > 0) {
-      const [hh] = await db
-        .update(households)
-        .set({
-          classificationCorrectionsSinceTrain: sql`${households.classificationCorrectionsSinceTrain} + ${corrections}`,
-        })
-        .where(eq(households.id, ctx.householdId))
-        .returning({ correctionCount: households.classificationCorrectionsSinceTrain });
-
-      if (hh && hh.correctionCount >= RETRAIN_CORRECTION_THRESHOLD) {
-        await inngest.send({
-          name: "model.retrain",
-          data: { householdId: ctx.householdId },
-        });
-      }
+    if (approved > 0) {
+      writeAuditEventAsync({
+        householdId: ctx.householdId,
+        actorUserId: ctx.user.id,
+        action: AuditAction.TRANSACTION_BULK_APPROVE,
+        resourceType: "transaction",
+        outcome: "success",
+        metadata: { approved, corrections },
+      });
     }
 
     return { approved };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// deleteTransaction
+// ---------------------------------------------------------------------------
+
+export const deleteTransaction = authenticatedAction(
+  "transactions.delete",
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      transactionIdEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error) throw validationError(envelope.error.message, { fieldErrors: envelope.error.fieldErrors });
+    const { transactionId } = envelope.data;
+
+    const [deleted] = await db
+      .delete(transactions)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
+      .returning({ id: transactions.id, accountId: transactions.accountId });
+
+    if (!deleted) {
+      throw notFoundError("Transaction not found.", {
+        transactionId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    // Recalculate balance after deletion
+    await recalculateAccountBalance({
+      accountId: deleted.accountId,
+      householdId: ctx.householdId,
+    });
+
+    await writeAuditEvent({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.TRANSACTION_DELETE,
+      resourceType: "transaction",
+      resourceId: transactionId,
+      outcome: "success",
+    });
+
+    return { deleted: true };
   },
 );
 
@@ -859,6 +871,8 @@ export const approveAllSuggestions = authenticatedAction(
 export const classifyTransactions = authenticatedAction(
   "transactions.classify",
   async (ctx, _input: void) => {
+    await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+
     await inngest.send({
       name: "transactions.categorize",
       data: { householdId: ctx.householdId },

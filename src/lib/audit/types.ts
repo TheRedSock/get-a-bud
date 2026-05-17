@@ -22,11 +22,23 @@ export const AuditAction = {
   BUDGET_UPDATE: "budget.update",
   BUDGET_DELETE: "budget.delete",
 
+  // Categories
+  CATEGORY_CREATE: "category.create",
+  CATEGORY_UPDATE: "category.update",
+  CATEGORY_DELETE: "category.delete",
+
   // Bills
+  BILL_CREATE: "bill.create",
   BILL_ACCEPT: "bill.accept",
   BILL_REJECT: "bill.reject",
   BILL_UPDATE: "bill.update",
   BILL_DETECT: "bill.detect",
+
+  // Assets & Liabilities
+  ASSET_CREATE: "asset.create",
+  ASSET_UPDATE: "asset.update",
+  LIABILITY_CREATE: "liability.create",
+  LIABILITY_UPDATE: "liability.update",
 
   // Provider / Sync
   PROVIDER_AUTH_START: "provider.auth_start",

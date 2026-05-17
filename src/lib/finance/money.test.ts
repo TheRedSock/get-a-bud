@@ -72,32 +72,6 @@ describe("parseMoneyToCents", () => {
     });
   });
 
-  describe("number input", () => {
-    it("converts number as major units to cents", () => {
-      expect(parseMoneyToCents(12.34)).toBe(1234);
-    });
-
-    it("handles whole number input", () => {
-      expect(parseMoneyToCents(100)).toBe(10000);
-    });
-
-    it("handles negative number", () => {
-      expect(parseMoneyToCents(-5.5)).toBe(-550);
-    });
-
-    it("handles zero", () => {
-      expect(parseMoneyToCents(0)).toBe(0);
-    });
-
-    it("throws on NaN", () => {
-      expect(() => parseMoneyToCents(NaN)).toThrow("Invalid money value");
-    });
-
-    it("throws on Infinity", () => {
-      expect(() => parseMoneyToCents(Infinity)).toThrow("Invalid money value");
-    });
-  });
-
   describe("edge cases", () => {
     it("handles whitespace around value", () => {
       expect(parseMoneyToCents("  1234.56  ")).toBe(123456);
@@ -123,6 +97,11 @@ describe("parseMoneyToCents", () => {
       expect(() => parseMoneyToCents("12.34.56.78")).toThrow(
         "Invalid money value",
       );
+    });
+
+    it("throws on sub-cent precision", () => {
+      expect(() => parseMoneyToCents("1.234")).toThrow("Sub-cent precision");
+      expect(() => parseMoneyToCents("99.999")).toThrow("Sub-cent precision");
     });
   });
 
@@ -159,30 +138,10 @@ describe("decimalStringToCents", () => {
     expect(decimalStringToCents("-50.25")).toBe(-5025);
   });
 
-  it("rounds >2 decimal places with banker's rounding (round up)", () => {
-    // 1.236 → round to 1.24 (third digit 6 > 5)
-    expect(decimalStringToCents("1.236")).toBe(124);
-  });
-
-  it("rounds >2 decimal places with banker's rounding (round down)", () => {
-    // 1.234 → round to 1.23 (third digit 4 < 5)
-    expect(decimalStringToCents("1.234")).toBe(123);
-  });
-
-  it("rounds exactly half to even (even case)", () => {
-    // 1.225 → 1.22 (2 is already even)
-    expect(decimalStringToCents("1.225")).toBe(122);
-  });
-
-  it("rounds exactly half to even (odd case)", () => {
-    // 1.235 → 1.24 (3 is odd, round up)
-    expect(decimalStringToCents("1.235")).toBe(124);
-  });
-
-  it("rounds half with trailing zeros to even", () => {
-    // 1.2350 → not exactly half (trailing matters for detection),
-    // but our implementation checks remaining digits after position 2
-    expect(decimalStringToCents("1.2350")).toBe(124);
+  it("rejects sub-cent precision", () => {
+    expect(() => decimalStringToCents("1.236")).toThrow("Sub-cent precision");
+    expect(() => decimalStringToCents("1.234")).toThrow("Sub-cent precision");
+    expect(() => decimalStringToCents("1.2350")).toThrow("Sub-cent precision");
   });
 
   it("throws on invalid input", () => {
@@ -194,8 +153,7 @@ describe("decimalStringToCents", () => {
 describe("formatCents", () => {
   it("formats positive cents to NOK", () => {
     const result = formatCents(123456, "NOK", "nb-NO");
-    // 123456 cents = 1234.56 major units, rounded to 1235 with 0 decimals
-    expect(result).toMatch(/1[\s\u00a0.,]?235/);
+    expect(result).toMatch(/1[\s\u00a0.]?234,56/);
   });
 
   it("formats zero", () => {
@@ -321,8 +279,8 @@ describe("moneyPreprocessor", () => {
     expect(moneyPreprocessor("12.34")).toBe(1234);
   });
 
-  it("converts number to cents", () => {
-    expect(moneyPreprocessor(12.34)).toBe(1234);
+  it("rejects numeric money inputs", () => {
+    expect(moneyPreprocessor(12.34)).toBeUndefined();
   });
 
   it("returns undefined for empty string", () => {

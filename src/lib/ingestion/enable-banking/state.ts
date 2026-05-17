@@ -1,16 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
+import { publicEnv, serverEnv } from "@/config/env";
+
 const STATE_TTL_MINUTES = 20;
 
 function getStateSecret() {
-  const secret =
-    process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET ?? process.env.FIELD_ENCRYPTION_KEY;
-
-  if (!secret) {
-    throw new Error("NEXTAUTH_SECRET or FIELD_ENCRYPTION_KEY is required");
-  }
-
-  return secret;
+  return serverEnv.NEXTAUTH_SECRET;
 }
 
 export function createAuthorizationState() {
@@ -35,8 +30,8 @@ export function safeCompareStateHash(state: string, expectedHash: string) {
 }
 
 export function getAppUrl(requestUrl?: string) {
-  if (process.env.NEXT_PUBLIC_APP_URL) {
-    return process.env.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
+  if (publicEnv.NEXT_PUBLIC_APP_URL) {
+    return publicEnv.NEXT_PUBLIC_APP_URL.replace(/\/$/, "");
   }
 
   if (requestUrl) {
@@ -44,5 +39,5 @@ export function getAppUrl(requestUrl?: string) {
     return url.origin;
   }
 
-  return process.env.NEXTAUTH_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+  return serverEnv.NEXTAUTH_URL.replace(/\/$/, "");
 }

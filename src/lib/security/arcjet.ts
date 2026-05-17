@@ -1,6 +1,8 @@
 import arcjet, { fixedWindow } from "@arcjet/next";
+import { headers } from "next/headers";
 
 import { serverEnv } from "@/config/env";
+import { rateLimitedError } from "@/lib/errors/catalog";
 
 /**
  * Base Arcjet client. Individual routes add rules via `.withRule()`.
@@ -45,3 +47,48 @@ export const bulkOperationRateLimit = aj.withRule(
 export const queueEnqueueRateLimit = aj.withRule(
   fixedWindow({ mode: "LIVE", max: 10, window: "60s" }),
 );
+
+// --- Server Action helpers ---
+
+/**
+ * Enforce a rate limit inside a Server Action.
+ *
+ * Uses `next/headers` to construct a request-like object. If the request is
+ * denied, throws a `rateLimitedError` from the error catalog. The error
+ * will be caught by the `authenticatedAction` wrapper and returned to the
+ * client as a typed error.
+ *
+ * Usage:
+ * ```ts
+ * await enforceActionRateLimit(bulkOperationRateLimit, userId);
+ * ```
+ */
+export async function enforceActionRateLimit(
+  limiter: ReturnType<typeof aj.withRule>,
+  userId?: string,
+  options?: { headers?: Headers },
+): Promise<void> {
+  const headersList = options?.headers ?? (await headers());
+  const ip =
+    headersList.get("x-forwarded-for")?.split(",")[0]?.trim() ??
+    "127.0.0.1";
+
+  // Construct a minimal request for Arcjet's protect() method
+  const requestHeaders = new Headers(headersList);
+  if (userId) {
+    requestHeaders.set("x-user-id", userId);
+  }
+  const request = new Request("http://localhost/action", {
+    headers: requestHeaders,
+  });
+  // Set ip property for Arcjet
+  Object.defineProperty(request, "ip", { value: ip });
+
+  const decision = await limiter.protect(request);
+
+  if (decision.isDenied()) {
+    throw rateLimitedError(
+      "Too many requests. Please wait a moment and try again.",
+    );
+  }
+}

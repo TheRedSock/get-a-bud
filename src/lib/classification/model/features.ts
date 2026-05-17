@@ -21,7 +21,7 @@ export interface TransactionFeatureInput {
   description?: string | null;
   merchantName?: string | null;
   normalizedMerchantName?: string | null;
-  amount?: string | null;
+  amountCents?: number | null;
   date?: string | null;
   transactionType?: string | null;
   paymentChannel?: string | null;
@@ -68,10 +68,11 @@ export function extractFeatures(txn: TransactionFeatureInput): string[] {
     tokens.push(`chan:${txn.paymentChannel}`);
   }
 
-  if (txn.amount) {
-    const amt = Math.abs(Number(txn.amount));
-    if (Number.isFinite(amt)) {
-      tokens.push(`amt:${amountToBucket(amt)}`);
+  if (txn.amountCents != null) {
+    // Convert cents to major units for bucket classification
+    const majorUnits = Math.abs(txn.amountCents) / 100;
+    if (Number.isFinite(majorUnits)) {
+      tokens.push(`amt:${amountToBucket(majorUnits)}`);
     }
   }
 

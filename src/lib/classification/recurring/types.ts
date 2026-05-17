@@ -60,10 +60,10 @@ export interface RecurrenceAnalysis {
  */
 export interface RecurringTransactionInput {
   id: string;
-  amount: string;
+  amountCents: number;
   currency: string;
   date: string;
-  originalAmount: string | null;
+  originalAmountCents: number | null;
   originalCurrency: string | null;
   merchantId?: string | null;
   normalizedMerchantName: string | null;

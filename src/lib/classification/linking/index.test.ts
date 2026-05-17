@@ -17,7 +17,7 @@ function makeCandidate(
   return {
     householdId: "hh-1",
     accountId: "acc-checking",
-    amount: "-5000.00",
+    amountCents: -500000,
     currency: "NOK",
     date: "2025-05-01",
     transactionType: "internal_transfer",
@@ -33,8 +33,8 @@ function makeCandidate(
 describe("findTransferMatches", () => {
   it("links exact amount + same date with confidence 0.95", () => {
     const candidates = [
-      makeCandidate({ id: "t1", accountId: "acc-a", amount: "-5000.00" }),
-      makeCandidate({ id: "t2", accountId: "acc-b", amount: "5000.00" }),
+      makeCandidate({ id: "t1", accountId: "acc-a", amountCents: -500000 }),
+      makeCandidate({ id: "t2", accountId: "acc-b", amountCents: 500000 }),
     ];
 
     const matches = findTransferMatches(candidates);
@@ -48,8 +48,8 @@ describe("findTransferMatches", () => {
 
   it("uses deterministic group IDs for replay-safe background jobs", () => {
     const candidates = [
-      makeCandidate({ id: "source", accountId: "acc-a", amount: "-5000.00" }),
-      makeCandidate({ id: "destination", accountId: "acc-b", amount: "5000.00" }),
+      makeCandidate({ id: "source", accountId: "acc-a", amountCents: -500000 }),
+      makeCandidate({ id: "destination", accountId: "acc-b", amountCents: 500000 }),
     ];
 
     expect(findTransferMatches(candidates)[0].groupId).toBe(
@@ -62,13 +62,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-3000.00",
+        amountCents: -300000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "3000.00",
+        amountCents: 300000,
         date: "2025-05-02",
       }),
     ];
@@ -84,13 +84,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-1000.00",
+        amountCents: -100000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "1000.00",
+        amountCents: 100000,
         date: "2025-05-03",
       }),
     ];
@@ -106,13 +106,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-1000.00",
+        amountCents: -100000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "1000.00",
+        amountCents: 100000,
         date: "2025-05-04",
       }),
     ];
@@ -126,12 +126,12 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-1000.00",
+        amountCents: -100000,
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-a",
-        amount: "1000.00",
+        amountCents: 100000,
       }),
     ];
 
@@ -144,12 +144,12 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "-5000.00",
+        amountCents: -500000,
       }),
     ];
 
@@ -162,13 +162,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-1000.00",
+        amountCents: -100000,
         currency: "NOK",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "1000.00",
+        amountCents: 100000,
         currency: "EUR",
       }),
     ];
@@ -182,13 +182,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         transactionType: "internal_transfer",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5000.00",
+        amountCents: 500000,
         transactionType: "investment",
       }),
     ];
@@ -202,13 +202,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-checking",
-        amount: "-10000.00",
+        amountCents: -1000000,
         transactionType: "investment",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-fund",
-        amount: "10000.00",
+        amountCents: 1000000,
         transactionType: "investment",
       }),
     ];
@@ -223,13 +223,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         transferGroupId: "existing-group",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5000.00",
+        amountCents: 500000,
       }),
     ];
 
@@ -242,25 +242,25 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5000.00",
+        amountCents: 500000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t3",
         accountId: "acc-a",
-        amount: "-2000.00",
+        amountCents: -200000,
         date: "2025-05-05",
       }),
       makeCandidate({
         id: "t4",
         accountId: "acc-b",
-        amount: "2000.00",
+        amountCents: 200000,
         date: "2025-05-05",
       }),
     ];
@@ -274,21 +274,21 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         date: "2025-05-01",
       }),
       // Same date — higher confidence
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5000.00",
+        amountCents: 500000,
         date: "2025-05-01",
       }),
       // 1 day offset — lower confidence
       makeCandidate({
         id: "t3",
         accountId: "acc-c",
-        amount: "5000.00",
+        amountCents: 500000,
         date: "2025-05-02",
       }),
     ];
@@ -305,13 +305,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-500.00",
+        amountCents: -50000,
         transactionType: "p2p_payment",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "500.00",
+        amountCents: 50000,
         transactionType: "p2p_payment",
       }),
     ];
@@ -325,13 +325,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-500.00",
+        amountCents: -50000,
         transactionType: "bank_transfer",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "500.00",
+        amountCents: 50000,
         transactionType: "bank_transfer",
       }),
     ];
@@ -345,13 +345,13 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         transactionType: "loan_payment",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5000.00",
+        amountCents: 500000,
         transactionType: "loan_payment",
       }),
     ];
@@ -365,18 +365,18 @@ describe("findTransferMatches", () => {
       makeCandidate({
         id: "t1",
         accountId: "acc-a",
-        amount: "-5000.00",
+        amountCents: -500000,
         date: "2025-05-01",
       }),
       makeCandidate({
         id: "t2",
         accountId: "acc-b",
-        amount: "5005.00",
+        amountCents: 500500,
         date: "2025-05-01",
       }),
     ];
 
-    // 5005 vs 5000 = 0.1% difference, within 1%
+    // 500500 vs 500000 = 0.1% difference, within 1%
     const matches = findTransferMatches(candidates);
     expect(matches).toHaveLength(1);
     expect(matches[0].confidence).toBe(0.6);

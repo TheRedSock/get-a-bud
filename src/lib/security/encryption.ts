@@ -7,6 +7,9 @@ type EncryptedPayload = {
 };
 
 function getKey() {
+  // Read from process.env at call time rather than from serverEnv eagerly.
+  // This allows tests to stub the value. The env module validates the key
+  // exists at startup; this function validates the decoded length.
   const raw = process.env.FIELD_ENCRYPTION_KEY;
 
   if (!raw) {

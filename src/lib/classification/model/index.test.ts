@@ -1,5 +1,3 @@
-import { describe, expect, it } from "vitest";
-
 import {
   classifyTransaction,
   classifyWithScore,
@@ -19,7 +17,7 @@ function makeTransaction(
   return {
     description: overrides.description ?? "Test transaction",
     merchantName: overrides.merchantName ?? null,
-    amount: overrides.amount ?? "-100.00",
+    amountCents: overrides.amountCents ?? -10000,
     date: overrides.date ?? "2025-06-15",
     transactionType: overrides.transactionType ?? null,
     paymentChannel: overrides.paymentChannel ?? null,
@@ -39,7 +37,7 @@ function generateTrainingSet(): LabeledTransaction[] {
       makeTransaction({
         description: `Varekjøp ${groceryMerchants[i % 3]}`,
         merchantName: groceryMerchants[i % 3],
-        amount: `-${(100 + Math.random() * 700).toFixed(2)}`,
+        amountCents: -Math.round((100 + Math.random() * 700) * 100),
         transactionType: "card_purchase",
         paymentChannel: "debit_card",
         categoryId: "cat-groceries",
@@ -55,7 +53,7 @@ function generateTrainingSet(): LabeledTransaction[] {
       makeTransaction({
         description: `Visa, ${currency} ${i % 2 === 0 ? "21,99" : "119,00"} ${merchant}`,
         merchantName: merchant,
-        amount: `-${(200 + Math.random() * 50).toFixed(2)}`,
+        amountCents: -Math.round((200 + Math.random() * 50) * 100),
         transactionType: "foreign_purchase",
         paymentChannel: "visa",
         originalCurrency: currency,
@@ -71,7 +69,7 @@ function generateTrainingSet(): LabeledTransaction[] {
       makeTransaction({
         description: `Varekjøp ${merchant}`,
         merchantName: merchant,
-        amount: `-${(40 + Math.random() * 300).toFixed(2)}`,
+        amountCents: -Math.round((40 + Math.random() * 300) * 100),
         transactionType: "card_purchase",
         paymentChannel: "debit_card",
         categoryId: "cat-transport",
@@ -86,7 +84,7 @@ function generateTrainingSet(): LabeledTransaction[] {
       makeTransaction({
         description: `Varekjøp ${merchant}`,
         merchantName: merchant,
-        amount: `-${(80 + Math.random() * 150).toFixed(2)}`,
+        amountCents: -Math.round((80 + Math.random() * 150) * 100),
         transactionType: "card_purchase",
         paymentChannel: "debit_card",
         categoryId: "cat-dining",
@@ -100,7 +98,7 @@ function generateTrainingSet(): LabeledTransaction[] {
       makeTransaction({
         description: "Giro, Rødtvedt Borettslag, Avtalegiro",
         merchantName: "Rødtvedt Borettslag",
-        amount: `-${(3000 + Math.random() * 500).toFixed(2)}`,
+        amountCents: -Math.round((3000 + Math.random() * 500) * 100),
         transactionType: "direct_debit",
         paymentChannel: "giro",
         categoryId: "cat-housing",
@@ -186,7 +184,7 @@ describe("loadModelFromJson + classifyTransaction", () => {
     const result = classifyTransaction(model, {
       description: "Varekjøp Kiwi 425 Rødtve",
       merchantName: "Kiwi 425 Rødtve",
-      amount: "-350.00",
+      amountCents: -35000,
       transactionType: "card_purchase",
       paymentChannel: "debit_card",
     });
@@ -205,7 +203,7 @@ describe("loadModelFromJson + classifyTransaction", () => {
     const result = classifyTransaction(model, {
       description: "Visa, Eur 21,99 Netflix.Com",
       merchantName: "Netflix.Com",
-      amount: "-266.00",
+      amountCents: -26600,
       transactionType: "foreign_purchase",
       paymentChannel: "visa",
       originalCurrency: "EUR",
@@ -232,7 +230,7 @@ describe("loadModelFromJson + classifyTransaction", () => {
     const result = classifyTransaction(model, {
       description: "Rema 1000",
       merchantName: "Rema 1000",
-      amount: "-200.00",
+      amountCents: -20000,
     });
 
     expect(result).not.toBeNull();

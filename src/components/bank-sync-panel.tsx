@@ -2,27 +2,23 @@
 
 import { Loader2, RefreshCcw, Settings2 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { SyncRunStatus, useBankSyncRuns } from "@/components/bank-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { parseApiResponse } from "@/lib/api-client";
-import { showErrorToast } from "@/lib/toast-errors";
+import type { ConnectionSummary } from "@/lib/ingestion/enable-banking/queries";
 
-type ConnectionSummary = {
-  id: string;
-  displayName: string;
-  status: string;
-  hasConsentSession: boolean;
-  lastSyncedAt: string | null;
-  rateLimitedUntil: string | null;
-};
-
-export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
-  const [connections, setConnections] = useState<ConnectionSummary[]>([]);
-  const [loading, setLoading] = useState(true);
+export function BankSyncPanel({
+  compact = false,
+  initialConnections,
+}: {
+  compact?: boolean;
+  initialConnections: ConnectionSummary[];
+}) {
+  const [connections, setConnections] = useState<ConnectionSummary[]>(initialConnections);
+  const [loading, setLoading] = useState(false);
   const {
     getRunForConnection,
     isConnectionSyncing,
@@ -30,33 +26,10 @@ export function BankSyncPanel({ compact = false }: { compact?: boolean }) {
     queueSync,
   } = useBankSyncRuns();
 
-  const loadConnections = useCallback(async () => {
-    setLoading(true);
-
-    try {
-      const response = await fetch("/api/integrations/enable-banking", {
-        cache: "no-store",
-      });
-
-      const body = await parseApiResponse<{
-        connections: ConnectionSummary[];
-      }>(response);
-      setConnections(body.connections);
-      void loadLatestRuns(body.connections);
-    } catch (error) {
-      showErrorToast("Could not load bank connections", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [loadLatestRuns]);
-
   useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => {
-      void loadConnections();
-    });
-
-    return () => window.cancelAnimationFrame(frameId);
-  }, [loadConnections]);
+    void loadLatestRuns(initialConnections);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const connectedConnections = connections.filter(
     (connection) =>

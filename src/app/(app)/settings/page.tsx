@@ -3,6 +3,8 @@ import { Palette, ShieldCheck, Users } from "lucide-react";
 import { EnableBankingCard } from "@/components/settings/enable-banking-card";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getActiveHousehold } from "@/lib/finance/household";
+import { getHouseholdConnections } from "@/lib/ingestion/enable-banking/queries";
 
 type SettingsPageProps = {
   searchParams?: Promise<{
@@ -20,10 +22,14 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps =
     ? resolvedSearchParams?.sync_run[0]
     : resolvedSearchParams?.sync_run;
 
+  const household = await getActiveHousehold();
+  const connections = await getHouseholdConnections(household.householdId);
+
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       <EnableBankingCard
         callbackResult={enableBankingResult}
+        initialConnections={connections}
         initialSyncRunId={syncRunId}
       />
 

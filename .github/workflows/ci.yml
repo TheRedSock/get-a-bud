@@ -16,7 +16,7 @@ jobs:
       DATABASE_URL: "postgresql://stub:stub@localhost:5432/stub?sslmode=require"
       NEXTAUTH_SECRET: "ci-stub-secret-not-used-at-runtime"
       NEXTAUTH_URL: "http://localhost:3000"
-      FIELD_ENCRYPTION_KEY: "c3R1Yi1lbmNyeXB0aW9uLWtleS0zMi1ieXRlcw=="
+      FIELD_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
       # next build sets NODE_ENV=production, so these become required:
       SENTRY_DSN: "https://stub@o0.ingest.sentry.io/0"
       ARCJET_KEY: "ajkey_ci_stub"
@@ -31,7 +31,8 @@ jobs:
 
       # Using `npm install` instead of `npm ci` because the lock file is
       # generated on Windows and may drift from Linux resolution. Acceptable
-      # for a prototype; tighten to `npm ci` once lock file is stable.
+      # for a prototype; tighten to `npm ci` once lock file is stable or
+      # generated in a cross-platform-safe way.
       - run: npm install
 
       - name: Lint
@@ -46,6 +47,17 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Security audit
+  security-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm install
+
+      - name: Security audit (high severity)
         run: npm audit --audit-level=high
-        continue-on-error: true

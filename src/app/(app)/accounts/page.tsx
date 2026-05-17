@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { financialAccounts } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { getActiveHousehold } from "@/lib/finance/household";
+import { getHouseholdConnections } from "@/lib/ingestion/enable-banking/queries";
 
 function getBalanceWarning(metadata: Record<string, unknown> | null | undefined) {
   const balance = metadata?.balance;
@@ -33,10 +34,13 @@ function getBalanceWarning(metadata: Record<string, unknown> | null | undefined)
 
 export default async function AccountsPage() {
   const household = await getActiveHousehold();
-  const accounts = await db
-    .select()
-    .from(financialAccounts)
-    .where(eq(financialAccounts.householdId, household.householdId));
+  const [accounts, connections] = await Promise.all([
+    db
+      .select()
+      .from(financialAccounts)
+      .where(eq(financialAccounts.householdId, household.householdId)),
+    getHouseholdConnections(household.householdId),
+  ]);
 
   return (
     <div className="grid gap-6 xl:grid-cols-[1fr_380px]">
@@ -73,7 +77,7 @@ export default async function AccountsPage() {
       </Card>
 
       <div className="grid gap-6" id="bank-sync">
-        <BankSyncPanel />
+        <BankSyncPanel initialConnections={connections} />
 
         <Card>
           <CardHeader>
