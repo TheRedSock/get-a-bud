@@ -16,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseApiResponse } from "@/lib/api-client";
+import { updateAccount } from "@/app/(app)/accounts/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { formatCents } from "@/lib/finance/money";
 
@@ -76,17 +77,17 @@ export function AccountEditor({ account }: AccountEditorProps) {
     setSaving(true);
 
     try {
-      const response = await fetch(`/api/accounts/${account.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          kind,
-          institutionName: institutionName.trim() || null,
+      await unwrapAction(
+        updateAccount({
+          accountId: account.id,
+          data: {
+            name,
+            kind,
+            institutionName: institutionName.trim() || null,
+          },
         }),
-      });
-
-      await parseApiResponse(response);
+        "Could not update account",
+      );
       toast.success("Account updated");
       setEditing(false);
       router.refresh();

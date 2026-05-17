@@ -6,7 +6,8 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { parseApiResponse } from "@/lib/api-client";
+import { undoAutoLabel } from "@/app/(app)/transactions/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 export function AutoLabelUndoButton({
@@ -23,11 +24,10 @@ export function AutoLabelUndoButton({
     setLoading(true);
 
     try {
-      const response = await fetch(
-        `/api/transactions/${transactionId}/undo-auto-label`,
-        { method: "POST" },
+      await unwrapAction(
+        undoAutoLabel({ transactionId }),
+        "Could not undo auto-label",
       );
-      await parseApiResponse(response);
       toast.success("Auto-label undone");
       router.refresh();
     } catch (error) {

@@ -9,7 +9,11 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { parseApiResponse } from "@/lib/api-client";
+import {
+  approveAllSuggestions,
+  classifyTransactions,
+} from "@/app/(app)/transactions/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type ClassificationFilter =
@@ -78,10 +82,10 @@ export function TransactionsReviewToolbar({
     setRunning(true);
 
     try {
-      const response = await fetch("/api/transactions/classify", {
-        method: "POST",
-      });
-      await parseApiResponse(response);
+      await unwrapAction(
+        classifyTransactions(undefined as void),
+        "Could not queue classification",
+      );
       toast.success("Classification queued");
       router.refresh();
     } catch (error) {
@@ -91,15 +95,15 @@ export function TransactionsReviewToolbar({
     }
   }
 
-  async function approveAllSuggestions() {
+  async function approveAll() {
     setApprovingAll(true);
 
     try {
-      const response = await fetch("/api/transactions/approve-all-suggestions", {
-        method: "POST",
-      });
-      const body = await parseApiResponse<{ approved: number }>(response);
-      toast.success(`Approved ${body.approved} suggestion${body.approved === 1 ? "" : "s"}`);
+      const { approved } = await unwrapAction(
+        approveAllSuggestions(undefined as void),
+        "Could not approve suggestions",
+      );
+      toast.success(`Approved ${approved} suggestion${approved === 1 ? "" : "s"}`);
       router.refresh();
     } catch (error) {
       showErrorToast("Could not approve suggestions", error);
@@ -218,7 +222,7 @@ export function TransactionsReviewToolbar({
           disabled={approvingAll || counts.suggestions === 0}
           size="sm"
           type="button"
-          onClick={() => void approveAllSuggestions()}
+          onClick={() => void approveAll()}
         >
           {approvingAll ? (
             <Loader2 className="size-4 animate-spin" />

@@ -6,7 +6,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { parseApiResponse } from "@/lib/api-client";
+import {
+  approveSuggestion,
+  rejectSuggestion,
+} from "@/app/(app)/transactions/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type Action = "approve" | "reject";
@@ -25,11 +29,13 @@ export function SuggestionActions({
     setLoadingAction(action);
 
     try {
-      const response = await fetch(
-        `/api/transactions/${transactionId}/${action}-suggestion`,
-        { method: "POST" },
+      const actionFn = action === "approve" ? approveSuggestion : rejectSuggestion;
+      await unwrapAction(
+        actionFn({ transactionId }),
+        action === "approve"
+          ? "Could not approve suggestion"
+          : "Could not reject suggestion",
       );
-      await parseApiResponse(response);
       toast.success(
         action === "approve" ? "Suggestion approved" : "Suggestion rejected",
       );

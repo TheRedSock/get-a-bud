@@ -21,7 +21,10 @@ vi.mock("@/db", () => {
 
 describe("recalculateAccountBalance", () => {
   it("returns the SUM of transaction amounts as the new balance in cents", async () => {
-    const result = await recalculateAccountBalance("acc-1");
+    const result = await recalculateAccountBalance({
+      accountId: "acc-1",
+      householdId: "hh-1",
+    });
 
     expect(result).toBe(15000);
   });

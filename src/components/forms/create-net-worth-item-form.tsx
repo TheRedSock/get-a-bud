@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseApiResponse } from "@/lib/api-client";
+import { createAsset, createLiability } from "@/app/(app)/net-worth/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type ItemType = "asset" | "liability";
@@ -39,9 +40,6 @@ export function CreateNetWorthItemForm() {
     event.preventDefault();
     setLoading(true);
 
-    const endpoint =
-      itemType === "asset" ? "/api/assets" : "/api/liabilities";
-
     const payload: Record<string, unknown> = {
       name: itemName,
       kind,
@@ -70,13 +68,11 @@ export function CreateNetWorthItemForm() {
     }
 
     try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await parseApiResponse(response);
+      if (itemType === "asset") {
+        await unwrapAction(createAsset(payload), "Could not create asset");
+      } else {
+        await unwrapAction(createLiability(payload), "Could not create liability");
+      }
       toast.success(
         itemType === "asset" ? "Asset created" : "Liability created",
       );

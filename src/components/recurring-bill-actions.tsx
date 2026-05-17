@@ -15,6 +15,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  detectRecurringBills,
+  rejectBill,
+  updateBill,
+  updateBillCategory,
+} from "@/app/(app)/bills/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { formatCents } from "@/lib/finance/money";
@@ -60,8 +67,10 @@ export function RunRecurringDetectionButton() {
     setLoading(true);
 
     try {
-      const response = await fetch("/api/bills/detect", { method: "POST" });
-      await parseApiResponse(response);
+      await unwrapAction(
+        detectRecurringBills(undefined as void),
+        "Could not queue recurring detection",
+      );
       toast.success("Recurring detection queued");
       router.refresh();
     } catch (error) {
@@ -105,19 +114,20 @@ export function RecurringBillCategoryAction({
     setSaving(true);
 
     try {
-      const response = await fetch(`/api/bills/${billId}/category`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          categoryId: categoryId === NO_CATEGORY ? null : categoryId,
-          applyToTransactions: true,
+      const { applied } = await unwrapAction(
+        updateBillCategory({
+          billId,
+          data: {
+            categoryId: categoryId === NO_CATEGORY ? null : categoryId,
+            applyToTransactions: true,
+          },
         }),
-      });
-      const body = await parseApiResponse<{ applied: number }>(response);
+        "Could not update bill category",
+      );
       toast.success(
         `Bill category saved${
-          body.applied > 0
-            ? ` and applied to ${body.applied} transaction${body.applied === 1 ? "" : "s"}`
+          applied > 0
+            ? ` and applied to ${applied} transaction${applied === 1 ? "" : "s"}`
             : ""
         }`,
       );
@@ -195,21 +205,22 @@ export function RecurringBillEditor({
     setSaving(true);
 
     try {
-      const response = await fetch(`/api/bills/${billId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: form.name,
-          cadence: form.cadence,
-          expectedAmount: form.expectedAmount
-            ? Number(form.expectedAmount)
-            : null,
-          nextDueDate: form.nextDueDate || null,
-          isActive: form.isActive,
-          isPossiblyCancelled: form.isPossiblyCancelled,
+      await unwrapAction(
+        updateBill({
+          billId,
+          data: {
+            name: form.name,
+            cadence: form.cadence,
+            expectedAmount: form.expectedAmount
+              ? Number(form.expectedAmount)
+              : null,
+            nextDueDate: form.nextDueDate || null,
+            isActive: form.isActive,
+            isPossiblyCancelled: form.isPossiblyCancelled,
+          },
         }),
-      });
-      await parseApiResponse(response);
+        "Could not update bill details",
+      );
       toast.success("Bill details saved");
       setExpanded(false);
       router.refresh();
@@ -360,7 +371,7 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
   const router = useRouter();
   const [rejecting, setRejecting] = useState(false);
 
-  async function rejectBill() {
+  async function handleRejectBill() {
     const confirmed = window.confirm(
       "Reject this recurring bill? It will be removed and its matched transactions will be ignored by future recurring detection.",
     );
@@ -369,17 +380,15 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
     setRejecting(true);
 
     try {
-      const response = await fetch(`/api/bills/${billId}`, {
-        method: "DELETE",
-      });
-      const body = await parseApiResponse<{ ignoredTransactions: number }>(
-        response,
+      const { ignoredTransactions } = await unwrapAction(
+        rejectBill({ billId }),
+        "Could not reject recurring bill",
       );
       toast.success(
         `Recurring bill rejected${
-          body.ignoredTransactions > 0
-            ? ` and ${body.ignoredTransactions} matched transaction${
-                body.ignoredTransactions === 1 ? " was" : "s were"
+          ignoredTransactions > 0
+            ? ` and ${ignoredTransactions} matched transaction${
+                ignoredTransactions === 1 ? " was" : "s were"
               } ignored`
             : ""
         }`,
@@ -398,7 +407,7 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
       size="sm"
       type="button"
       variant="destructive"
-      onClick={() => void rejectBill()}
+      onClick={() => void handleRejectBill()}
     >
       {rejecting ? (
         <Loader2 className="size-4 animate-spin" />

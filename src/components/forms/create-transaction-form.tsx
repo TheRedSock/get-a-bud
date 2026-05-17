@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseApiResponse } from "@/lib/api-client";
+import { createTransaction } from "@/app/(app)/transactions/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type CreateTransactionFormProps = {
@@ -68,13 +69,10 @@ export function CreateTransactionForm({
         payload.notes = trimmedNotes;
       }
 
-      const response = await fetch("/api/transactions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await parseApiResponse(response);
+      await unwrapAction(
+        createTransaction(payload),
+        "Could not create transaction",
+      );
       toast.success(
         categoryId
           ? "Transaction created"

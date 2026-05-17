@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseApiResponse } from "@/lib/api-client";
+import { createBudget } from "@/app/(app)/budgets/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type BudgetType = "monthly" | "weekly" | "zero_based" | "envelope";
@@ -50,13 +51,10 @@ export function CreateBudgetForm() {
         payload.paycheckAnchorDay = Number(paycheckAnchorDay);
       }
 
-      const response = await fetch("/api/budgets", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await parseApiResponse(response);
+      await unwrapAction(
+        createBudget(payload),
+        "Could not create budget",
+      );
       toast.success("Budget created");
       setName("");
       setType("monthly");

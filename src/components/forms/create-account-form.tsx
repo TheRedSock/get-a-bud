@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { parseApiResponse } from "@/lib/api-client";
+import { createAccount } from "@/app/(app)/accounts/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type AccountKind =
@@ -65,13 +66,10 @@ export function CreateAccountForm() {
         payload.institutionName = trimmedInstitution;
       }
 
-      const response = await fetch("/api/accounts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await parseApiResponse(response);
+      await unwrapAction(
+        createAccount(payload),
+        "Could not create account",
+      );
       toast.success("Account created");
       setName("");
       setKind("checking");

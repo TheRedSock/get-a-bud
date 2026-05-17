@@ -33,7 +33,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { parseApiResponse } from "@/lib/api-client";
+import { updateTransaction } from "@/app/(app)/transactions/actions";
+import { unwrapAction } from "@/lib/actions/client";
 import {
   canUndoAutoLabel,
   getClassificationUiState,
@@ -147,12 +148,13 @@ export function TransactionEditor({
 
     setSavingCategory(true);
     try {
-      const response = await fetch(`/api/transactions/${transaction.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ categoryId: nextCategoryId }),
-      });
-      await parseApiResponse(response);
+      await unwrapAction(
+        updateTransaction({
+          transactionId: transaction.id,
+          data: { categoryId: nextCategoryId },
+        }),
+        "Could not update transaction",
+      );
       toast.success("Transaction updated");
       router.refresh();
     } catch (error) {
@@ -180,13 +182,13 @@ export function TransactionEditor({
         payload.date = date;
       }
 
-      const response = await fetch(`/api/transactions/${transaction.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      await parseApiResponse(response);
+      await unwrapAction(
+        updateTransaction({
+          transactionId: transaction.id,
+          data: payload,
+        }),
+        "Could not update transaction",
+      );
       toast.success("Transaction updated");
       setEditing(false);
       router.refresh();
