@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { refreshMock } from "@/test/mocks/next-navigation";
@@ -28,13 +28,17 @@ describe("CreateTransactionForm", () => {
       <CreateTransactionForm accounts={accounts} categories={categories} />,
     );
 
+    // Use fireEvent for blur-validation: userEvent.clear() is unreliable in
+    // jsdom CI because RHF re-renders can detach the DOM node between calls.
     const description = within(view.container).getByLabelText("Description");
-    await userEvent.type(description, "x");
-    await userEvent.clear(description);
-    await userEvent.tab();
+    fireEvent.change(description, { target: { value: "x" } });
+    fireEvent.change(description, { target: { value: "" } });
+    fireEvent.blur(description);
 
     await waitFor(() => {
-      expect(description).toHaveAttribute("aria-invalid", "true");
+      expect(
+        within(view.container).getByLabelText("Description"),
+      ).toHaveAttribute("aria-invalid", "true");
     });
   });
 

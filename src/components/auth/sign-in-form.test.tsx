@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { signInMock } from "@/test/mocks/next-auth-react";
@@ -17,14 +17,17 @@ describe("SignInForm", () => {
 
     const view = render(<SignInForm />);
 
+    // Use fireEvent for blur-validation: userEvent.clear() is unreliable in
+    // jsdom CI because RHF re-renders can detach the DOM node between calls.
     const email = within(view.container).getByLabelText("Email");
-    await userEvent.click(email);
-    await userEvent.type(email, "a");
-    await userEvent.clear(email);
-    await userEvent.tab();
+    fireEvent.change(email, { target: { value: "a" } });
+    fireEvent.change(email, { target: { value: "" } });
+    fireEvent.blur(email);
 
     await waitFor(() => {
-      expect(email).toHaveAttribute("aria-invalid", "true");
+      expect(
+        within(view.container).getByLabelText("Email"),
+      ).toHaveAttribute("aria-invalid", "true");
     });
   });
 
