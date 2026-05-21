@@ -77,6 +77,11 @@ export function parseMoneyToCents(input: string): number {
     }
   }
 
+  // Normalize bare decimal like ".83" or "-.5" to "0.83" / "-0.5"
+  if (/^-?\./.test(normalized)) {
+    normalized = normalized.replace(/^(-?)\./, "$10.");
+  }
+
   // Validate the normalized string is a valid number
   if (!/^-?\d+(\.\d+)?$/.test(normalized)) {
     throw new Error(`Invalid money value: "${input}"`);

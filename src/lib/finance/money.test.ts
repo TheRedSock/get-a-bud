@@ -81,6 +81,12 @@ describe("parseMoneyToCents", () => {
       expect(parseMoneyToCents("0.01")).toBe(1);
     });
 
+    it("handles bare decimal without leading zero", () => {
+      expect(parseMoneyToCents(".83")).toBe(83);
+      expect(parseMoneyToCents(".5")).toBe(50);
+      expect(parseMoneyToCents("-.99")).toBe(-99);
+    });
+
     it("throws on empty string", () => {
       expect(() => parseMoneyToCents("")).toThrow("Invalid money value");
     });
