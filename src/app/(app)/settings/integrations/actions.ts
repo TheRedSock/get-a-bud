@@ -32,7 +32,10 @@ import {
   createAuthorizationState,
   getAppUrl,
 } from "@/lib/ingestion/enable-banking/state";
-import { requireStepUp } from "@/lib/auth/step-up";
+// Step-up auth deferred until client-side confirmation dialog is built.
+// Re-enable: import { requireStepUp } from "@/lib/auth/step-up";
+// Then add `await requireStepUp(ctx.user.id);` after rate limit in:
+//   createEnableBankingConnection, startEnableBankingAuth, queueEnableBankingSync
 import { encryptSecret, decryptSecret } from "@/lib/security/encryption";
 
 // ---------------------------------------------------------------------------
@@ -67,7 +70,7 @@ export const createEnableBankingConnection = authenticatedAction(
   "enableBanking.connections.create",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
-    await requireStepUp(ctx.user.id);
+    // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(
       connectionSchema,
@@ -108,7 +111,7 @@ export const startEnableBankingAuth = authenticatedAction(
   "enableBanking.authorization.start",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
-    await requireStepUp(ctx.user.id);
+    // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(
       startAuthorizationSchema,
@@ -306,7 +309,7 @@ export const queueEnableBankingSync = authenticatedAction(
   "enableBanking.sync.queue",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
-    await requireStepUp(ctx.user.id);
+    // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(
       queueSyncSchema,
