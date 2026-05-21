@@ -75,6 +75,14 @@ vi.mock("@/lib/ingestion/enable-banking/psu-headers", () => ({
   capturePsuHeaders: vi.fn().mockReturnValue({}),
 }));
 
+vi.mock("@/lib/ingestion/sync-runs", () => ({
+  resolveSyncRunForEnqueue: vi.fn().mockResolvedValue({
+    id: "run-1",
+    connectionId: "conn-1",
+    status: "queued",
+  }),
+}));
+
 vi.mock("@/lib/ingestion/enable-banking/state", () => ({
   createAuthorizationState: vi.fn().mockReturnValue({
     state: "state-abc",

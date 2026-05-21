@@ -1,8 +1,8 @@
 import { AppError } from "@/lib/errors/app-error";
 
 /**
- * Focused tests for sync.ts entry-point validation, error handling, and
- * behavioral regression coverage (P1-5).
+ * Focused tests for sync orchestration entry-point validation, error handling,
+ * and behavioral regression coverage.
  *
  * Behavioral tests cover:
  * - Pagination through empty pages with continuation_key
@@ -689,6 +689,84 @@ describe("sync user-edit preservation", () => {
     expect(txUpdate!.metadata).toMatchObject({
       userEdits: expect.objectContaining({ descriptionEdited: true }),
     });
+  });
+
+  it("does not overwrite provider-owned amount, currency, or date on re-import", async () => {
+    const conn = validConnection();
+
+    const existingTx = {
+      id: "existing-tx-2",
+      sourceTransactionId: "tx-2",
+      description: "Grocery store",
+      merchantName: "Store",
+      amountCents: -5000,
+      currency: "NOK",
+      date: "2026-01-10",
+      metadata: {},
+    };
+
+    const pa = providerAccountRow({ financialAccountId: "fa-1" });
+
+    mockDbSelect
+      .mockReturnValueOnce(selectChain([conn]))
+      .mockReturnValueOnce(selectChain([{ metadata: {} }]))
+      .mockReturnValueOnce(selectChain([existingTx]))
+      .mockReturnValueOnce(selectChain([{ totalSumCents: -5000, nonOffsetSumCents: -5000, manualCount: 0 }]))
+      .mockReturnValueOnce(selectChain([]))
+      .mockReturnValueOnce(selectChain([{ date: "2026-01-10" }]))
+      .mockReturnValueOnce(selectChain([{ metadata: {} }]));
+
+    mockDbInsert
+      .mockReturnValueOnce(insertChain([pa]))
+      .mockReturnValueOnce(insertChain([{ id: "offset-tx" }]));
+
+    const capturedSets: unknown[] = [];
+    mockDbUpdate.mockImplementation(() => {
+      const p = Promise.resolve(undefined);
+      return {
+        set: vi.fn((setValues: unknown) => {
+          capturedSets.push(setValues);
+          return { where: vi.fn(() => p), then: p.then.bind(p), catch: p.catch.bind(p) };
+        }),
+      };
+    });
+    mockDbDelete.mockImplementation(() => deleteChain());
+
+    mockGetSession.mockResolvedValue({ accounts: ["acct-1"], aspsp: { name: "Test Bank" } });
+    mockGetAccountDetails.mockResolvedValue({ uid: "acct-1", name: "Test", currency: "NOK" });
+    mockGetAccountBalances.mockResolvedValue({ balances: [{ balance_amount: { amount: "100.00" } }] });
+    mockGetTransactions.mockResolvedValue({ transactions: [{ transaction_id: "raw-tx-2" }] });
+
+    mockMapAccount.mockReturnValue(normalizedAccount());
+    mockMapTransaction.mockReturnValue(
+      normalizedTransaction({
+        providerTransactionId: "tx-2",
+        amountCents: -9999,
+        currency: "EUR",
+        date: "2026-02-01",
+        description: "Changed provider description",
+      }),
+    );
+
+    const { syncEnableBankingConnection } = await import(
+      "@/lib/ingestion/enable-banking/sync"
+    );
+    await syncEnableBankingConnection("conn-1", {
+      syncRunId: "run-1",
+      maxPages: 100,
+      maxDurationMs: 300_000,
+    });
+
+    const txUpdate = capturedSets.find(
+      (s) => typeof s === "object" && s !== null && "description" in s,
+    ) as Record<string, unknown> | undefined;
+
+    expect(txUpdate).toBeDefined();
+    expect(txUpdate).not.toHaveProperty("amountCents");
+    expect(txUpdate).not.toHaveProperty("currency");
+    expect(txUpdate).not.toHaveProperty("date");
+    expect(txUpdate).not.toHaveProperty("accountId");
+    expect(txUpdate!.description).toBe("Changed provider description");
   });
 });
 

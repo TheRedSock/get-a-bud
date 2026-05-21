@@ -11,7 +11,8 @@ import {
   recurringBills,
   transactions,
 } from "@/db/schema";
-import { inngest } from "@/inngest/client";
+import { EVENT_NAMES } from "@/inngest/lib/events";
+import { sendInngestEvent } from "@/inngest/lib/send-event";
 import {
   authenticatedAction,
   validateActionInput,
@@ -471,9 +472,8 @@ export const updateBillCategory = authenticatedAction(
     }
 
     if (applied > 0) {
-      await inngest.send({
-        name: "model.retrain",
-        data: { householdId: ctx.householdId },
+      await sendInngestEvent(EVENT_NAMES.retrainModel, {
+        householdId: ctx.householdId,
       });
     }
 
@@ -500,9 +500,8 @@ export const detectRecurringBills = authenticatedAction(
   async (ctx, _input: void) => {
     await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
 
-    await inngest.send({
-      name: "transactions.recurring.detect",
-      data: { householdId: ctx.householdId },
+    await sendInngestEvent(EVENT_NAMES.detectRecurringBills, {
+      householdId: ctx.householdId,
     });
 
     return { queued: true };

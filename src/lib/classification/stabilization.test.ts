@@ -60,7 +60,7 @@ describe("Stabilization: stale suggestion clearing", () => {
     // i.e., a relabel result does NOT mean suggestions are kept.
     const relabel = generateRelabel(parsed(), txn());
     expect(relabel).not.toBeNull();
-    // The pipeline code (inngest/functions.ts) sets suggestedCategoryId = null alongside
+    // The pipeline code (inngest/lib/categorize-page.ts) sets suggestedCategoryId = null alongside
     // the relabel, which is verified by integration tests. Here we confirm the relabel
     // function itself is not conflating the two concerns.
   });
@@ -103,7 +103,7 @@ describe("Stabilization: backfill parser source", () => {
     // The backfill function sets parserSource = "none" when parseDescription returns null.
     // This prevents the row from being reloaded in the next batch.
     // We verify the parser returns null for unrecognized formats.
-    // The actual "none" assignment is in inngest/functions.ts backfillParsedFields.
+    // The actual "none" assignment is in inngest/functions/backfill-parsed-fields.ts.
     const result = generateRelabel(null, txn());
     expect(result).toBeNull();
   });
@@ -128,7 +128,7 @@ describe("Stabilization: manual Tier 2 enqueue", () => {
     // Tier 2 can attempt classification.
     const result = generateRelabel(null, txn());
     expect(result).toBeNull();
-    // The actual enqueue logic: if (!categoryId) { inngest.send("transactions.categorize") }
+    // The actual enqueue logic: if (!categoryId) { sendInngestEvent("transactions.categorize") }
     // is in src/app/(app)/transactions/actions.ts (createTransaction).
   });
 

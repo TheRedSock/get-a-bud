@@ -9,7 +9,8 @@ import {
   financialAccounts,
   transactions,
 } from "@/db/schema";
-import { inngest } from "@/inngest/client";
+import { EVENT_NAMES } from "@/inngest/lib/events";
+import { sendInngestEvent } from "@/inngest/lib/send-event";
 import {
   authenticatedAction,
   validateActionInput,
@@ -217,9 +218,8 @@ export const createTransaction = authenticatedAction(
 
     // Enqueue background categorization if no category was resolved
     if (!categoryId) {
-      await inngest.send({
-        name: "transactions.categorize",
-        data: { householdId: ctx.householdId },
+      await sendInngestEvent(EVENT_NAMES.categorizeTransactions, {
+        householdId: ctx.householdId,
       });
     }
 
@@ -908,9 +908,8 @@ export const classifyTransactions = authenticatedAction(
   async (ctx, _input: void) => {
     await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
 
-    await inngest.send({
-      name: "transactions.categorize",
-      data: { householdId: ctx.householdId },
+    await sendInngestEvent(EVENT_NAMES.categorizeTransactions, {
+      householdId: ctx.householdId,
     });
 
     return { queued: true };

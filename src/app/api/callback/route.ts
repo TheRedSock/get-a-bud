@@ -4,8 +4,10 @@ import { NextResponse } from "next/server";
 import { serverEnv } from "@/config/env";
 import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
-import { inngest } from "@/inngest/client";
+import { EVENT_NAMES } from "@/inngest/lib/events";
+import { sendInngestEvent } from "@/inngest/lib/send-event";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
+import { resolveSyncRunForEnqueue } from "@/lib/ingestion/sync-runs";
 import {
   hashAuthorizationState,
   safeCompareStateHash,
@@ -218,21 +220,16 @@ async function handleCallback(request: Request, url: URL) {
         ),
       );
 
-    const [run] = await db
-      .insert(syncRuns)
-      .values({
-        connectionId: connection.id,
-        provider: "enable_banking",
-        status: "queued",
-      })
-      .returning();
+    const run = await resolveSyncRunForEnqueue({
+      connectionId: connection.id,
+    });
 
     let syncQueued = true;
 
     try {
-      await inngest.send({
-        name: "bank.connection.sync",
-        data: { connectionId: connection.id, runId: run.id },
+      await sendInngestEvent(EVENT_NAMES.bankConnectionSync, {
+        connectionId: connection.id,
+        runId: run.id,
       });
     } catch (queueError) {
       const message =

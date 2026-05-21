@@ -10,7 +10,8 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import { households, transactions } from "@/db/schema";
-import { inngest } from "@/inngest/client";
+import { EVENT_NAMES } from "@/inngest/lib/events";
+import { sendInngestEvent } from "@/inngest/lib/send-event";
 import { RETRAIN_CORRECTION_THRESHOLD } from "@/lib/classification/types";
 import {
   learnCategoryCorrection,
@@ -138,10 +139,7 @@ export async function incrementCorrectionsAndRetrain(
     .returning({ corrections: households.classificationCorrectionsSinceTrain });
 
   if (hh && hh.corrections >= RETRAIN_CORRECTION_THRESHOLD) {
-    await inngest.send({
-      name: "model.retrain",
-      data: { householdId },
-    });
+    await sendInngestEvent(EVENT_NAMES.retrainModel, { householdId });
     return true;
   }
 

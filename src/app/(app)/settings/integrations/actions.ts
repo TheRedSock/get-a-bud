@@ -7,7 +7,8 @@ import { z } from "zod";
 import { serverEnv } from "@/config/env";
 import { db } from "@/db";
 import { ingestionConnections, syncRuns } from "@/db/schema";
-import { inngest } from "@/inngest/client";
+import { EVENT_NAMES } from "@/inngest/lib/events";
+import { sendInngestEvent } from "@/inngest/lib/send-event";
 import {
   authenticatedAction,
   validateActionInput,
@@ -25,6 +26,7 @@ import {
   queueEnqueueRateLimit,
 } from "@/lib/security/arcjet";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
+import { resolveSyncRunForEnqueue } from "@/lib/ingestion/sync-runs";
 import { capturePsuHeaders } from "@/lib/ingestion/enable-banking/psu-headers";
 import {
   createAuthorizationState,
@@ -336,19 +338,12 @@ export const queueEnableBankingSync = authenticatedAction(
       });
     }
 
-    const [run] = await db
-      .insert(syncRuns)
-      .values({
-        connectionId,
-        provider: "enable_banking",
-        status: "queued",
-      })
-      .returning();
+    const run = await resolveSyncRunForEnqueue({ connectionId });
 
     try {
-      await inngest.send({
-        name: "bank.connection.sync",
-        data: { connectionId, runId: run.id },
+      await sendInngestEvent(EVENT_NAMES.bankConnectionSync, {
+        connectionId,
+        runId: run.id,
       });
     } catch (error) {
       const message =
