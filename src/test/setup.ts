@@ -7,26 +7,25 @@ process.env.NEXTAUTH_SECRET ??= "test-secret-32-bytes-long-enough";
 process.env.NEXTAUTH_URL ??= "http://localhost:3000";
 process.env.FIELD_ENCRYPTION_KEY ??= "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
 
-// jsdom does not compute CSS reliably. @testing-library/user-event v14+ checks
-// `getComputedStyle(...).pointerEvents` before every interaction and rejects it
-// when the value is "none". In jsdom on Linux (CI), this check returns false
-// positives — elements that are perfectly interactable get blocked. Patch
-// getComputedStyle to never report pointer-events: none unless the element has
-// an explicit inline style setting it. This matches real browser behavior where
-// elements without explicit pointer-events inherit "auto".
+// jsdom does not compute CSS. @testing-library/user-event v14+ walks the
+// ancestor chain calling getComputedStyle on each element and rejects
+// interactions when any ancestor reports pointer-events: none. On Linux CI,
+// jsdom falsely reports pointer-events: none on <body>. The
+// Object.defineProperty approach fails because jsdom's CSSStyleDeclaration is
+// non-configurable on some platforms. Use a Proxy to intercept property reads.
 if (typeof window !== "undefined") {
   const _getComputedStyle = window.getComputedStyle;
   window.getComputedStyle = (elt: Element, pseudoElt?: string | null) => {
     const style = _getComputedStyle(elt, pseudoElt);
-    if (
-      style.pointerEvents === "none" &&
-      !(elt as HTMLElement).style?.pointerEvents
-    ) {
-      Object.defineProperty(style, "pointerEvents", {
-        value: "",
-        configurable: true,
-      });
-    }
-    return style;
+    return new Proxy(style, {
+      get(target, prop, receiver) {
+        if (prop === "pointerEvents") return "";
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value === "function") {
+          return value.bind(target);
+        }
+        return value;
+      },
+    });
   };
 }
