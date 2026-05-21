@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { refreshMock } from "@/test/mocks/next-navigation";
@@ -24,13 +24,18 @@ describe("CreateNetWorthItemForm", () => {
 
     const view = render(<CreateNetWorthItemForm />);
 
+    // Use fireEvent for the blur-validation assertion. The discriminated union
+    // form re-renders on change, which can detach the DOM node between
+    // userEvent calls in CI (jsdom on Linux).
     const name = within(view.container).getByLabelText("Name");
-    await userEvent.type(name, "x");
-    await userEvent.clear(name);
-    await userEvent.tab();
+    fireEvent.change(name, { target: { value: "x" } });
+    fireEvent.change(name, { target: { value: "" } });
+    fireEvent.blur(name);
 
     await waitFor(() => {
-      expect(name).toHaveAttribute("aria-invalid", "true");
+      expect(
+        within(view.container).getByLabelText("Name"),
+      ).toHaveAttribute("aria-invalid", "true");
     });
   });
 
