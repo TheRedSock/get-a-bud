@@ -74,4 +74,37 @@ describe("CreateTransactionForm", () => {
     expect(within(view.container).getByLabelText("Description")).toHaveValue("");
     expect(toastErrorMock).not.toHaveBeenCalled();
   });
+
+  it("shows a human-readable toast when the server returns an error", async () => {
+    const { createTransaction } = await import(
+      "@/app/(app)/transactions/actions"
+    );
+    const createTransactionMock = vi.mocked(createTransaction);
+    createTransactionMock.mockResolvedValue({
+      error: {
+        code: "not_found",
+        message: "Choose an account from this household.",
+      },
+    });
+
+    const { CreateTransactionForm } = await import(
+      "@/components/forms/create-transaction-form"
+    );
+
+    const view = render(
+      <CreateTransactionForm accounts={accounts} categories={categories} />,
+    );
+
+    await userEvent.type(within(view.container).getByLabelText("Description"), "Rent");
+    await userEvent.type(within(view.container).getByLabelText("Amount"), "1200");
+    await userEvent.click(
+      within(view.container).getByRole("button", { name: "Create transaction" }),
+    );
+
+    await waitFor(() => {
+      expect(toastErrorMock).toHaveBeenCalledWith("Could not create transaction", {
+        description: "Choose an account from this household.",
+      });
+    });
+  });
 });

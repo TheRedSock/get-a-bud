@@ -32,6 +32,7 @@ import {
   createAuthorizationState,
   getAppUrl,
 } from "@/lib/ingestion/enable-banking/state";
+import { requireStepUp } from "@/lib/auth/step-up";
 import { encryptSecret, decryptSecret } from "@/lib/security/encryption";
 
 // ---------------------------------------------------------------------------
@@ -66,6 +67,7 @@ export const createEnableBankingConnection = authenticatedAction(
   "enableBanking.connections.create",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
+    await requireStepUp(ctx.user.id);
 
     const validated = validateActionInput(
       connectionSchema,
@@ -106,6 +108,7 @@ export const startEnableBankingAuth = authenticatedAction(
   "enableBanking.authorization.start",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
+    await requireStepUp(ctx.user.id);
 
     const validated = validateActionInput(
       startAuthorizationSchema,
@@ -303,6 +306,7 @@ export const queueEnableBankingSync = authenticatedAction(
   "enableBanking.sync.queue",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+    await requireStepUp(ctx.user.id);
 
     const validated = validateActionInput(
       queueSyncSchema,

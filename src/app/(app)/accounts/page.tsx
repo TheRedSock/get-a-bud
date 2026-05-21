@@ -5,9 +5,7 @@ import { BankSyncPanel } from "@/components/bank-sync-panel";
 import { CreateAccountForm } from "@/components/forms/create-account-form";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { db } from "@/db";
-import { financialAccounts } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { listHouseholdAccounts } from "@/lib/finance/accounts/queries";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { getHouseholdConnections } from "@/lib/ingestion/enable-banking/queries";
 
@@ -35,19 +33,7 @@ function getBalanceWarning(metadata: Record<string, unknown> | null | undefined)
 export default async function AccountsPage() {
   const household = await getActiveHousehold();
   const [accounts, connections] = await Promise.all([
-    db
-      .select({
-        id: financialAccounts.id,
-        name: financialAccounts.name,
-        kind: financialAccounts.kind,
-        currency: financialAccounts.currency,
-        currentBalanceCents: financialAccounts.currentBalanceCents,
-        institutionName: financialAccounts.institutionName,
-        isManual: financialAccounts.isManual,
-        metadata: financialAccounts.metadata,
-      })
-      .from(financialAccounts)
-      .where(eq(financialAccounts.householdId, household.householdId)),
+    listHouseholdAccounts(household.householdId),
     getHouseholdConnections(household.householdId),
   ]);
 

@@ -1614,8 +1614,10 @@ top-level Suspense/error boundaries. Thin.
 
 - **Single Responsibility.** A component renders one thing. `BudgetCard`
   renders a budget card; it does not also manage a delete modal.
-- **Every interactive component has loading, error, and empty states.** No
-  exceptions.
+- **Loading, error, and empty states** apply to data-bound widgets, forms,
+  lists, cards, charts, and page sections. Tiny primitives (buttons, badges)
+  need pending/disabled/error feedback where relevant, but not artificial empty
+  states unless they render a collection.
 - **Compound components for complex UI patterns** (multi-step forms, dashboard
   widgets, accordion groups):
 
@@ -2032,7 +2034,8 @@ defines the operational expectations.
    against that household before writes.
 4. **Types flow from schema.** Infer from Drizzle and Zod. Never duplicate
    type definitions.
-5. **Every component has three states: loading, error, empty.** No exceptions.
+5. **Data-bound UI has intentional loading, error, and empty states** (see
+   section 21; tiny primitives need action feedback, not artificial empties).
 6. **Semantic color tokens, not raw Tailwind colors.** One CSS variable change
    repaints the world.
 7. **No `any`. No unvalidated external input past the boundary.** These are

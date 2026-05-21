@@ -45,6 +45,10 @@ vi.mock("@/lib/security/arcjet", () => ({
   enforceActionRateLimit: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock("@/lib/auth/step-up", () => ({
+  requireStepUp: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock("@/lib/audit", () => ({
   AuditAction: {
     ACCOUNT_CONNECT: "account.connect",

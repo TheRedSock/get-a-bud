@@ -11,6 +11,8 @@ const securityHeaders = [
       "form-action 'self'",
       "frame-ancestors 'none'",
       "object-src 'none'",
+      // Production allows 'unsafe-inline' for scripts until nonce support is verified.
+      // See docs/runbooks/csp.md for the nonce migration plan.
       `script-src 'self'${isDev ? " 'unsafe-eval'" : ""} 'unsafe-inline' https://vercel.live`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",

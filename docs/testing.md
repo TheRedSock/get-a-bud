@@ -1,16 +1,44 @@
 # Testing
 
 Get a Bud uses Vitest for fast TypeScript tests and React Testing Library for
-client components. Playwright can be added later for a small number of full
-browser smoke tests when the form workflows are stable.
+client components. Playwright covers a small set of public smoke journeys.
 
 ## Commands
 
-- `npm run test` runs the test suite once.
-- `npm run test:watch` runs Vitest in watch mode.
-- `npm run test:coverage` runs tests with V8 coverage.
-- `npm run lint`, `npm run typecheck` and `npm run build` remain release quality
-  gates.
+| Command | Purpose |
+|---------|---------|
+| `npm run test` | Unit + integration projects |
+| `npm run test:unit` | jsdom unit/component tests only |
+| `npm run test:integration` | Postgres-backed `*.integration.test.ts` |
+| `npm run test:watch` | Unit tests in watch mode |
+| `npm run test:coverage` | Unit coverage (v8) |
+| `npm run test:db:up` | Start Docker Compose test Postgres (port 5433) |
+| `npm run test:db:migrate` | Apply migrations to test DB (`.env.test`) |
+| `npm run test:e2e` | Playwright smoke tests |
+| `npm run test:e2e:install` | Install Chromium for Playwright |
+
+Release gates: `npm run lint`, `npm run typecheck`, `npm run test`, `npm run build`.
+
+## Integration database
+
+Integration tests use Docker Compose (`docker-compose.test.yml`) and
+`postgresql://get_a_bud:get_a_bud@127.0.0.1:5433/get_a_bud_test`.
+
+CI runs the `integration` workflow job (migrate + `test:integration`). Locally,
+start the database first:
+
+```bash
+npm run test:db:up
+npm run test:db:migrate
+npm run test:integration
+```
+
+If Docker is unavailable, integration tests skip via `describe.skipIf`.
+
+## Factories
+
+Shared helpers live in `src/test/factories/` (`createTwoHouseholds`, accounts,
+transactions, etc.). Money fields use integer cents.
 
 ## Philosophy
 
@@ -18,45 +46,23 @@ Test behavior contracts and invariants, not implementation shape.
 
 - Prefer fast unit tests for finance helpers, validation, ingestion mapping,
   state hashing and error serialization.
-- Add integration tests only around high-value boundaries: auth/bootstrap,
-  household scoping, manual ledger writes, Enable Banking sync and Inngest state.
+- Use **integration tests** for household scoping, registration provisioning,
+  and provider transaction deduplication on a real database.
 - Use component tests for interactive flows where the user sees a meaningful
   state change or toast.
-- Mock external boundaries: Enable Banking, Sentry, Inngest, NextAuth and fetch.
-- Avoid snapshots and layout-only assertions. Assert accessible controls, copy,
-  API contracts and durable state transitions.
-- Do not duplicate the same CRUD test across every route after the shared route
-  wrapper is covered. Add one representative route test plus route-specific
-  business rules.
-- When behavior changes intentionally, update or delete obsolete assertions in
-  the same change. Do not preserve tests that only document old logic.
+- Mock external boundaries: Enable Banking HTTP, Sentry, Inngest send, NextAuth
+  session (integration tests mock session; DB is real).
+- Avoid snapshots and layout-only assertions.
+- See `docs/remediation/inventories/mutation-test-matrix.md` for Server Action
+  coverage tracking.
 
-## Initial Coverage Targets
+## Coverage map
 
-- `src/lib/errors/*`: API envelope, normalization, validation parsing and safe
-  client parsing.
-- `src/lib/finance/*`: Zod schemas, merchant normalization, category matching,
-  balance recalculation and budget read models.
-- `src/lib/classification/*`: parser formats, merchant/model feature extraction,
-  confidence UI state, auto-label stabilization, transfer linking and recurring
-  detection invariants.
-- `src/lib/security/*`: encryption key validation and round trips.
-- `middleware.ts`: public route exceptions and authenticated app/API behavior.
-- `src/app/api/transactions/*`: household ownership boundaries for accounts and
-  categories.
-- `src/lib/ingestion/enable-banking/*`: authorization state handling, provider
-  payload mapping, rate-limit behavior, safe provider errors, pagination through
-  empty pages with continuation keys, checkpoint resume from run metadata,
-  user-edit preservation during re-imports, and reconciliation offset creation.
-- `src/inngest/functions.ts`: continuation behavior for long-running jobs,
-  especially parser backfill, categorization, transfer linking and recurring
-  detection queueing.
-- `src/components/auth/*` and bank sync components: user-facing failure copy and
-  success/failure transitions.
-- `src/components/transaction-editor.tsx` and classification review components:
-  suggestion approval/rejection, auto-label undo, confidence indicators and
-  immutable bank-fact presentation.
-
-Sync behavioral regression tests cover the five highest-value scenarios
-identified in the architecture audit: pagination, checkpoint resume, rate-limit
-pause, user-edit preservation and balance reconciliation.
+- `src/lib/errors/*` — API envelope and client parsing
+- `src/lib/finance/*` — money, budgets, transactions queries/commands
+- `src/lib/classification/*` — parser, model, linking, recurring
+- `src/lib/security/*` — encryption, Arcjet
+- `src/app/(app)/**/actions*.test.ts` — mocked household isolation (fast)
+- `src/**/*.integration.test.ts` — durable DB isolation and ingestion contracts
+- `src/inngest/functions/*` — job schemas and continuation behavior
+- `src/components/forms/*` — form validation, submit, toast errors

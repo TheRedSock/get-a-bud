@@ -32,7 +32,8 @@ Dependency flow: `app/ -> components/ -> lib/`. Never import backwards.
 3. All data reads scoped to the active household. Validate foreign keys
    against that household before writes.
 4. Types flow from schema. Infer from Drizzle and Zod. Never duplicate types.
-5. Every component has loading, error, and empty states.
+5. Data-bound UI has loading, error, and empty states; tiny primitives need
+   action feedback (pending/disabled/errors), not artificial empty states.
 6. Semantic color tokens, not raw Tailwind colors.
 7. No `any`. No unvalidated external input past the boundary.
 8. Every background job must be idempotent. Assume it will run twice.
@@ -46,8 +47,10 @@ Dependency flow: `app/ -> components/ -> lib/`. Never import backwards.
 13. Log deviations, not successes. Keep routine noise muted.
 14. One file, one concept. If it needs "and" to describe, split it.
 15. Minimize round-trips, maximize per-trip value. Batch, join, parallelize.
-16. Every server action has a household-isolation test.
-17. All deployments pass lint, typecheck, and tests.
+16. Every server action has a household-isolation test (integration DB or
+    mocked action suite).
+17. All deployments pass lint, typecheck, and tests (`test:unit` + `test:integration` in CI).
+18. Destructive and provider-sensitive actions require step-up (`requireStepUp`).
 
 ## Error Handling
 
@@ -84,6 +87,10 @@ Dependency flow: `app/ -> components/ -> lib/`. Never import backwards.
   network fetches.
 - When product behavior changes intentionally, update or remove obsolete tests in
   the same change instead of preserving assertions for old logic.
+- Integration tests: `npm run test:db:up` then `test:db:migrate` then
+  `test:integration`. See `docs/testing.md`.
+
+Operational runbooks: `docs/runbooks/`.
 
 Before handing off substantive changes, run `npm run lint`, `npm run typecheck`
 and `npm run test` when practical, and mention any command you could not run.

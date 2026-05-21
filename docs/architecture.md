@@ -17,19 +17,23 @@ flowchart LR
 
 ## Core Boundaries
 
-- `src/db/schema.ts` defines the durable data model.
+- `src/db/schema/` defines the durable data model (re-exported from `src/db/schema/index.ts`).
 - `src/lib/finance` contains budget, category and household helpers.
 - `src/lib/classification` contains parser, model, transfer-linking,
   recurring-detection and UI-state helpers for the classification system.
 - `src/lib/ingestion` defines provider-independent normalized account and
   transaction shapes.
 - `src/lib/ingestion/enable-banking` contains all Enable Banking specifics.
-- `src/inngest` owns scheduled and asynchronous workflows.
+- `src/inngest/functions/` defines jobs; `src/inngest/functions.ts` is the registration manifest.
 - `src/assets/fonts/mona-sans` stores the checked-in Mona Sans webfont assets.
 
 ## MVP Data Flow
 
-Manual API routes and Enable Banking sync both create `financial_accounts` and
+Internal UI mutations use **Server Actions** under `src/app/(app)/*/actions.ts`.
+External HTTP entry points remain route handlers: Auth.js, Enable Banking
+`/api/callback`, `/api/health`, read-only integration proxies, and `/api/inngest`.
+
+Manual entry and Enable Banking sync both create `financial_accounts` and
 `transactions`. Account display metadata remains user editable even when an
 account is provider-linked, while provider IDs, raw payloads and bank-owned
 transaction facts stay tied to the ingestion layer. Categorization rules can be
@@ -119,9 +123,13 @@ Public exceptions are intentionally narrow: Auth.js endpoints, registration,
 Inngest webhooks and the Enable Banking callback. App pages redirect to
 `/sign-in`; API routes return the standard unauthenticated JSON shape.
 
-Arcjet rate limits protect registration, credentials auth and Enable Banking
-authorization starts. Production CSP removes `unsafe-eval`; local development
-keeps it available for tooling that needs it.
+Arcjet rate limits protect registration, credentials auth, financial mutations,
+and queue enqueue actions. Step-up password confirmation (`confirmStepUp` action
+and `gab-step-up` cookie) guards provider connection, sync queue, and account
+deletion.
+
+Production CSP removes `unsafe-eval`; `unsafe-inline` on scripts is phased out
+per `docs/runbooks/csp.md`. Local development keeps `unsafe-eval` for tooling.
 
 ## Cross-Cutting Error Flow
 

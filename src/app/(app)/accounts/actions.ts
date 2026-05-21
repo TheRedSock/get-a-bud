@@ -15,6 +15,7 @@ import {
   createAccountSchema,
   updateAccountSchema,
 } from "@/lib/finance/validation";
+import { requireStepUp } from "@/lib/auth/step-up";
 import {
   authenticatedMutationRateLimit,
   enforceActionRateLimit,
@@ -173,6 +174,7 @@ export const deleteAccount = authenticatedAction(
   "accounts.delete",
   async (ctx, input: unknown) => {
     await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await requireStepUp(ctx.user.id);
 
     const envelope = validateActionInput(
       accountIdEnvelope,

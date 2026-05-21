@@ -49,12 +49,29 @@ export function unauthorizedError(message = "Please sign in to continue.") {
   });
 }
 
-export function forbiddenError(message = "You do not have access to this resource.") {
+export function forbiddenError(
+  message = "You do not have access to this resource.",
+  context?: Record<string, unknown>,
+) {
   return new AppError({
     code: "forbidden",
     message,
     status: 403,
     logLevel: "warn",
+    expected: true,
+    context,
+  });
+}
+
+export function stepUpRequiredError(
+  message = "Confirm your password again before this sensitive action.",
+) {
+  return new AppError({
+    code: "step_up_required",
+    message,
+    status: 403,
+    userMessage: message,
+    logLevel: "silent",
     expected: true,
   });
 }
