@@ -19,7 +19,10 @@ import {
 } from "@/lib/actions/safe-action";
 import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
-import { moneyPreprocessor } from "@/lib/finance/money";
+import {
+  createBillSchema,
+  updateBillSchema,
+} from "@/lib/finance/validation";
 import {
   authenticatedMutationRateLimit,
   enforceActionRateLimit,
@@ -48,45 +51,7 @@ const billCategoryEnvelope = z.object({
 // Schemas
 // ---------------------------------------------------------------------------
 
-const billCreateSchema = z.object({
-  name: z.string().min(1).max(120),
-  merchantPattern: z.string().min(1).max(160),
-  cadence: z
-    .enum([
-      "weekly",
-      "biweekly",
-      "monthly",
-      "quarterly",
-      "semi_annual",
-      "yearly",
-      "unknown",
-    ])
-    .default("monthly"),
-  expectedAmountCents: z.preprocess(moneyPreprocessor, z.number().int().optional()),
-  nextDueDate: z.string().min(8).optional(),
-});
-
-const billUpdateSchema = z.object({
-  name: z.string().trim().min(1).max(120).optional(),
-  cadence: z
-    .enum([
-      "weekly",
-      "biweekly",
-      "monthly",
-      "quarterly",
-      "semi_annual",
-      "yearly",
-      "unknown",
-    ])
-    .optional(),
-  expectedAmountCents: z.preprocess(
-    moneyPreprocessor,
-    z.number().int().nonnegative().nullable().optional(),
-  ),
-  nextDueDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
-  isActive: z.boolean().optional(),
-  isPossiblyCancelled: z.boolean().optional(),
-});
+const billUpdateSchema = updateBillSchema;
 
 const billCategorySchema = z.object({
   categoryId: z.string().min(1).nullable(),
@@ -117,7 +82,7 @@ export const createBill = authenticatedAction(
     await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
 
     const validated = validateActionInput(
-      billCreateSchema,
+      createBillSchema,
       input,
       "Please provide a valid bill name, merchant pattern and cadence.",
     );

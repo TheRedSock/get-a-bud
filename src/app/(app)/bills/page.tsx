@@ -102,7 +102,9 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                   <div className="flex items-center gap-2">
                     <p className="font-semibold">{bill.name}</p>
                     {bill.isPossiblyCancelled && (
-                      <Badge className="border-amber-300 bg-amber-100 text-amber-800">Review</Badge>
+                      <Badge className="border-warning/40 bg-warning/15 text-warning-foreground">
+                        Review
+                      </Badge>
                     )}
                     {bill.isDuplicateSubscription && (
                       <Badge className="border-destructive bg-destructive/10 text-destructive">Duplicate?</Badge>
@@ -117,7 +119,7 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                     </p>
                   )}
                   {bill.amountTrend && bill.amountTrend !== "stable" && (
-                    <p className="flex items-center gap-1 text-xs text-amber-600">
+                    <p className="flex items-center gap-1 text-xs text-warning-foreground">
                       <TrendingUp className="size-3" /> Amount trending{" "}
                       {bill.amountTrend}
                     </p>

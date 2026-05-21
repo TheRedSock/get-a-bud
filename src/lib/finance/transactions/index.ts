@@ -7,12 +7,18 @@ export {
 } from "./commands";
 
 export {
+  buildTransactionViewFields,
+  type TransactionViewFields,
+} from "./view";
+
+export {
   buildTransactionListHref,
   enrichTransactionRows,
   getTransactionEnrichment,
   getTransactionFilterCounts,
   getTransactionListOptions,
   getTransactionListRows,
+  searchTransactions,
   parseTransactionSearchParams,
   CLASSIFICATION_FILTERS,
   PAGE_SIZE,

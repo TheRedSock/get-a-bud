@@ -11,21 +11,21 @@ import {
   Unlink,
   X,
 } from "lucide-react";
+import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { AutoLabelUndoButton } from "@/components/auto-label-undo-button";
 import { ClassificationIndicator } from "@/components/classification-indicator";
 import { SuggestionActions } from "@/components/suggestion-actions";
-import {
-  TransferLinkBadge,
-  type TransferSummary,
-} from "@/components/transfer-link-badge";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { MoneyField } from "@/components/forms/money-field";
+import { TransferLinkBadge } from "@/components/transfer-link-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -35,13 +35,15 @@ import {
 } from "@/components/ui/select";
 import { updateTransaction } from "@/app/(app)/transactions/actions";
 import { unwrapAction } from "@/lib/actions/client";
-import {
-  canUndoAutoLabel,
-  getClassificationUiState,
-} from "@/lib/classification/ui-state";
+import type { ClassificationUiState } from "@/lib/classification/ui-state";
 import { showErrorToast } from "@/lib/toast-errors";
 import { cn } from "@/lib/utils";
 import { centsToDecimalString, formatCents } from "@/lib/finance/money";
+import type { TransferSummary } from "@/lib/finance/transactions";
+import {
+  toUpdateTransactionPayload,
+  transactionEditorFormSchema,
+} from "@/lib/finance/validation";
 
 type TransactionStatus = "pending" | "posted" | "excluded";
 type TransactionMetadata = Record<string, unknown> & {
@@ -100,6 +102,10 @@ type TransactionEditorProps = {
       nextDueDate: string | null;
       isPossiblyCancelled: boolean;
     } | null;
+    classificationState: ClassificationUiState;
+    undoAutoLabelAvailable: boolean;
+    canEditAmount: boolean;
+    canEditDate: boolean;
   };
 };
 
@@ -108,22 +114,50 @@ export function TransactionEditor({
   transaction,
 }: TransactionEditorProps) {
   const router = useRouter();
-  const isManual = transaction.source === "manual";
+  const { canEditAmount, canEditDate, classificationState, undoAutoLabelAvailable } =
+    transaction;
   const [editing, setEditing] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [description, setDescription] = useState(transaction.description);
-  const [merchantName, setMerchantName] = useState(transaction.merchantName ?? "");
-  const [notes, setNotes] = useState(transaction.notes ?? "");
-  const [categoryId, setCategoryId] = useState(transaction.categoryId ?? "");
-  const [status, setStatus] = useState<TransactionStatus>(transaction.status);
-  const [excludedFromBudget, setExcludedFromBudget] = useState(
-    transaction.excludedFromBudget,
-  );
-  const [amount, setAmount] = useState(centsToDecimalString(transaction.amountCents));
-  const [date, setDate] = useState(transaction.date);
   const [savingCategory, setSavingCategory] = useState(false);
-  const classificationState = getClassificationUiState(transaction);
-  const undoAvailable = canUndoAutoLabel(transaction);
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    watch,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm({
+    resolver: zodResolver(transactionEditorFormSchema),
+    mode: "onBlur",
+    defaultValues: {
+      description: transaction.description,
+      merchantName: transaction.merchantName ?? "",
+      notes: transaction.notes ?? "",
+      categoryId: transaction.categoryId ?? "",
+      status: transaction.status,
+      excludedFromBudget: transaction.excludedFromBudget,
+      amountCents: centsToDecimalString(transaction.amountCents),
+      date: transaction.date,
+    },
+  });
+
+  const editCategoryId = watch("categoryId");
+  const editStatus = watch("status");
+  const excludedFromBudget = watch("excludedFromBudget");
+
+  function openEditor() {
+    reset({
+      description: transaction.description,
+      merchantName: transaction.merchantName ?? "",
+      notes: transaction.notes ?? "",
+      categoryId: transaction.categoryId ?? "",
+      status: transaction.status,
+      excludedFromBudget: transaction.excludedFromBudget,
+      amountCents: centsToDecimalString(transaction.amountCents),
+      date: transaction.date,
+    });
+    setEditing(true);
+  }
   const providerDescription =
     transaction.metadata?.providerDescription ??
     transaction.metadata?.autoLabel?.originalDescription ??
@@ -164,28 +198,17 @@ export function TransactionEditor({
     }
   }
 
-  async function save() {
-    setSaving(true);
-
+  const save = handleSubmit(async (values) => {
     try {
-      const payload: Record<string, unknown> = {
-        description,
-        merchantName: merchantName.trim() || null,
-        notes: notes.trim() || null,
-        categoryId: categoryId || null,
-        status,
-        excludedFromBudget,
-      };
-
-      if (isManual) {
-        payload.amountCents = amount;
-        payload.date = date;
-      }
+      const data = toUpdateTransactionPayload(values, {
+        includeAmount: canEditAmount,
+        includeDate: canEditDate,
+      });
 
       await unwrapAction(
         updateTransaction({
           transactionId: transaction.id,
-          data: payload,
+          data,
         }),
         "Could not update transaction",
       );
@@ -194,12 +217,12 @@ export function TransactionEditor({
       router.refresh();
     } catch (error) {
       showErrorToast("Could not update transaction", error);
-    } finally {
-      setSaving(false);
     }
-  }
+  });
 
   if (editing) {
+    // Rendered inside a <tr> — cannot wrap in a <form> element (invalid HTML).
+    // Validation is handled via RHF's handleSubmit invoked from the save button.
     return (
       <tr className="border-b bg-secondary/20">
         <td colSpan={6} className="p-4">
@@ -212,19 +235,19 @@ export function TransactionEditor({
               />
               <TransferLinkBadge summary={transaction.transferSummary} />
               {isOneSidedTransfer ? (
-                <Badge className="border-sky-500/30 bg-sky-500/10 text-sky-700">
+                <Badge className="border-info/30 bg-info/10 text-info">
                   One-sided transfer
                 </Badge>
               ) : null}
               {transaction.recurringBill ? (
-                <Badge className="gap-1 border-purple-500/30 bg-purple-500/10 text-purple-700">
-                  <Repeat className="size-3.5" />
+                <Badge className="gap-1 border-accent/30 bg-accent/10 text-accent-foreground">
+                  <Repeat className="size-3.5" aria-hidden />
                   {transaction.recurringBill.billName}
                 </Badge>
               ) : null}
             </div>
             {hasSuggestion ? (
-              <div className="grid gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+              <div className="grid gap-3 rounded-2xl border border-warning/30 bg-warning/10 p-4">
                 <div>
                   <p className="text-sm font-semibold">Review suggestion</p>
                   <p className="text-sm text-muted-foreground">
@@ -252,41 +275,60 @@ export function TransactionEditor({
               </div>
             ) : null}
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              <div className="grid gap-2 sm:col-span-2">
-                <Label htmlFor={`transaction-description-${transaction.id}`}>
-                  Description
-                </Label>
+              <FormField
+                id={`transaction-description-${transaction.id}`}
+                label="Description"
+                error={errors.description?.message}
+                className="sm:col-span-2"
+              >
                 <Input
                   id={`transaction-description-${transaction.id}`}
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
+                  aria-invalid={Boolean(errors.description)}
+                  aria-describedby={formFieldDescribedBy(
+                    `transaction-description-${transaction.id}`,
+                    Boolean(errors.description),
+                  )}
+                  className={cn(errors.description && "border-destructive")}
+                  {...register("description")}
                 />
-                {!isManual ? (
+                {!canEditAmount ? (
                   <p className="text-xs text-muted-foreground">
                     The original bank label is kept in metadata for future import
                     learning.
                   </p>
                 ) : null}
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-merchant-${transaction.id}`}>
-                  Merchant
-                </Label>
+              </FormField>
+              <FormField
+                id={`transaction-merchant-${transaction.id}`}
+                label="Merchant"
+                error={errors.merchantName?.message}
+              >
                 <Input
                   id={`transaction-merchant-${transaction.id}`}
-                  value={merchantName}
-                  onChange={(event) => setMerchantName(event.target.value)}
+                  aria-invalid={Boolean(errors.merchantName)}
+                  aria-describedby={formFieldDescribedBy(
+                    `transaction-merchant-${transaction.id}`,
+                    Boolean(errors.merchantName),
+                  )}
+                  className={cn(errors.merchantName && "border-destructive")}
+                  {...register("merchantName")}
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-category-${transaction.id}`}>
-                  Category
-                </Label>
+              </FormField>
+              <FormField
+                id={`transaction-category-${transaction.id}`}
+                label="Category"
+                error={errors.categoryId?.message}
+              >
                 <Select
-                  value={categoryId}
-                  onValueChange={(value) => setCategoryId(value === "__uncategorized__" ? "" : value)}
+                  value={editCategoryId || "__uncategorized__"}
+                  onValueChange={(value) =>
+                    setValue("categoryId", value === "__uncategorized__" ? "" : value)
+                  }
                 >
-                  <SelectTrigger id={`transaction-category-${transaction.id}`}>
+                  <SelectTrigger
+                    id={`transaction-category-${transaction.id}`}
+                    className={cn(errors.categoryId && "border-destructive")}
+                  >
                     <SelectValue placeholder="Uncategorized" />
                   </SelectTrigger>
                   <SelectContent>
@@ -298,13 +340,16 @@ export function TransactionEditor({
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-status-${transaction.id}`}>Status</Label>
+              </FormField>
+              <FormField
+                id={`transaction-status-${transaction.id}`}
+                label="Status"
+                error={errors.status?.message}
+              >
                 <Select
-                  value={status}
+                  value={editStatus}
                   onValueChange={(value) =>
-                    setStatus(value as TransactionStatus)
+                    setValue("status", value as TransactionStatus)
                   }
                 >
                   <SelectTrigger id={`transaction-status-${transaction.id}`}>
@@ -316,40 +361,56 @@ export function TransactionEditor({
                     <SelectItem value="excluded">Excluded</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-date-${transaction.id}`}>Date</Label>
+              </FormField>
+              <FormField
+                id={`transaction-date-${transaction.id}`}
+                label="Date"
+                error={errors.date?.message}
+              >
                 <Input
                   id={`transaction-date-${transaction.id}`}
-                  disabled={!isManual}
+                  disabled={!canEditDate}
                   type="date"
-                  value={date}
-                  onChange={(event) => setDate(event.target.value)}
+                  aria-invalid={Boolean(errors.date)}
+                  aria-describedby={formFieldDescribedBy(
+                    `transaction-date-${transaction.id}`,
+                    Boolean(errors.date),
+                  )}
+                  className={cn(errors.date && "border-destructive")}
+                  {...register("date")}
                 />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-amount-${transaction.id}`}>Amount</Label>
-                <Input
-                  id={`transaction-amount-${transaction.id}`}
-                  disabled={!isManual}
-                  inputMode="decimal"
-                  value={amount}
-                  onChange={(event) => setAmount(event.target.value)}
-                />
-              </div>
-              <div className="grid gap-2">
-                <Label htmlFor={`transaction-notes-${transaction.id}`}>Notes</Label>
+              </FormField>
+              <MoneyField
+                id={`transaction-amount-${transaction.id}`}
+                label="Amount"
+                name="amountCents"
+                register={register}
+                disabled={!canEditAmount}
+                error={errors.amountCents?.message}
+                onBlurNormalize={(value) =>
+                  setValue("amountCents", value, { shouldValidate: true })
+                }
+              />
+              <FormField
+                id={`transaction-notes-${transaction.id}`}
+                label="Notes"
+                error={errors.notes?.message}
+              >
                 <Input
                   id={`transaction-notes-${transaction.id}`}
-                  value={notes}
-                  onChange={(event) => setNotes(event.target.value)}
+                  aria-invalid={Boolean(errors.notes)}
+                  aria-describedby={formFieldDescribedBy(
+                    `transaction-notes-${transaction.id}`,
+                    Boolean(errors.notes),
+                  )}
+                  className={cn(errors.notes && "border-destructive")}
+                  {...register("notes")}
                 />
-              </div>
+              </FormField>
               <label className="flex items-center gap-2 text-sm">
                 <input
-                  checked={excludedFromBudget}
                   type="checkbox"
-                  onChange={(event) => setExcludedFromBudget(event.target.checked)}
+                  {...register("excludedFromBudget")}
                 />
                 Exclude from budget
               </label>
@@ -395,21 +456,21 @@ export function TransactionEditor({
               </p>
             </div>
             <div className="flex gap-2">
-              <Button disabled={saving} type="button" onClick={() => void save()}>
-                {saving ? (
-                  <Loader2 className="size-4 animate-spin" />
+              <Button disabled={isSubmitting} type="button" onClick={() => void save()}>
+                {isSubmitting ? (
+                  <Loader2 className="size-4 animate-spin" aria-hidden />
                 ) : (
-                  <Save className="size-4" />
+                  <Save className="size-4" aria-hidden />
                 )}
                 Save
               </Button>
               <Button
-                disabled={saving}
+                disabled={isSubmitting}
                 type="button"
                 variant="outline"
                 onClick={() => setEditing(false)}
               >
-                <X className="size-4" />
+                <X className="size-4" aria-hidden />
                 Cancel
               </Button>
             </div>
@@ -450,7 +511,7 @@ export function TransactionEditor({
       className={cn(
         "border-b transition-colors hover:bg-secondary/30",
         transaction.status === "pending" &&
-          "border-l-[3px] border-l-amber-500 bg-amber-500/[0.06]",
+          "border-l-[3px] border-l-warning bg-warning/[0.06]",
         transaction.status === "excluded" &&
           "border-l-[3px] border-l-zinc-500/80 bg-muted/40",
       )}
@@ -483,7 +544,7 @@ export function TransactionEditor({
             />
             {isOneSidedTransfer ? (
               <span
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-700"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-info/30 bg-info/10 text-info"
                 title={oneSidedTitle}
               >
                 <span className="sr-only">{oneSidedTitle}</span>
@@ -492,7 +553,7 @@ export function TransactionEditor({
             ) : null}
             {transaction.recurringBill ? (
               <span
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-purple-500/30 bg-purple-500/10 text-purple-700"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-accent/30 bg-accent/10 text-accent-foreground"
                 title={recurringBillTitle}
               >
                 <span className="sr-only">{recurringBillTitle}</span>
@@ -501,7 +562,7 @@ export function TransactionEditor({
             ) : null}
             {transaction.status === "pending" ? (
               <span
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-amber-500/40 bg-amber-500/15 text-amber-800"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-warning/40 bg-warning/15 text-warning-foreground"
                 title="Pending: this transaction is not yet posted."
               >
                 <span className="sr-only">Pending transaction</span>
@@ -519,7 +580,7 @@ export function TransactionEditor({
             ) : null}
             {transaction.status === "posted" && transaction.excludedFromBudget ? (
               <span
-                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-orange-500/35 bg-orange-500/10 text-orange-800"
+                className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-info/35 bg-info/10 text-info"
                 title="Excluded from budget: not counted toward budget totals."
               >
                 <span className="sr-only">Excluded from budget</span>
@@ -529,8 +590,8 @@ export function TransactionEditor({
           </div>
         </div>
         {hasSuggestion ? (
-          <div className="mt-2 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
-            <p className="font-medium text-amber-700">
+          <div className="mt-2 rounded-2xl border border-warning/30 bg-warning/10 p-3 text-xs">
+            <p className="font-medium text-warning-foreground">
               Suggested: {transaction.suggestedCategoryName ?? "Unknown category"}
             </p>
             {transaction.suggestedMerchantName &&
@@ -596,7 +657,7 @@ export function TransactionEditor({
           {hasSuggestion ? (
             <SuggestionActions iconOnly transactionId={transaction.id} />
           ) : null}
-          {undoAvailable ? (
+          {undoAutoLabelAvailable ? (
             <AutoLabelUndoButton iconOnly transactionId={transaction.id} />
           ) : null}
           <Button
@@ -606,12 +667,9 @@ export function TransactionEditor({
             title="Edit transaction"
             type="button"
             variant="outline"
-            onClick={() => {
-              setCategoryId(transaction.categoryId ?? "");
-              setEditing(true);
-            }}
+            onClick={openEditor}
           >
-            <Edit3 className="size-4" />
+            <Edit3 className="size-4" aria-hidden />
             <span className="sr-only">Edit transaction</span>
           </Button>
         </div>

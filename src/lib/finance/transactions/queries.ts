@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm";
 
 import { db } from "@/db";
+import { buildTransactionViewFields } from "@/lib/finance/transactions/view";
 import {
   categories,
   financialAccounts,
@@ -257,6 +258,64 @@ function countWhere(where: SQL | undefined) {
 // Public queries
 // ---------------------------------------------------------------------------
 
+const SEARCH_LIMIT_WITH_QUERY = 100;
+const SEARCH_LIMIT_DEFAULT = 20;
+
+/** Search transactions for the global search page (household-scoped). */
+export async function searchTransactions(householdId: string, query: string) {
+  const hid = eq(transactions.householdId, householdId);
+  const trimmed = query.trim();
+
+  const rows = trimmed
+    ? await db
+        .select({
+          id: transactions.id,
+          source: transactions.source,
+          date: transactions.date,
+          amountCents: transactions.amountCents,
+          currency: transactions.currency,
+          merchantName: transactions.merchantName,
+          description: transactions.description,
+          categoryId: transactions.categoryId,
+          categoryName: categories.name,
+          categorySource: transactions.categorySource,
+          categoryConfidence: transactions.categoryConfidence,
+          suggestedCategoryId: transactions.suggestedCategoryId,
+          metadata: transactions.metadata,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(categories.id, transactions.categoryId))
+        .where(and(hid, ilike(transactions.searchText, `%${trimmed}%`)))
+        .orderBy(desc(transactions.date))
+        .limit(SEARCH_LIMIT_WITH_QUERY)
+    : await db
+        .select({
+          id: transactions.id,
+          source: transactions.source,
+          date: transactions.date,
+          amountCents: transactions.amountCents,
+          currency: transactions.currency,
+          merchantName: transactions.merchantName,
+          description: transactions.description,
+          categoryId: transactions.categoryId,
+          categoryName: categories.name,
+          categorySource: transactions.categorySource,
+          categoryConfidence: transactions.categoryConfidence,
+          suggestedCategoryId: transactions.suggestedCategoryId,
+          metadata: transactions.metadata,
+        })
+        .from(transactions)
+        .leftJoin(categories, eq(categories.id, transactions.categoryId))
+        .where(hid)
+        .orderBy(desc(transactions.date))
+        .limit(SEARCH_LIMIT_DEFAULT);
+
+  return rows.map((row) => ({
+    ...row,
+    ...buildTransactionViewFields(row),
+  }));
+}
+
 /** Fetch badge counts for all classification and transfer filters. */
 export async function getTransactionFilterCounts(
   householdId: string,
@@ -459,6 +518,7 @@ export function enrichTransactionRows(
 
     return {
       ...transaction,
+      ...buildTransactionViewFields(transaction),
       suggestedCategoryName: transaction.suggestedCategoryId
         ? (categoryNameById.get(transaction.suggestedCategoryId) ?? null)
         : null,

@@ -34,8 +34,10 @@ top-level Suspense/error boundaries. Thin.
 
 - **Single Responsibility.** A component renders one thing. `BudgetCard`
   renders a budget card; it does not also manage a delete modal.
-- **Every interactive component has loading, error, and empty states.** No
-  exceptions.
+- **Loading, error, and empty states** apply to data-bound widgets, forms,
+  lists, cards, charts, and page sections. Tiny primitives (buttons, badges)
+  need pending/disabled/error feedback where relevant, but not artificial empty
+  states unless they render a collection.
 - **Compound components for complex UI patterns** (multi-step forms, dashboard
   widgets, accordion groups).
 - **Separate logic from rendering.** Extract data-fetching and derived state
@@ -162,8 +164,12 @@ Non-negotiables (WCAG AA minimum):
 - `aria-describedby` for field errors
 - Support reduced motion
 - Never convey information by color alone — icons + color together
-- `aria-live` regions for dynamic content (budget remaining, totals)
-- Focus management in modals (trap focus, return to trigger on close)
+- `aria-live` via `LiveRegion` on high-impact create forms (transaction,
+  account, budget); other flows may use toast plus visible UI updates alone
+- Destructive confirm dialogs show inline `errorMessage` when mutations fail
+  (no duplicate error toast; success may still toast)
+- Destructive confirm dialogs use `trigger` + `DialogTrigger` so focus returns
+  to the opening control on close
 
 ## Performance
 

@@ -21,6 +21,7 @@ import {
   type TransactionListFilters,
 } from "@/lib/finance/transactions";
 import { getHouseholdConnections } from "@/lib/ingestion/enable-banking/queries";
+import { cn } from "@/lib/utils";
 
 type TransactionsPageProps = {
   searchParams?: Promise<{
@@ -218,7 +219,7 @@ function SortableHeader({
   href: string;
 }) {
   return (
-    <th className={`px-4 py-3 ${className}`}>
+    <th className={cn("px-4 py-3", className)}>
       <Link className="inline-flex items-center gap-1 hover:text-foreground" href={href}>
         {children}
       </Link>

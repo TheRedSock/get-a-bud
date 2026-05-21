@@ -1,221 +1,262 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import type { z } from "zod";
 
+import { createAsset, createLiability } from "@/app/(app)/net-worth/actions";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { MoneyField } from "@/components/forms/money-field";
+import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { createAsset, createLiability } from "@/app/(app)/net-worth/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { createNetWorthItemFormSchema } from "@/lib/finance/validation";
 import { showErrorToast } from "@/lib/toast-errors";
+import { cn } from "@/lib/utils";
 
-type ItemType = "asset" | "liability";
+type NetWorthFormValues = z.input<typeof createNetWorthItemFormSchema>;
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const assetDefaults: Extract<NetWorthFormValues, { itemType: "asset" }> = {
+  itemType: "asset",
+  name: "",
+  kind: "property",
+  currency: "NOK",
+  estimatedValueCents: "",
+  valuationDate: todayString(),
+  notes: "",
+};
+
+const liabilityDefaults: Extract<NetWorthFormValues, { itemType: "liability" }> = {
+  itemType: "liability",
+  name: "",
+  kind: "loan",
+  currency: "NOK",
+  currentBalanceCents: "",
+  interestRate: undefined,
+  minimumPaymentCents: undefined,
+  dueDay: undefined,
+  notes: "",
+};
+
 export function CreateNetWorthItemForm() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [itemName, setItemName] = useState("");
-  const [itemType, setItemType] = useState<ItemType>("asset");
-  const [kind, setKind] = useState("property");
-  const [currency, setCurrency] = useState("NOK");
-  const [value, setValue] = useState("");
-  const [valuationDate, setValuationDate] = useState(todayString);
-  const [interestRate, setInterestRate] = useState("");
-  const [minimumPayment, setMinimumPayment] = useState("");
-  const [dueDay, setDueDay] = useState("");
-  const [notes, setNotes] = useState("");
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<NetWorthFormValues>({
+    resolver: zodResolver(createNetWorthItemFormSchema),
+    mode: "onBlur",
+    defaultValues: assetDefaults,
+  });
 
-  function handleTypeChange(newType: ItemType) {
-    setItemType(newType);
-    setKind(newType === "asset" ? "property" : "loan");
+  const itemType = watch("itemType");
+
+  function handleTypeChange(nextType: "asset" | "liability") {
+    reset(nextType === "asset" ? assetDefaults : liabilityDefaults);
   }
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-
-    const payload: Record<string, unknown> = {
-      name: itemName,
-      kind,
-      currency,
-    };
-    const trimmedNotes = notes.trim();
-
-    if (trimmedNotes) {
-      payload.notes = trimmedNotes;
-    }
-
-    if (itemType === "asset") {
-      payload.estimatedValueCents = value;
-      payload.valuationDate = valuationDate;
-    } else {
-      payload.currentBalanceCents = value;
-      if (interestRate) {
-        payload.interestRate = Number(interestRate);
-      }
-      if (minimumPayment) {
-        payload.minimumPaymentCents = minimumPayment;
-      }
-      if (dueDay) {
-        payload.dueDay = Number(dueDay);
-      }
-    }
-
+  const onSubmit = handleSubmit(async (values) => {
     try {
-      if (itemType === "asset") {
-        await unwrapAction(createAsset(payload), "Could not create asset");
+      const trimmedNotes = values.notes?.trim();
+
+      if (values.itemType === "asset") {
+        await unwrapAction(
+          createAsset({
+            name: values.name,
+            kind: values.kind,
+            currency: values.currency,
+            estimatedValueCents: values.estimatedValueCents,
+            valuationDate: values.valuationDate,
+            notes: trimmedNotes || undefined,
+          }),
+          "Could not create asset",
+        );
+        toast.success("Asset created");
+        reset(assetDefaults);
       } else {
-        await unwrapAction(createLiability(payload), "Could not create liability");
+        await unwrapAction(
+          createLiability({
+            name: values.name,
+            kind: values.kind,
+            currency: values.currency,
+            currentBalanceCents: values.currentBalanceCents,
+            interestRate: values.interestRate,
+            minimumPaymentCents: values.minimumPaymentCents,
+            dueDay: values.dueDay,
+            notes: trimmedNotes || undefined,
+          }),
+          "Could not create liability",
+        );
+        toast.success("Liability created");
+        reset(liabilityDefaults);
       }
-      toast.success(
-        itemType === "asset" ? "Asset created" : "Liability created",
-      );
-      setItemName("");
-      setItemType("asset");
-      setKind("property");
-      setCurrency("NOK");
-      setValue("");
-      setValuationDate(todayString());
-      setInterestRate("");
-      setMinimumPayment("");
-      setDueDay("");
-      setNotes("");
+
       router.refresh();
     } catch (error) {
       showErrorToast(
-        itemType === "asset"
-          ? "Could not create asset"
-          : "Could not create liability",
+        itemType === "asset" ? "Could not create asset" : "Could not create liability",
         error,
       );
-    } finally {
-      setLoading(false);
     }
-  }
+  });
 
   return (
-    <form className="grid gap-4" onSubmit={onSubmit}>
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-name">Name</Label>
+    <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <FormField
+        id="nw-item-name"
+        label="Name"
+        error={"name" in errors ? errors.name?.message : undefined}
+      >
         <Input
           id="nw-item-name"
-          value={itemName}
-          onChange={(event) => setItemName(event.target.value)}
-          required
+          aria-invalid={Boolean(errors.name)}
+          aria-describedby={formFieldDescribedBy("nw-item-name", Boolean(errors.name))}
+          className={cn(errors.name && "border-destructive")}
+          {...register("name")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-type">Type</Label>
+      </FormField>
+
+      <FormField id="nw-item-type" label="Type">
         <select
           id="nw-item-type"
-          className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
+          className={formNativeSelectClassName}
           value={itemType}
-          onChange={(event) => handleTypeChange(event.target.value as ItemType)}
+          onChange={(event) =>
+            handleTypeChange(event.target.value as "asset" | "liability")
+          }
         >
           <option value="asset">Asset</option>
           <option value="liability">Liability</option>
         </select>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-kind">Kind</Label>
-        <Input
-          id="nw-item-kind"
-          value={kind}
-          onChange={(event) => setKind(event.target.value)}
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-currency">Currency</Label>
+      </FormField>
+
+      <FormField id="nw-item-kind" label="Kind">
+        <Input id="nw-item-kind" {...register("kind")} />
+      </FormField>
+
+      <FormField
+        id="nw-item-currency"
+        label="Currency"
+        error={"currency" in errors ? errors.currency?.message : undefined}
+      >
         <Input
           id="nw-item-currency"
-          value={currency}
-          onChange={(event) => setCurrency(event.target.value)}
           maxLength={3}
+          className={cn(errors.currency && "border-destructive")}
+          {...register("currency")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-value">Value</Label>
-        <Input
-          id="nw-item-value"
-          type="number"
-          inputMode="decimal"
-          step="any"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          required
-        />
-      </div>
+      </FormField>
+
       {itemType === "asset" ? (
-        <div className="grid gap-2">
-          <Label htmlFor="nw-item-valuation-date">Valuation date</Label>
-          <Input
-            id="nw-item-valuation-date"
-            type="date"
-            value={valuationDate}
-            onChange={(event) => setValuationDate(event.target.value)}
+        <>
+          <MoneyField
+            id="nw-item-value"
+            label="Value"
+            name="estimatedValueCents"
+            register={register}
+            error={
+              "estimatedValueCents" in errors
+                ? errors.estimatedValueCents?.message
+                : undefined
+            }
+            required
+            onBlurNormalize={(value) =>
+              setValue("estimatedValueCents", value, { shouldValidate: true })
+            }
           />
-        </div>
+          <FormField id="nw-item-valuation-date" label="Valuation date">
+            <Input
+              id="nw-item-valuation-date"
+              type="date"
+              {...register("valuationDate")}
+            />
+          </FormField>
+        </>
       ) : (
         <>
-          <div className="grid gap-2">
-            <Label htmlFor="nw-item-interest-rate">Interest rate (%)</Label>
+          <MoneyField
+            id="nw-item-value"
+            label="Balance"
+            name="currentBalanceCents"
+            register={register}
+            error={
+              "currentBalanceCents" in errors
+                ? errors.currentBalanceCents?.message
+                : undefined
+            }
+            required
+            onBlurNormalize={(value) =>
+              setValue("currentBalanceCents", value, { shouldValidate: true })
+            }
+          />
+          <FormField id="nw-item-interest-rate" label="Interest rate (%)">
             <Input
               id="nw-item-interest-rate"
               type="number"
               inputMode="decimal"
-              step="any"
-              value={interestRate}
-              onChange={(event) => setInterestRate(event.target.value)}
               placeholder="Optional"
+              {...register("interestRate", {
+                setValueAs: (value) =>
+                  value === "" || value == null ? undefined : Number(value),
+              })}
             />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="nw-item-min-payment">Minimum payment</Label>
-            <Input
-              id="nw-item-min-payment"
-              type="number"
-              inputMode="decimal"
-              step="any"
-              value={minimumPayment}
-              onChange={(event) => setMinimumPayment(event.target.value)}
-              placeholder="Optional"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="nw-item-due-day">Due day</Label>
+          </FormField>
+          <MoneyField
+            id="nw-item-min-payment"
+            label="Minimum payment"
+            name="minimumPaymentCents"
+            register={register}
+            onBlurNormalize={(value) =>
+              setValue("minimumPaymentCents", value, { shouldValidate: true })
+            }
+          />
+          <FormField id="nw-item-due-day" label="Due day">
             <Input
               id="nw-item-due-day"
               type="number"
               min={1}
               max={31}
-              value={dueDay}
-              onChange={(event) => setDueDay(event.target.value)}
               placeholder="Optional"
+              {...register("dueDay", {
+                setValueAs: (value) =>
+                  value === "" || value == null ? undefined : Number(value),
+              })}
             />
-          </div>
+          </FormField>
         </>
       )}
-      <div className="grid gap-2">
-        <Label htmlFor="nw-item-notes">Notes</Label>
+
+      <FormField id="nw-item-notes" label="Notes">
         <Input
           id="nw-item-notes"
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
           placeholder="Optional"
+          {...register("notes")}
         />
-      </div>
-      <Button disabled={loading} type="submit">
-        {loading
-          ? "Creating..."
-          : itemType === "asset"
-            ? "Create asset"
-            : "Create liability"}
+      </FormField>
+
+      <Button disabled={isSubmitting} type="submit">
+        {isSubmitting ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Creating...
+          </>
+        ) : itemType === "asset" ? (
+          "Create asset"
+        ) : (
+          "Create liability"
+        )}
       </Button>
     </form>
   );

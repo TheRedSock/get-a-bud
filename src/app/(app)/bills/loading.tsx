@@ -1,8 +1,5 @@
+import { Skeleton } from "@/components/feedback/skeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-
-function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-2xl bg-muted/60 ${className}`} />;
-}
 
 export default function BillsLoading() {
   return (

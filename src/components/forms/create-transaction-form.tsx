@@ -1,20 +1,31 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import type { z } from "zod";
 
+import { createTransaction } from "@/app/(app)/transactions/actions";
+import { LiveRegion } from "@/components/feedback/live-region";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { MoneyField } from "@/components/forms/money-field";
+import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { createTransaction } from "@/app/(app)/transactions/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { createTransactionFormSchema } from "@/lib/finance/validation";
 import { showErrorToast } from "@/lib/toast-errors";
+import { cn } from "@/lib/utils";
 
 type CreateTransactionFormProps = {
   accounts: Array<{ id: string; name: string }>;
   categories: Array<{ id: string; name: string }>;
 };
+
+type CreateTransactionFormValues = z.input<typeof createTransactionFormSchema>;
 
 function todayString() {
   return new Date().toISOString().slice(0, 10);
@@ -25,106 +36,112 @@ export function CreateTransactionForm({
   categories,
 }: CreateTransactionFormProps) {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
-  const [currency, setCurrency] = useState("NOK");
-  const [date, setDate] = useState(todayString);
-  const [merchantName, setMerchantName] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [notes, setNotes] = useState("");
+  const [announcement, setAnnouncement] = useState("");
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    formState: { errors, isSubmitting },
+  } = useForm<CreateTransactionFormValues>({
+    resolver: zodResolver(createTransactionFormSchema),
+    mode: "onBlur",
+    defaultValues: {
+      description: "",
+      amountCents: "",
+      accountId: accounts[0]?.id ?? "",
+      currency: "NOK",
+      date: todayString(),
+      merchantName: "",
+      categoryId: "",
+      notes: "",
+    },
+  });
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-
+  const onSubmit = handleSubmit(async (values) => {
     try {
-      const payload: {
-        description: string;
-        amountCents: string;
-        accountId: string;
-        currency: string;
-        date: string;
-        merchantName?: string;
-        categoryId?: string;
-        notes?: string;
-      } = {
-        description,
-        amountCents: amount,
-        accountId,
-        currency,
-        date,
+      const trimmedMerchant = values.merchantName?.trim();
+      const trimmedNotes = values.notes?.trim();
+      const payload = {
+        ...values,
+        merchantName: trimmedMerchant || undefined,
+        notes: trimmedNotes || undefined,
       };
-      const trimmedMerchant = merchantName.trim();
-      const trimmedNotes = notes.trim();
-
-      if (trimmedMerchant) {
-        payload.merchantName = trimmedMerchant;
-      }
-      if (categoryId) {
-        payload.categoryId = categoryId;
-      }
-      if (trimmedNotes) {
-        payload.notes = trimmedNotes;
-      }
 
       await unwrapAction(
         createTransaction(payload),
         "Could not create transaction",
       );
-      toast.success(
-        categoryId
-          ? "Transaction created"
-          : "Transaction created. Classification has been queued.",
-      );
-      setDescription("");
-      setAmount("");
-      setAccountId(accounts[0]?.id ?? "");
-      setCurrency("NOK");
-      setDate(todayString());
-      setMerchantName("");
-      setCategoryId("");
-      setNotes("");
+      const successMessage = payload.categoryId
+        ? "Transaction created"
+        : "Transaction created. Classification has been queued.";
+      toast.success(successMessage);
+      setAnnouncement(successMessage);
+      reset({
+        description: "",
+        amountCents: "",
+        accountId: accounts[0]?.id ?? "",
+        currency: "NOK",
+        date: todayString(),
+        merchantName: "",
+        categoryId: "",
+        notes: "",
+      });
       router.refresh();
     } catch (error) {
       showErrorToast("Could not create transaction", error);
-    } finally {
-      setLoading(false);
     }
-  }
+  });
 
   return (
-    <form className="grid gap-4" onSubmit={onSubmit}>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-description">Description</Label>
+    <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <LiveRegion message={announcement} />
+      <FormField
+        id="transaction-description"
+        label="Description"
+        error={errors.description?.message}
+      >
         <Input
           id="transaction-description"
-          value={description}
-          onChange={(event) => setDescription(event.target.value)}
-          required
+          aria-invalid={Boolean(errors.description)}
+          aria-describedby={formFieldDescribedBy(
+            "transaction-description",
+            Boolean(errors.description),
+          )}
+          className={cn(errors.description && "border-destructive")}
+          {...register("description")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-amount">Amount</Label>
-        <Input
-          id="transaction-amount"
-          type="number"
-          inputMode="decimal"
-          step="any"
-          value={amount}
-          onChange={(event) => setAmount(event.target.value)}
-          required
-        />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-account">Account</Label>
+      </FormField>
+
+      <MoneyField
+        id="transaction-amount"
+        label="Amount"
+        name="amountCents"
+        register={register}
+        error={errors.amountCents?.message}
+        required
+        onBlurNormalize={(value) =>
+          setValue("amountCents", value, { shouldValidate: true })
+        }
+      />
+
+      <FormField
+        id="transaction-account"
+        label="Account"
+        error={errors.accountId?.message}
+      >
         <select
           id="transaction-account"
-          className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
-          value={accountId}
-          onChange={(event) => setAccountId(event.target.value)}
-          required
+          className={cn(
+            formNativeSelectClassName,
+            errors.accountId && "border-destructive",
+          )}
+          aria-invalid={Boolean(errors.accountId)}
+          aria-describedby={formFieldDescribedBy(
+            "transaction-account",
+            Boolean(errors.accountId),
+          )}
+          {...register("accountId")}
         >
           {accounts.map((account) => (
             <option key={account.id} value={account.id}>
@@ -132,42 +149,57 @@ export function CreateTransactionForm({
             </option>
           ))}
         </select>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-currency">Currency</Label>
+      </FormField>
+
+      <FormField
+        id="transaction-currency"
+        label="Currency"
+        error={errors.currency?.message}
+      >
         <Input
           id="transaction-currency"
-          value={currency}
-          onChange={(event) => setCurrency(event.target.value)}
           maxLength={3}
+          aria-invalid={Boolean(errors.currency)}
+          aria-describedby={formFieldDescribedBy(
+            "transaction-currency",
+            Boolean(errors.currency),
+          )}
+          className={cn(errors.currency && "border-destructive")}
+          {...register("currency")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-date">Date</Label>
+      </FormField>
+
+      <FormField
+        id="transaction-date"
+        label="Date"
+        error={errors.date?.message}
+      >
         <Input
           id="transaction-date"
           type="date"
-          value={date}
-          onChange={(event) => setDate(event.target.value)}
-          required
+          aria-invalid={Boolean(errors.date)}
+          aria-describedby={formFieldDescribedBy(
+            "transaction-date",
+            Boolean(errors.date),
+          )}
+          className={cn(errors.date && "border-destructive")}
+          {...register("date")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-merchant">Merchant</Label>
+      </FormField>
+
+      <FormField id="transaction-merchant" label="Merchant">
         <Input
           id="transaction-merchant"
-          value={merchantName}
-          onChange={(event) => setMerchantName(event.target.value)}
           placeholder="Optional"
+          {...register("merchantName")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-category">Category</Label>
+      </FormField>
+
+      <FormField id="transaction-category" label="Category">
         <select
           id="transaction-category"
-          className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
-          value={categoryId}
-          onChange={(event) => setCategoryId(event.target.value)}
+          className={formNativeSelectClassName}
+          {...register("categoryId")}
         >
           <option value="">Uncategorized</option>
           {categories.map((category) => (
@@ -176,18 +208,25 @@ export function CreateTransactionForm({
             </option>
           ))}
         </select>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="transaction-notes">Notes</Label>
+      </FormField>
+
+      <FormField id="transaction-notes" label="Notes">
         <Input
           id="transaction-notes"
-          value={notes}
-          onChange={(event) => setNotes(event.target.value)}
           placeholder="Optional"
+          {...register("notes")}
         />
-      </div>
-      <Button disabled={loading} type="submit">
-        {loading ? "Creating..." : "Create transaction"}
+      </FormField>
+
+      <Button disabled={isSubmitting} type="submit">
+        {isSubmitting ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Creating...
+          </>
+        ) : (
+          "Create transaction"
+        )}
       </Button>
     </form>
   );

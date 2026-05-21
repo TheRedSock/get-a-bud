@@ -71,6 +71,11 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
         <Card>
           <CardHeader>
             <CardTitle>Cash flow</CardTitle>
+            {data.cashFlowData.length ? (
+              <p className="text-sm text-muted-foreground">
+                {cashFlowChartSubtitle(data.cashFlowData)}
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent>
             {data.cashFlowData.length ? (
@@ -83,6 +88,11 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
         <Card>
           <CardHeader>
             <CardTitle>Spending mix</CardTitle>
+            {data.spendingData.length ? (
+              <p className="text-sm text-muted-foreground">
+                {spendingChartSubtitle(data.spendingData)}
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent>
             {data.spendingData.length ? (
@@ -98,6 +108,11 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
         <Card>
           <CardHeader>
             <CardTitle>Balance trend</CardTitle>
+            {data.balanceData.length ? (
+              <p className="text-sm text-muted-foreground">
+                {balanceChartSubtitle(data.balanceData)}
+              </p>
+            ) : null}
           </CardHeader>
           <CardContent>
             {data.balanceData.length ? (
@@ -214,6 +229,24 @@ export default async function DashboardPage({ demo = false }: DashboardPageProps
       </section>
     </div>
   );
+}
+
+function cashFlowChartSubtitle(
+  data: Array<{ income: number; expenses: number }>,
+): string {
+  const income = data.reduce((sum, point) => sum + point.income, 0);
+  const expenses = data.reduce((sum, point) => sum + point.expenses, 0);
+  return `${formatCents(income)} income · ${formatCents(expenses)} expenses`;
+}
+
+function spendingChartSubtitle(data: Array<{ value: number }>): string {
+  const total = data.reduce((sum, point) => sum + point.value, 0);
+  return `${formatCents(total)} total spending`;
+}
+
+function balanceChartSubtitle(data: Array<{ balance: number }>): string {
+  const latest = data[data.length - 1]?.balance ?? 0;
+  return `Latest balance: ${formatCents(latest)}`;
 }
 
 function EmptyDashboardState({ message }: { message: string }) {

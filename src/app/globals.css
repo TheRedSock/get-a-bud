@@ -95,6 +95,16 @@
   --accent: oklch(0.91 0.055 185);
   --accent-foreground: oklch(0.19 0.025 260);
   --destructive: oklch(0.58 0.22 25);
+  --success: oklch(0.55 0.17 155);
+  --success-foreground: oklch(0.28 0.06 155);
+  --warning: oklch(0.72 0.16 75);
+  --warning-foreground: oklch(0.38 0.08 55);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
+  --income: var(--success);
+  --income-foreground: var(--success-foreground);
+  --expense: var(--destructive);
+  --expense-foreground: oklch(0.35 0.12 25);
   --border: oklch(0.88 0.018 250);
   --input: oklch(0.88 0.018 250);
   --ring: var(--primary);
@@ -131,6 +141,16 @@
   --accent: oklch(0.3 0.08 190);
   --accent-foreground: oklch(0.96 0.012 250);
   --destructive: oklch(0.68 0.2 25);
+  --success: oklch(0.72 0.17 155);
+  --success-foreground: oklch(0.92 0.04 155);
+  --warning: oklch(0.78 0.14 75);
+  --warning-foreground: oklch(0.92 0.04 75);
+  --info: var(--primary);
+  --info-foreground: var(--primary-foreground);
+  --income: var(--success);
+  --income-foreground: var(--success-foreground);
+  --expense: var(--destructive);
+  --expense-foreground: oklch(0.92 0.04 25);
   --border: oklch(1 0 0 / 0.11);
   --input: oklch(1 0 0 / 0.14);
   --ring: var(--primary);
@@ -160,6 +180,16 @@
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-income: var(--income);
+  --color-income-foreground: var(--income-foreground);
+  --color-expense: var(--expense);
+  --color-expense-foreground: var(--expense-foreground);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
@@ -224,6 +254,22 @@ h3,
 .tabular-nums {
   font-family: var(--mono-font);
   font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-pulse {
+    animation: none;
+    opacity: 0.7;
+  }
 }
 
 .landing-grid {

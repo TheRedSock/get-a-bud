@@ -1,86 +1,121 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
 import { signIn } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useForm } from "react-hook-form";
+import type { z } from "zod";
 
+import { registerUser } from "@/app/register/actions";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { registerUser } from "@/app/register/actions";
+import { registerFormSchema } from "@/lib/auth/validation";
 import { showErrorToast } from "@/lib/toast-errors";
+import { cn } from "@/lib/utils";
+
+type RegisterFormValues = z.input<typeof registerFormSchema>;
 
 export function RegisterForm() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+  } = useForm<RegisterFormValues>({
+    resolver: zodResolver(registerFormSchema),
+    mode: "onBlur",
+    defaultValues: {
+      name: "",
+      email: "",
+      password: "",
+      currency: "NOK",
+    },
+  });
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-
-    const form = event.currentTarget;
-    const formData = new FormData(form);
-    const payload = {
-      name: formData.get("name") as string,
-      email: formData.get("email") as string,
-      password: formData.get("password") as string,
-      currency: (formData.get("currency") as string) || "NOK",
-    };
-
+  const onSubmit = handleSubmit(async (values) => {
     try {
-      const result = await registerUser(payload);
+      const result = await registerUser(values);
       if ("error" in result && result.error) {
         showErrorToast(
           "Could not create account",
           new Error(result.error.message),
         );
-        setLoading(false);
         return;
       }
     } catch (error) {
       showErrorToast("Could not create account", error);
-      setLoading(false);
       return;
     }
 
     await signIn("credentials", {
-      email: payload.email,
-      password: payload.password,
+      email: values.email,
+      password: values.password,
       redirect: false,
     });
 
-    setLoading(false);
     router.push("/dashboard");
     router.refresh();
-  }
+  });
 
   return (
-    <form className="grid gap-4" onSubmit={onSubmit}>
-      <div className="grid gap-2">
-        <Label htmlFor="name">Name</Label>
-        <Input id="name" name="name" autoComplete="name" required />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="email">Email</Label>
-        <Input id="email" name="email" type="email" autoComplete="email" required />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="password">Password</Label>
+    <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <FormField id="name" label="Name" error={errors.name?.message}>
+        <Input
+          id="name"
+          autoComplete="name"
+          aria-invalid={Boolean(errors.name)}
+          aria-describedby={formFieldDescribedBy("name", Boolean(errors.name))}
+          className={cn(errors.name && "border-destructive")}
+          {...register("name")}
+        />
+      </FormField>
+      <FormField id="email" label="Email" error={errors.email?.message}>
+        <Input
+          id="email"
+          type="email"
+          autoComplete="email"
+          aria-invalid={Boolean(errors.email)}
+          aria-describedby={formFieldDescribedBy("email", Boolean(errors.email))}
+          className={cn(errors.email && "border-destructive")}
+          {...register("email")}
+        />
+      </FormField>
+      <FormField id="password" label="Password" error={errors.password?.message}>
         <Input
           id="password"
-          name="password"
           type="password"
           autoComplete="new-password"
-          minLength={8}
-          required
+          aria-invalid={Boolean(errors.password)}
+          aria-describedby={formFieldDescribedBy("password", Boolean(errors.password))}
+          className={cn(errors.password && "border-destructive")}
+          {...register("password")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="currency">Default currency</Label>
-        <Input id="currency" name="currency" defaultValue="NOK" maxLength={3} />
-      </div>
-      <Button disabled={loading} type="submit">
-        {loading ? "Creating..." : "Create account"}
+      </FormField>
+      <FormField
+        id="currency"
+        label="Default currency"
+        error={errors.currency?.message}
+      >
+        <Input
+          id="currency"
+          maxLength={3}
+          aria-invalid={Boolean(errors.currency)}
+          aria-describedby={formFieldDescribedBy("currency", Boolean(errors.currency))}
+          className={cn(errors.currency && "border-destructive")}
+          {...register("currency")}
+        />
+      </FormField>
+      <Button disabled={isSubmitting} type="submit">
+        {isSubmitting ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Creating account...
+          </>
+        ) : (
+          "Create account"
+        )}
       </Button>
     </form>
   );

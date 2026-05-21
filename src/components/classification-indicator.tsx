@@ -8,8 +8,8 @@ import {
 import { cn } from "@/lib/utils";
 
 const stateStyles: Record<ClassificationUiState, string> = {
-  auto_applied: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700",
-  suggestion: "border-amber-500/30 bg-amber-500/10 text-amber-700",
+  auto_applied: "border-success/30 bg-success/10 text-success-foreground",
+  suggestion: "border-warning/30 bg-warning/10 text-warning-foreground",
   needs_review: "border-destructive/30 bg-destructive/10 text-destructive",
   user_confirmed: "border-border bg-secondary/70 text-secondary-foreground",
   none: "border-border bg-secondary/70 text-secondary-foreground",

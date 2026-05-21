@@ -1,22 +1,15 @@
 "use server";
 
 import { eq } from "drizzle-orm";
-import { z } from "zod";
 
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import { provisionNewHousehold } from "@/lib/auth/onboarding";
+import { registerFormSchema } from "@/lib/auth/validation";
 import { enforceActionRateLimit, registerRateLimit } from "@/lib/security/arcjet";
 import type { ActionResult } from "@/lib/actions/types";
 import { isAppError } from "@/lib/errors/app-error";
-
-const registerSchema = z.object({
-  name: z.string().min(2).max(80),
-  email: z.string().email(),
-  password: z.string().min(8).max(128),
-  currency: z.string().length(3).default("NOK"),
-});
 
 export async function registerUser(
   input: unknown,
@@ -24,7 +17,7 @@ export async function registerUser(
   try {
     await enforceActionRateLimit(registerRateLimit);
 
-    const parsed = registerSchema.safeParse(input);
+    const parsed = registerFormSchema.safeParse(input);
     if (!parsed.success) {
       return {
         error: {

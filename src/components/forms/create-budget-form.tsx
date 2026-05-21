@@ -1,92 +1,90 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import type { z } from "zod";
 
+import { createBudget } from "@/app/(app)/budgets/actions";
+import { LiveRegion } from "@/components/feedback/live-region";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { createBudget } from "@/app/(app)/budgets/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { createBudgetSchema } from "@/lib/finance/validation";
 import { showErrorToast } from "@/lib/toast-errors";
+import { cn } from "@/lib/utils";
 
-type BudgetType = "monthly" | "weekly" | "zero_based" | "envelope";
+type CreateBudgetFormValues = z.input<typeof createBudgetSchema>;
 
-const budgetTypes: BudgetType[] = [
-  "monthly",
-  "weekly",
-  "zero_based",
-  "envelope",
-];
+const budgetTypes = ["monthly", "weekly", "zero_based", "envelope"] as const;
 
 export function CreateBudgetForm() {
   const router = useRouter();
-  const [loading, setLoading] = useState(false);
-  const [name, setName] = useState("");
-  const [type, setType] = useState<BudgetType>("monthly");
-  const [currency, setCurrency] = useState("NOK");
-  const [periodStartDay, setPeriodStartDay] = useState("1");
-  const [paycheckAnchorDay, setPaycheckAnchorDay] = useState("");
+  const [announcement, setAnnouncement] = useState("");
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors, isSubmitting },
+  } = useForm<CreateBudgetFormValues>({
+    resolver: zodResolver(createBudgetSchema),
+    mode: "onBlur",
+    defaultValues: {
+      name: "",
+      type: "monthly",
+      currency: "NOK",
+      periodStartDay: 1,
+      paycheckAnchorDay: undefined,
+    },
+  });
 
-  async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setLoading(true);
-
+  const onSubmit = handleSubmit(async (values) => {
     try {
-      const payload: {
-        name: string;
-        type: BudgetType;
-        currency: string;
-        periodStartDay: number;
-        paycheckAnchorDay?: number;
-      } = {
-        name,
-        type,
-        currency,
-        periodStartDay: Number(periodStartDay),
-      };
-
-      if (paycheckAnchorDay) {
-        payload.paycheckAnchorDay = Number(paycheckAnchorDay);
-      }
-
       await unwrapAction(
-        createBudget(payload),
+        createBudget(values),
         "Could not create budget",
       );
-      toast.success("Budget created");
-      setName("");
-      setType("monthly");
-      setCurrency("NOK");
-      setPeriodStartDay("1");
-      setPaycheckAnchorDay("");
+      const successMessage = "Budget created";
+      toast.success(successMessage);
+      setAnnouncement(successMessage);
+      reset({
+        name: "",
+        type: "monthly",
+        currency: "NOK",
+        periodStartDay: 1,
+        paycheckAnchorDay: undefined,
+      });
       router.refresh();
     } catch (error) {
       showErrorToast("Could not create budget", error);
-    } finally {
-      setLoading(false);
     }
-  }
+  });
 
   return (
-    <form className="grid gap-4" onSubmit={onSubmit}>
-      <div className="grid gap-2">
-        <Label htmlFor="budget-name">Name</Label>
+    <form className="grid gap-4" onSubmit={onSubmit} noValidate>
+      <LiveRegion message={announcement} />
+      <FormField id="budget-name" label="Name" error={errors.name?.message}>
         <Input
           id="budget-name"
-          value={name}
-          onChange={(event) => setName(event.target.value)}
-          required
+          aria-invalid={Boolean(errors.name)}
+          aria-describedby={formFieldDescribedBy("budget-name", Boolean(errors.name))}
+          className={cn(errors.name && "border-destructive")}
+          {...register("name")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="budget-type">Type</Label>
+      </FormField>
+
+      <FormField id="budget-type" label="Type" error={errors.type?.message}>
         <select
           id="budget-type"
-          className="h-11 rounded-2xl border bg-background/60 px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
-          value={type}
-          onChange={(event) => setType(event.target.value as BudgetType)}
+          aria-invalid={Boolean(errors.type)}
+          aria-describedby={formFieldDescribedBy("budget-type", Boolean(errors.type))}
+          className={cn(formNativeSelectClassName, errors.type && "border-destructive")}
+          {...register("type")}
         >
           {budgetTypes.map((budgetType) => (
             <option key={budgetType} value={budgetType}>
@@ -94,42 +92,79 @@ export function CreateBudgetForm() {
             </option>
           ))}
         </select>
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="budget-currency">Currency</Label>
+      </FormField>
+
+      <FormField
+        id="budget-currency"
+        label="Currency"
+        error={errors.currency?.message}
+      >
         <Input
           id="budget-currency"
-          value={currency}
-          onChange={(event) => setCurrency(event.target.value)}
           maxLength={3}
+          aria-invalid={Boolean(errors.currency)}
+          aria-describedby={formFieldDescribedBy(
+            "budget-currency",
+            Boolean(errors.currency),
+          )}
+          className={cn(errors.currency && "border-destructive")}
+          {...register("currency")}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="budget-period-start">Period start day</Label>
+      </FormField>
+
+      <FormField
+        id="budget-period-start"
+        label="Period start day"
+        error={errors.periodStartDay?.message}
+      >
         <Input
           id="budget-period-start"
           type="number"
           min={1}
           max={31}
-          value={periodStartDay}
-          onChange={(event) => setPeriodStartDay(event.target.value)}
-          required
+          aria-invalid={Boolean(errors.periodStartDay)}
+          aria-describedby={formFieldDescribedBy(
+            "budget-period-start",
+            Boolean(errors.periodStartDay),
+          )}
+          className={cn(errors.periodStartDay && "border-destructive")}
+          {...register("periodStartDay", { valueAsNumber: true })}
         />
-      </div>
-      <div className="grid gap-2">
-        <Label htmlFor="budget-paycheck-anchor">Paycheck anchor day</Label>
+      </FormField>
+
+      <FormField
+        id="budget-paycheck-anchor"
+        label="Paycheck anchor day"
+        error={errors.paycheckAnchorDay?.message}
+      >
         <Input
           id="budget-paycheck-anchor"
           type="number"
           min={1}
           max={31}
-          value={paycheckAnchorDay}
-          onChange={(event) => setPaycheckAnchorDay(event.target.value)}
           placeholder="Optional"
+          aria-invalid={Boolean(errors.paycheckAnchorDay)}
+          aria-describedby={formFieldDescribedBy(
+            "budget-paycheck-anchor",
+            Boolean(errors.paycheckAnchorDay),
+          )}
+          className={cn(errors.paycheckAnchorDay && "border-destructive")}
+          {...register("paycheckAnchorDay", {
+            setValueAs: (value) =>
+              value === "" || value == null ? undefined : Number(value),
+          })}
         />
-      </div>
-      <Button disabled={loading} type="submit">
-        {loading ? "Creating..." : "Create budget"}
+      </FormField>
+
+      <Button disabled={isSubmitting} type="submit">
+        {isSubmitting ? (
+          <>
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+            Creating...
+          </>
+        ) : (
+          "Create budget"
+        )}
       </Button>
     </form>
   );

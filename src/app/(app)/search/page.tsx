@@ -1,14 +1,11 @@
-import { and, desc, eq, ilike } from "drizzle-orm";
 import { Search } from "lucide-react";
 
 import { ClassificationIndicator } from "@/components/classification-indicator";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { db } from "@/db";
-import { categories, transactions } from "@/db/schema";
-import { getClassificationUiState } from "@/lib/classification/ui-state";
 import { getActiveHousehold } from "@/lib/finance/household";
 import { formatCents } from "@/lib/finance/money";
+import { searchTransactions } from "@/lib/finance/transactions";
 
 type SearchPageProps = {
   searchParams?: Promise<{ q?: string }>;
@@ -19,52 +16,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
   const resolvedParams = await searchParams;
   const query = resolvedParams?.q ?? "";
 
-  const rows = query
-    ? await db
-        .select({
-          id: transactions.id,
-          source: transactions.source,
-          date: transactions.date,
-          amountCents: transactions.amountCents,
-          currency: transactions.currency,
-          merchantName: transactions.merchantName,
-          description: transactions.description,
-          categoryId: transactions.categoryId,
-          categoryName: categories.name,
-          categorySource: transactions.categorySource,
-          categoryConfidence: transactions.categoryConfidence,
-          suggestedCategoryId: transactions.suggestedCategoryId,
-        })
-        .from(transactions)
-        .leftJoin(categories, eq(categories.id, transactions.categoryId))
-        .where(
-          and(
-            eq(transactions.householdId, household.householdId),
-            ilike(transactions.searchText, `%${query}%`),
-          ),
-        )
-        .orderBy(desc(transactions.date))
-        .limit(100)
-    : await db
-        .select({
-          id: transactions.id,
-          source: transactions.source,
-          date: transactions.date,
-          amountCents: transactions.amountCents,
-          currency: transactions.currency,
-          merchantName: transactions.merchantName,
-          description: transactions.description,
-          categoryId: transactions.categoryId,
-          categoryName: categories.name,
-          categorySource: transactions.categorySource,
-          categoryConfidence: transactions.categoryConfidence,
-          suggestedCategoryId: transactions.suggestedCategoryId,
-        })
-        .from(transactions)
-        .leftJoin(categories, eq(categories.id, transactions.categoryId))
-        .where(eq(transactions.householdId, household.householdId))
-        .orderBy(desc(transactions.date))
-        .limit(20);
+  const rows = await searchTransactions(household.householdId, query);
 
   return (
     <div className="grid gap-6">
@@ -96,7 +48,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps = {})
                       <ClassificationIndicator
                         confidence={transaction.categoryConfidence}
                         source={transaction.categorySource}
-                        state={getClassificationUiState(transaction)}
+                        state={transaction.classificationState}
                       />
                       {transaction.categoryName ? (
                         <span className="text-xs text-muted-foreground">

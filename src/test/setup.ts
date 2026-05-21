@@ -1,3 +1,5 @@
+import "@testing-library/jest-dom/vitest";
+
 // Provide required env stubs for tests that import modules which trigger env validation.
 // These are safe test values — never used for real connections.
 process.env.DATABASE_URL ??= "postgres://test:test@localhost:5432/get_a_bud_test";

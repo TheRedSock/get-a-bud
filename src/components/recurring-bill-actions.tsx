@@ -1,13 +1,18 @@
 "use client";
 
+import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, Loader2, Pencil, Play, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import type { z } from "zod";
 
+import { DestructiveConfirmDialog } from "@/components/feedback/destructive-confirm-dialog";
+import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { MoneyField } from "@/components/forms/money-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -23,8 +28,13 @@ import {
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
-import { showErrorToast } from "@/lib/toast-errors";
 import { formatCents } from "@/lib/finance/money";
+import {
+  updateBillFormSchema,
+  updateBillSchema,
+} from "@/lib/finance/validation";
+import { showErrorToast } from "@/lib/toast-errors";
+import { cn } from "@/lib/utils";
 
 const NO_CATEGORY = "__none";
 
@@ -88,9 +98,9 @@ export function RunRecurringDetectionButton() {
       onClick={() => void runDetection()}
     >
       {loading ? (
-        <Loader2 className="size-4 animate-spin" />
+        <Loader2 className="size-4 animate-spin" aria-hidden />
       ) : (
-        <Play className="size-4" />
+        <Play className="size-4" aria-hidden />
       )}
       Run recurring detection
     </Button>
@@ -162,15 +172,17 @@ export function RecurringBillCategoryAction({
         onClick={() => void saveCategory()}
       >
         {saving ? (
-          <Loader2 className="size-4 animate-spin" />
+          <Loader2 className="size-4 animate-spin" aria-hidden />
         ) : (
-          <Save className="size-4" />
+          <Save className="size-4" aria-hidden />
         )}
         Apply to matches
       </Button>
     </div>
   );
 }
+
+type UpdateBillFormValues = z.input<typeof updateBillFormSchema>;
 
 export function RecurringBillEditor({
   billId,
@@ -191,32 +203,61 @@ export function RecurringBillEditor({
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({
-    name,
-    cadence,
-    expectedAmount: expectedAmount ?? "",
-    nextDueDate: nextDueDate ?? "",
-    isActive,
-    isPossiblyCancelled,
+
+  const {
+    register,
+    handleSubmit,
+    reset,
+    setValue,
+    watch,
+    formState: { errors, isSubmitting },
+  } = useForm<UpdateBillFormValues>({
+    resolver: zodResolver(updateBillFormSchema),
+    mode: "onBlur",
+    defaultValues: {
+      name,
+      cadence: cadence as UpdateBillFormValues["cadence"],
+      expectedAmountCents: expectedAmount ?? "",
+      nextDueDate: nextDueDate ?? "",
+      isActive,
+      isPossiblyCancelled,
+    },
   });
 
-  async function saveBill() {
-    setSaving(true);
+  const formCadence = watch("cadence");
+  const formIsActive = watch("isActive");
+  const formNeedsCheck = watch("isPossiblyCancelled");
 
+  function toggleExpanded() {
+    setExpanded((value) => {
+      const next = !value;
+      if (next) {
+        reset({
+          name,
+          cadence: cadence as UpdateBillFormValues["cadence"],
+          expectedAmountCents: expectedAmount ?? "",
+          nextDueDate: nextDueDate ?? "",
+          isActive,
+          isPossiblyCancelled,
+        });
+      }
+      return next;
+    });
+  }
+
+  const saveBill = handleSubmit(async (values) => {
     try {
+      const data = updateBillSchema.parse({
+        name: values.name,
+        cadence: values.cadence,
+        expectedAmountCents: values.expectedAmountCents?.trim() || null,
+        nextDueDate: values.nextDueDate?.trim() || null,
+        isActive: values.isActive,
+        isPossiblyCancelled: values.isPossiblyCancelled,
+      });
+
       await unwrapAction(
-        updateBill({
-          billId,
-          data: {
-            name: form.name,
-            cadence: form.cadence,
-            expectedAmountCents: form.expectedAmount || null,
-            nextDueDate: form.nextDueDate || null,
-            isActive: form.isActive,
-            isPossiblyCancelled: form.isPossiblyCancelled,
-          },
-        }),
+        updateBill({ billId, data }),
         "Could not update bill details",
       );
       toast.success("Bill details saved");
@@ -224,49 +265,58 @@ export function RecurringBillEditor({
       router.refresh();
     } catch (error) {
       showErrorToast("Could not update bill details", error);
-    } finally {
-      setSaving(false);
     }
-  }
+  });
 
   return (
     <div className="mt-3">
-      <Button
-        size="sm"
-        type="button"
-        variant="ghost"
-        onClick={() => setExpanded((value) => !value)}
-      >
-        <Pencil className="size-4" />
+      <Button size="sm" type="button" variant="ghost" onClick={toggleExpanded}>
+        <Pencil className="size-4" aria-hidden />
         {expanded ? "Close details" : "Edit details"}
       </Button>
 
       {expanded ? (
-        <div className="mt-3 grid gap-3 rounded-2xl border bg-card/50 p-4">
-          <div className="grid gap-2">
-            <Label htmlFor={`bill-name-${billId}`}>Name</Label>
+        <form
+          className="mt-3 grid gap-3 rounded-2xl border bg-card/50 p-4"
+          noValidate
+          onSubmit={saveBill}
+        >
+          <FormField
+            id={`bill-name-${billId}`}
+            label="Name"
+            error={errors.name?.message}
+          >
             <Input
               id={`bill-name-${billId}`}
-              value={form.name}
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  name: event.target.value,
-                }))
-              }
+              aria-invalid={Boolean(errors.name)}
+              aria-describedby={formFieldDescribedBy(
+                `bill-name-${billId}`,
+                Boolean(errors.name),
+              )}
+              className={cn(errors.name && "border-destructive")}
+              {...register("name")}
             />
-          </div>
+          </FormField>
 
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="grid gap-2">
-              <Label>Cadence</Label>
+            <FormField id={`bill-cadence-${billId}`} label="Cadence" error={errors.cadence?.message}>
               <Select
-                value={form.cadence}
+                value={formCadence}
                 onValueChange={(value) =>
-                  setForm((current) => ({ ...current, cadence: value }))
+                  setValue("cadence", value as UpdateBillFormValues["cadence"], {
+                    shouldValidate: true,
+                  })
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger
+                  id={`bill-cadence-${billId}`}
+                  aria-invalid={Boolean(errors.cadence)}
+                  aria-describedby={formFieldDescribedBy(
+                    `bill-cadence-${billId}`,
+                    Boolean(errors.cadence),
+                  )}
+                  className={cn(errors.cadence && "border-destructive")}
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -277,89 +327,76 @@ export function RecurringBillEditor({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
 
-            <div className="grid gap-2">
-              <Label htmlFor={`bill-amount-${billId}`}>Expected amount</Label>
-              <Input
-                id={`bill-amount-${billId}`}
-                inputMode="decimal"
-                value={form.expectedAmount}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    expectedAmount: event.target.value,
-                  }))
-                }
-              />
-            </div>
+            <MoneyField
+              id={`bill-amount-${billId}`}
+              label="Expected amount"
+              name="expectedAmountCents"
+              register={register}
+              error={errors.expectedAmountCents?.message}
+              onBlurNormalize={(value) =>
+                setValue("expectedAmountCents", value, { shouldValidate: true })
+              }
+            />
 
-            <div className="grid gap-2">
-              <Label htmlFor={`bill-due-${billId}`}>Next due date</Label>
+            <FormField
+              id={`bill-due-${billId}`}
+              label="Next due date"
+              error={errors.nextDueDate?.message}
+            >
               <Input
                 id={`bill-due-${billId}`}
                 type="date"
-                value={form.nextDueDate}
-                onChange={(event) =>
-                  setForm((current) => ({
-                    ...current,
-                    nextDueDate: event.target.value,
-                  }))
-                }
+                aria-invalid={Boolean(errors.nextDueDate)}
+                aria-describedby={formFieldDescribedBy(
+                  `bill-due-${billId}`,
+                  Boolean(errors.nextDueDate),
+                )}
+                className={cn(errors.nextDueDate && "border-destructive")}
+                {...register("nextDueDate")}
               />
-            </div>
+            </FormField>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <Button
               size="sm"
               type="button"
-              variant={form.isActive ? "default" : "outline"}
-              onClick={() =>
-                setForm((current) => ({ ...current, isActive: true }))
-              }
+              variant={formIsActive ? "default" : "outline"}
+              onClick={() => setValue("isActive", true)}
             >
               Active
             </Button>
             <Button
               size="sm"
               type="button"
-              variant={!form.isActive ? "default" : "outline"}
-              onClick={() =>
-                setForm((current) => ({ ...current, isActive: false }))
-              }
+              variant={!formIsActive ? "default" : "outline"}
+              onClick={() => setValue("isActive", false)}
             >
               Ended
             </Button>
             <Button
               size="sm"
               type="button"
-              variant={form.isPossiblyCancelled ? "default" : "outline"}
+              variant={formNeedsCheck ? "default" : "outline"}
               onClick={() =>
-                setForm((current) => ({
-                  ...current,
-                  isPossiblyCancelled: !current.isPossiblyCancelled,
-                }))
+                setValue("isPossiblyCancelled", !formNeedsCheck)
               }
             >
               Needs status check
             </Button>
           </div>
 
-          <Button
-            disabled={saving}
-            size="sm"
-            type="button"
-            onClick={() => void saveBill()}
-          >
-            {saving ? (
-              <Loader2 className="size-4 animate-spin" />
+          <Button disabled={isSubmitting} size="sm" type="submit">
+            {isSubmitting ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
             ) : (
-              <Save className="size-4" />
+              <Save className="size-4" aria-hidden />
             )}
             Save bill
           </Button>
-        </div>
+        </form>
       ) : null}
     </div>
   );
@@ -367,21 +404,31 @@ export function RecurringBillEditor({
 
 export function RejectRecurringBillButton({ billId }: { billId: string }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [rejecting, setRejecting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  function handleOpenChange(nextOpen: boolean) {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setConfirmError(null);
+    }
+  }
 
   async function handleRejectBill() {
-    const confirmed = window.confirm(
-      "Reject this recurring bill? It will be removed and its matched transactions will be ignored by future recurring detection.",
-    );
-    if (!confirmed) return;
-
     setRejecting(true);
+    setConfirmError(null);
 
     try {
-      const { ignoredTransactions } = await unwrapAction(
-        rejectBill({ billId }),
-        "Could not reject recurring bill",
-      );
+      const result = await rejectBill({ billId });
+      if (result.error) {
+        setConfirmError(
+          "We could not reject this bill. Your data is safe — please try again.",
+        );
+        return;
+      }
+
+      const { ignoredTransactions } = result.data;
       toast.success(
         `Recurring bill rejected${
           ignoredTransactions > 0
@@ -391,36 +438,43 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
             : ""
         }`,
       );
+      handleOpenChange(false);
       router.refresh();
-    } catch (error) {
-      showErrorToast("Could not reject recurring bill", error);
+    } catch {
+      setConfirmError(
+        "We could not reject this bill. Your data is safe — please try again.",
+      );
     } finally {
       setRejecting(false);
     }
   }
 
   return (
-    <Button
-      disabled={rejecting}
-      size="sm"
-      type="button"
-      variant="destructive"
-      onClick={() => void handleRejectBill()}
-    >
-      {rejecting ? (
-        <Loader2 className="size-4 animate-spin" />
-      ) : (
-        <Trash2 className="size-4" />
-      )}
-      Reject recurring bill
-    </Button>
+    <DestructiveConfirmDialog
+      confirmLabel="Reject bill"
+      description="Reject this recurring bill? It will be removed and its matched transactions will be ignored by future recurring detection."
+      errorMessage={confirmError}
+      open={open}
+      pending={rejecting}
+      title="Reject recurring bill?"
+      trigger={
+        <Button disabled={rejecting} size="sm" type="button" variant="destructive">
+          <Trash2 className="size-4" aria-hidden />
+          Reject recurring bill
+        </Button>
+      }
+      onConfirm={handleRejectBill}
+      onOpenChange={handleOpenChange}
+    />
   );
 }
 
+type BillMatchesLoadState = "idle" | "loading" | "success" | "error";
+
 export function BillTransactionsViewer({ billId }: { billId: string }) {
   const [expanded, setExpanded] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [rows, setRows] = useState<BillTransactionRow[] | null>(null);
+  const [loadState, setLoadState] = useState<BillMatchesLoadState>("idle");
+  const [rows, setRows] = useState<BillTransactionRow[]>([]);
   const [pattern, setPattern] = useState<{
     cadence: string;
     pattern: string | null;
@@ -429,13 +483,8 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
     amountSignature: string;
   } | null>(null);
 
-  async function toggle() {
-    const nextExpanded = !expanded;
-    setExpanded(nextExpanded);
-
-    if (!nextExpanded || rows) return;
-
-    setLoading(true);
+  async function loadMatches() {
+    setLoadState("loading");
     try {
       const body = await unwrapAction(
         getBillTransactions({ billId }),
@@ -443,20 +492,30 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
       );
       setPattern(body.pattern);
       setRows(body.transactions);
+      setLoadState("success");
     } catch (error) {
+      setLoadState("error");
       showErrorToast("Could not load matching transactions", error);
-    } finally {
-      setLoading(false);
     }
+  }
+
+  async function toggle() {
+    const nextExpanded = !expanded;
+    setExpanded(nextExpanded);
+
+    if (!nextExpanded) return;
+    if (loadState === "success") return;
+
+    await loadMatches();
   }
 
   return (
     <div className="mt-3">
       <Button size="sm" type="button" variant="outline" onClick={() => void toggle()}>
-        {loading ? (
-          <Loader2 className="size-4 animate-spin" />
+        {loadState === "loading" ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden />
         ) : (
-          <Eye className="size-4" />
+          <Eye className="size-4" aria-hidden />
         )}
         {expanded ? "Hide matches" : "Show matches"}
       </Button>
@@ -475,7 +534,23 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
             </p>
           ) : null}
 
-          {rows?.length ? (
+          {loadState === "loading" ? (
+            <p className="text-sm text-muted-foreground">Loading matches...</p>
+          ) : loadState === "error" ? (
+            <div className="grid gap-2">
+              <p className="text-sm text-destructive" role="alert">
+                Could not load matching transactions. Please try again.
+              </p>
+              <Button
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => void loadMatches()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : rows.length ? (
             <div className="grid gap-2">
               {rows.map((row) => (
                 <div
@@ -515,13 +590,11 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
                 </div>
               ))}
             </div>
-          ) : loading ? (
-            <p className="text-sm text-muted-foreground">Loading matches...</p>
-          ) : (
+          ) : loadState === "success" ? (
             <p className="text-sm text-muted-foreground">
               No matched transactions are stored for this bill yet.
             </p>
-          )}
+          ) : null}
         </div>
       ) : null}
     </div>

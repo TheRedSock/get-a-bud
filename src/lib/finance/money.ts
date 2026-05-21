@@ -159,6 +159,27 @@ export function formatCents(
   return formatter.format(cents / 100);
 }
 
+/** Compact currency labels for chart Y-axis ticks (values are integer cents). */
+export function formatChartAxisTick(
+  cents: number,
+  currency = "NOK",
+  locale = "nb-NO",
+): string {
+  const key = `${locale}:${currency}:axis`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      notation: "compact",
+      compactDisplay: "short",
+      maximumFractionDigits: 1,
+    });
+    formatterCache.set(key, formatter);
+  }
+  return formatter.format(cents / 100);
+}
+
 /**
  * Format integer cents for display with decimal places (e.g., for editing).
  */

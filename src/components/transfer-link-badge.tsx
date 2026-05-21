@@ -2,19 +2,8 @@ import { ArrowRightLeft, CircleHelp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { formatCents } from "@/lib/finance/money";
-
-export type TransferSummary = {
-  groupId: string;
-  role: string;
-  confidence: string;
-  confirmed: boolean;
-  counterpart?: {
-    accountName: string;
-    amountCents: number;
-    currency: string;
-    date: string;
-  } | null;
-};
+import type { TransferSummary } from "@/lib/finance/transactions";
+import { cn } from "@/lib/utils";
 
 export function TransferLinkBadge({
   summary,
@@ -36,14 +25,15 @@ export function TransferLinkBadge({
 
   const title = `${summary.confirmed ? "Linked transfer" : "Transfer link needs review"}: ${counterpart}`;
 
+  const confirmedStyles =
+    "inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-info/30 bg-info/10 text-info";
+  const reviewStyles =
+    "inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-warning/30 bg-warning/10 text-warning-foreground";
+
   if (variant === "icon") {
     return (
       <span
-        className={
-          summary.confirmed
-            ? "inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-sky-500/30 bg-sky-500/10 text-sky-700"
-            : "inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 text-amber-700"
-        }
+        className={summary.confirmed ? confirmedStyles : reviewStyles}
         title={title}
       >
         {summary.confirmed ? (
@@ -58,11 +48,12 @@ export function TransferLinkBadge({
 
   return (
     <Badge
-      className={
+      className={cn(
+        "gap-1",
         summary.confirmed
-          ? "gap-1 border-sky-500/30 bg-sky-500/10 text-sky-700"
-          : "gap-1 border-amber-500/30 bg-amber-500/10 text-amber-700"
-      }
+          ? "border-info/30 bg-info/10 text-info"
+          : "border-warning/30 bg-warning/10 text-warning-foreground",
+      )}
       title={title}
     >
       {summary.confirmed ? (
