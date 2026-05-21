@@ -72,7 +72,7 @@ jobs:
         run: docker compose -f docker-compose.test.yml up -d --wait
 
       - name: Migrate test database
-        run: npm run test:db:migrate
+        run: npx drizzle-kit migrate
 
       - name: Integration tests
         run: npm run test:integration
