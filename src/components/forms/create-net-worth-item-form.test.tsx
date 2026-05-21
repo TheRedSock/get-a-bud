@@ -11,6 +11,10 @@ vi.mock("@/app/(app)/net-worth/actions", () => ({
   createLiability: vi.fn(),
 }));
 
+// jsdom does not compute CSS reliably; pointer-events checks produce false
+// positives on some platforms (Linux CI). Disable for this form's tests.
+const user = userEvent.setup({ pointerEventsCheck: 0 });
+
 describe("CreateNetWorthItemForm", () => {
   afterEach(() => {
     cleanup();
@@ -25,9 +29,9 @@ describe("CreateNetWorthItemForm", () => {
     const view = render(<CreateNetWorthItemForm />);
 
     const name = within(view.container).getByLabelText("Name");
-    await userEvent.type(name, "x");
-    await userEvent.clear(name);
-    await userEvent.tab();
+    await user.type(name, "x");
+    await user.clear(name);
+    await user.tab();
 
     await waitFor(() => {
       expect(name).toHaveAttribute("aria-invalid", "true");
@@ -47,9 +51,9 @@ describe("CreateNetWorthItemForm", () => {
 
     const view = render(<CreateNetWorthItemForm />);
 
-    await userEvent.type(within(view.container).getByLabelText("Name"), "Apartment");
-    await userEvent.type(within(view.container).getByLabelText("Value"), "2500000");
-    await userEvent.click(
+    await user.type(within(view.container).getByLabelText("Name"), "Apartment");
+    await user.type(within(view.container).getByLabelText("Value"), "2500000");
+    await user.click(
       within(view.container).getByRole("button", { name: "Create asset" }),
     );
 
