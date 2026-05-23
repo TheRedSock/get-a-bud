@@ -122,6 +122,20 @@ components**, also run `npm run build` — Next.js RSC serialization errors (e.g
 during the build, not by `typecheck` or `lint`. CI runs the build on every push
 but catching it locally avoids broken deployments.
 
+**Important:** For dynamic pages (those using `searchParams` or `cookies()`),
+`next build` does NOT pre-render them — serialization errors only appear at
+request time. To guard against this:
+
+1. Never import from barrel files (`index.ts`) that re-export server-only
+   modules (e.g. files importing `@/db`) into client components. Import from
+   the specific client-safe sub-module instead.
+2. Use `ServerBoundaryProps<T>` from `@/lib/utils` on props interfaces of
+   client components that receive data from server components — this makes
+   TypeScript reject function-typed props at the type level.
+3. Never pass functions, class instances, or non-serializable values as props
+   from server to client components. Pure data (strings, numbers, arrays,
+   plain objects, ReactNode) only.
+
 ## Skills — Load Before Working
 
 Load the relevant skill before starting work on a particular area. Skills

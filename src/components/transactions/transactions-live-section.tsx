@@ -23,8 +23,8 @@ import {
   type AccountOption,
   type CategoryOption,
   type TransactionListFilters,
-} from "@/lib/finance/transactions";
-import { cn } from "@/lib/utils";
+} from "@/lib/finance/transactions/filters";
+import { cn, type ServerBoundaryProps } from "@/lib/utils";
 
 type EnrichedRow = Awaited<
   ReturnType<
@@ -32,13 +32,17 @@ type EnrichedRow = Awaited<
   >
 >[number] & { recurringBillId?: string | null };
 
-type TransactionsLiveSectionProps = {
+/**
+ * Props passed from the server component page — guarded by ServerBoundaryProps
+ * to prevent accidentally passing functions across the RSC boundary.
+ */
+type TransactionsLiveSectionProps = ServerBoundaryProps<{
   initialRows: EnrichedRow[];
   filters: TransactionListFilters;
   options: { categories: CategoryOption[]; accounts: AccountOption[] };
   hasNextPage: boolean;
   tableHeader: ReactNode;
-};
+}>;
 
 const HIGHLIGHT_MS = 6000;
 

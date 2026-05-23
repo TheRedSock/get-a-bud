@@ -13,15 +13,9 @@ export {
 
 export {
   buildTransactionListHref,
-  enrichTransactionRows,
-  getTransactionEnrichment,
-  getTransactionFilterCounts,
-  getTransactionListOptions,
-  getTransactionListRows,
-  searchTransactions,
-  parseTransactionSearchParams,
   CLASSIFICATION_FILTERS,
   PAGE_SIZE,
+  parseTransactionSearchParams,
   SORT_KEYS,
   TRANSFER_FILTERS,
   type AccountOption,
@@ -29,8 +23,17 @@ export {
   type ClassificationFilter,
   type SortDirection,
   type SortKey,
-  type TransactionFilterCounts,
   type TransactionListFilters,
   type TransferFilter,
   type TransferSummary,
+} from "./filters";
+
+export {
+  enrichTransactionRows,
+  getTransactionEnrichment,
+  getTransactionFilterCounts,
+  getTransactionListOptions,
+  getTransactionListRows,
+  searchTransactions,
+  type TransactionFilterCounts,
 } from "./queries";
