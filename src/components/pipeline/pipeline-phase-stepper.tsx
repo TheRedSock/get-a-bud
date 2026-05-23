@@ -87,6 +87,20 @@ export function pipelineCounterSummary(run: PipelineRunSummary) {
   if (c.billsCreated) {
     parts.push(`${c.billsCreated} bills found`);
   }
+  if (c.billsUpdated) {
+    parts.push(`${c.billsUpdated} bills updated`);
+  }
+  if (c.billsFlagged) {
+    parts.push(`${c.billsFlagged} reviewed`);
+  }
 
-  return parts.length ? parts.join(" · ") : "Starting…";
+  if (parts.length > 0) {
+    return parts.join(" · ");
+  }
+
+  if (run.kind === "recurring_replay" && run.currentPhase === "recurring") {
+    return "Scanning transactions…";
+  }
+
+  return "Starting…";
 }

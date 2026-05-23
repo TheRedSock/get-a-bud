@@ -187,72 +187,83 @@ export const detectRecurringBills = inngest.createFunction(
       cleanupStaleRecurringBills(householdId),
     );
 
-    const billsForLifecycle = await step.run("load-bills-for-lifecycle", () =>
-      db
-        .select({
-          id: recurringBills.id,
-          nextDueDate: recurringBills.nextDueDate,
-          cadence: recurringBills.cadence,
-          isActive: recurringBills.isActive,
-        })
-        .from(recurringBills)
-        .where(
-          and(
-            eq(recurringBills.householdId, householdId),
-            eq(recurringBills.isActive, true),
-            isNotNull(recurringBills.nextDueDate),
-            isNull(recurringBills.userEndedAt),
-          ),
-        ),
-    );
+    let possiblyCancelled = 0;
+    let ended = 0;
 
-    const possiblyCancelledIds: string[] = [];
-    const endedIds: string[] = [];
-
-    for (const bill of billsForLifecycle) {
-      if (!bill.nextDueDate) continue;
-
-      const expectedDays = cadenceToExpectedDays(bill.cadence as BillCadence);
-      const daysOverdue = daysOverdueVsDueDate({
-        nextDueDate: bill.nextDueDate,
-        asOf: runStartTime,
-      });
-
-      if (daysOverdue > expectedDays * 2) {
-        endedIds.push(bill.id);
-      } else if (daysOverdue > expectedDays * 1.5 && bill.isActive) {
-        possiblyCancelledIds.push(bill.id);
-      }
-    }
-
-    if (possiblyCancelledIds.length > 0) {
-      await step.run("flag-cancellations", () =>
+    // Manual replay rescans from scratch; auto-ending here would mark bills
+    // inactive before the user can review newly detected patterns. Lifecycle
+    // runs after bank sync only.
+    if (!replayUnapproved) {
+      const billsForLifecycle = await step.run("load-bills-for-lifecycle", () =>
         db
-          .update(recurringBills)
-          .set({ isPossiblyCancelled: true, updatedAt: new Date() })
-          .where(inArray(recurringBills.id, possiblyCancelledIds)),
-      );
-    }
-
-    if (endedIds.length > 0) {
-      await step.run("mark-ended-bills", () =>
-        db
-          .update(recurringBills)
-          .set({
-            isActive: false,
-            isPossiblyCancelled: false,
-            updatedAt: new Date(),
+          .select({
+            id: recurringBills.id,
+            nextDueDate: recurringBills.nextDueDate,
+            cadence: recurringBills.cadence,
+            isActive: recurringBills.isActive,
           })
-          .where(inArray(recurringBills.id, endedIds)),
+          .from(recurringBills)
+          .where(
+            and(
+              eq(recurringBills.householdId, householdId),
+              eq(recurringBills.isActive, true),
+              isNotNull(recurringBills.nextDueDate),
+              isNull(recurringBills.userEndedAt),
+            ),
+          ),
       );
-    }
 
-    if (pipelineRun) {
-      await step.run("pipeline-recurring-flag-progress", () =>
-        recordRecurringProgress(pipelineRun.id, {
-          billsFlagged: possiblyCancelledIds.length + endedIds.length,
-        }),
-      );
+      const possiblyCancelledIds: string[] = [];
+      const endedIds: string[] = [];
+
+      for (const bill of billsForLifecycle) {
+        if (!bill.nextDueDate) continue;
+
+        const expectedDays = cadenceToExpectedDays(bill.cadence as BillCadence);
+        const daysOverdue = daysOverdueVsDueDate({
+          nextDueDate: bill.nextDueDate,
+          asOf: runStartTime,
+        });
+
+        if (daysOverdue > expectedDays * 2) {
+          endedIds.push(bill.id);
+        } else if (daysOverdue > expectedDays * 1.5 && bill.isActive) {
+          possiblyCancelledIds.push(bill.id);
+        }
+      }
+
+      if (possiblyCancelledIds.length > 0) {
+        await step.run("flag-cancellations", () =>
+          db
+            .update(recurringBills)
+            .set({ isPossiblyCancelled: true, updatedAt: new Date() })
+            .where(inArray(recurringBills.id, possiblyCancelledIds)),
+        );
+      }
+
+      if (endedIds.length > 0) {
+        await step.run("mark-ended-bills", () =>
+          db
+            .update(recurringBills)
+            .set({
+              isActive: false,
+              isPossiblyCancelled: false,
+              updatedAt: new Date(),
+            })
+            .where(inArray(recurringBills.id, endedIds)),
+        );
+      }
+
+      possiblyCancelled = possiblyCancelledIds.length;
+      ended = endedIds.length;
+
+      if (pipelineRun) {
+        await step.run("pipeline-recurring-flag-progress", () =>
+          recordRecurringProgress(pipelineRun.id, {
+            billsFlagged: possiblyCancelled + ended,
+          }),
+        );
+      }
     }
 
     await step.run("complete-pipeline-runs", () =>
@@ -269,8 +280,8 @@ export const detectRecurringBills = inngest.createFunction(
       historyInserted: phaseB.historyInserted,
       staleDeleted: staleBillCleanup.deleted,
       staleMarkedForReview: staleBillCleanup.markedForReview,
-      possiblyCancelled: possiblyCancelledIds.length,
-      ended: endedIds.length,
+      possiblyCancelled,
+      ended,
       removedUnapproved,
     };
   },

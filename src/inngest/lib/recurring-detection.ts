@@ -19,12 +19,10 @@ import {
 } from "@/db/schema";
 import { isTransferCandidate } from "@/lib/classification/linking";
 import { detectRecurring } from "@/lib/classification/recurring";
-import type { BillCadence } from "@/lib/classification/recurring";
 import {
   findBillForDetectedPattern,
   type BillScheduleIdentity,
 } from "@/lib/finance/bills/consolidation";
-import { isBillPastEndThreshold } from "@/lib/finance/bills";
 
 import {
   comparableAmountForBill,
@@ -175,7 +173,12 @@ export async function matchExistingRecurringBills(input: {
 
       for (const bill of candidateBills) {
         if (!dateMatchesBillCadence(row, bill)) continue;
-        if (bill.amountTrend !== "volatile" && bill.expectedAmountCents != null) {
+        if (
+          bill.amountTrend !== "volatile" &&
+          bill.amountTrend !== "increasing" &&
+          bill.amountTrend !== "decreasing" &&
+          bill.expectedAmountCents != null
+        ) {
           const amt = comparableAmountForBill(row, bill);
           if (amt == null) continue;
           const expected = bill.expectedAmountCents;
@@ -285,12 +288,6 @@ function lastTxnFromResult(
   return latest;
 }
 
-function lastPaymentDateFromResult(
-  result: ReturnType<typeof detectRecurring>[number],
-  txnById: Map<string, RecurringCandidateRow>,
-): string | null {
-  return lastTxnFromResult(result, txnById)?.date ?? null;
-}
 
 async function mergeBillIntoTarget(
   targetBillId: string,
@@ -393,14 +390,6 @@ async function upsertDetectionResults(
   for (const result of results) {
     const lastTxn = lastTxnFromResult(result, txnById);
     const bookAmountCents = lastTxn ? Math.abs(lastTxn.amountCents) : null;
-    const lastPaymentDate = lastTxn?.date ?? null;
-    const autoEnded =
-      lastPaymentDate != null &&
-      isBillPastEndThreshold({
-        lastPaymentDate,
-        cadence: result.cadence as BillCadence,
-        asOf: runStartTime,
-      });
 
     const existing =
       findBillForDetectedPattern(householdBills, result) ??
@@ -453,7 +442,7 @@ async function upsertDetectionResults(
             ? {}
             : {
                 isPossiblyCancelled: false,
-                isActive: !autoEnded,
+                isActive: true,
               }),
         })
         .where(eq(recurringBills.id, existing.id));
@@ -479,7 +468,7 @@ async function upsertDetectionResults(
               ? {}
               : {
                   isPossiblyCancelled: false,
-                  isActive: !autoEnded,
+                  isActive: true,
                 }),
           })
           .where(eq(recurringBills.id, preInsertConflict.id));
@@ -491,7 +480,7 @@ async function upsertDetectionResults(
             name: result.merchant,
             merchantPattern: result.merchant,
             ...sharedFields,
-            isActive: !autoEnded,
+            isActive: true,
             isPossiblyCancelled: false,
           })
           .returning({ id: recurringBills.id });

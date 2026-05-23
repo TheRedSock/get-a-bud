@@ -136,6 +136,28 @@ describe("clusterByAmount", () => {
     expect(clusters[1]).toHaveLength(1); // 500 cluster
   });
 
+  it("keeps gradual price increases in one cluster when sorted by date", () => {
+    const txns = [
+      makeTxn({ date: "2024-09-20", amountCents: -291700 }),
+      makeTxn({ date: "2024-10-21", amountCents: -291800 }),
+      makeTxn({ date: "2024-11-20", amountCents: -291700 }),
+      makeTxn({ date: "2024-12-20", amountCents: -291900 }),
+      makeTxn({ date: "2025-01-20", amountCents: -291800 }),
+      makeTxn({ date: "2025-02-03", amountCents: -30200 }),
+      makeTxn({ date: "2025-03-20", amountCents: -322200 }),
+      makeTxn({ date: "2025-04-22", amountCents: -322200 }),
+      makeTxn({ date: "2025-05-20", amountCents: -322200 }),
+    ];
+
+    const clusters = clusterByAmount(txns);
+    const mainCluster = clusters.find((c) => c.length >= 6);
+    expect(mainCluster).toBeDefined();
+    expect(mainCluster!.length).toBeGreaterThanOrEqual(6);
+    const outlierCluster = clusters.find((c) => c.some((t) => t.amountCents === -30200));
+    expect(outlierCluster).toBeDefined();
+    expect(outlierCluster!.length).toBe(1);
+  });
+
   it("uses original currency amount when available", () => {
     const txns = [
       makeTxn({
