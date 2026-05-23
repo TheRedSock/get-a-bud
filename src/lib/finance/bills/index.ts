@@ -17,3 +17,15 @@ export {
   clearUnapprovedBillsForReplay,
   shouldClearUnapprovedForReplayStart,
 } from "./replay";
+export {
+  formatBillAmount,
+  billAmountCentsForEdit,
+  type BillAmountDisplay,
+} from "./display";
+export {
+  findBillForDetectedPattern,
+  scheduleIdentityMatches,
+  typicalDayOfMonthMatches,
+  TYPICAL_DAY_OF_MONTH_TOLERANCE,
+  type BillScheduleIdentity,
+} from "./consolidation";

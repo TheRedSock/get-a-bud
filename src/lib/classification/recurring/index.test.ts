@@ -1080,6 +1080,31 @@ describe("detectRecurring", () => {
     expect(netflix.every((r) => r.cadence === "monthly")).toBe(true);
   });
 
+  it("detects HOA-style monthly bill as one pattern across price tiers", () => {
+    const merchant = "rødtvedt borettslag";
+    const amounts = [
+      291700, 291800, 291900, 291700, 291800, 291800, 291900, 291700,
+      291800, 321900, 322200, 322200, 322200, 322200, 322200, 321900,
+      282200, 282200, 292800, 292800, 292800, 292800, 292800, 292800,
+    ];
+    const txns: RecurringTransactionInput[] = amounts.map((cents, i) => {
+      const date = new Date(Date.UTC(2024, i, 20));
+      return makeTxn({
+        date: date.toISOString().slice(0, 10),
+        amountCents: -cents,
+        normalizedMerchantName: merchant,
+        transactionType: "e_invoice",
+      });
+    });
+
+    const results = detectRecurring(txns);
+    const hoa = results.filter((r) => r.merchant === merchant);
+    expect(hoa).toHaveLength(1);
+    expect(hoa[0].cadence).toBe("monthly");
+    expect(hoa[0].typicalDayOfMonth).toBeGreaterThanOrEqual(18);
+    expect(hoa[0].typicalDayOfMonth).toBeLessThanOrEqual(22);
+  });
+
   it("handles different-amount patterns per merchant", () => {
     const txns = [
       // Own Netflix sub EUR 21.99

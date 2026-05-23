@@ -136,20 +136,11 @@ export function dateMatchesBillCadence(
   );
 }
 
+/** Book-currency cents for amount tolerance checks (expectedAmountCents is NOK). */
 export function comparableAmountForBill(
   row: RecurringCandidateRow,
-  bill: ExistingRecurringBill,
+  _bill: ExistingRecurringBill,
 ): number | null {
-  if (bill.originalCurrency) {
-    if (
-      row.originalCurrency !== bill.originalCurrency ||
-      row.originalAmountCents == null
-    ) {
-      return null;
-    }
-    return Math.abs(row.originalAmountCents);
-  }
-
   return Math.abs(row.amountCents);
 }
 

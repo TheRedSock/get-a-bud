@@ -20,6 +20,10 @@ import {
 import { isTransferCandidate } from "@/lib/classification/linking";
 import { detectRecurring } from "@/lib/classification/recurring";
 import type { BillCadence } from "@/lib/classification/recurring";
+import {
+  findBillForDetectedPattern,
+  type BillScheduleIdentity,
+} from "@/lib/finance/bills/consolidation";
 import { isBillPastEndThreshold } from "@/lib/finance/bills";
 
 import {
@@ -256,8 +260,6 @@ export async function matchExistingRecurringBills(input: {
   return { existingMatched, claimedIds: [...claimedIds] };
 }
 
-const DETECTION_BATCH_SIZE = 500;
-
 type DetectionInput = {
   id: string;
   amountCents: number;
@@ -270,17 +272,96 @@ type DetectionInput = {
   transactionType: string | null;
 };
 
+function lastTxnFromResult(
+  result: ReturnType<typeof detectRecurring>[number],
+  txnById: Map<string, RecurringCandidateRow>,
+): RecurringCandidateRow | null {
+  let latest: RecurringCandidateRow | null = null;
+  for (const id of result.transactionIds) {
+    const txn = txnById.get(id);
+    if (!txn) continue;
+    if (!latest || txn.date > latest.date) latest = txn;
+  }
+  return latest;
+}
+
 function lastPaymentDateFromResult(
   result: ReturnType<typeof detectRecurring>[number],
   txnById: Map<string, RecurringCandidateRow>,
 ): string | null {
-  let latest: string | null = null;
-  for (const id of result.transactionIds) {
-    const txn = txnById.get(id);
-    if (!txn) continue;
-    if (!latest || txn.date > latest) latest = txn.date;
+  return lastTxnFromResult(result, txnById)?.date ?? null;
+}
+
+async function mergeBillIntoTarget(
+  targetBillId: string,
+  siblingBillId: string,
+): Promise<void> {
+  // Remove sibling history rows whose transactions already exist in the target
+  // to avoid violating the (billId, transactionId) unique constraint.
+  const existingTargetRows = await db
+    .select({ transactionId: recurringBillHistory.transactionId })
+    .from(recurringBillHistory)
+    .where(
+      and(
+        eq(recurringBillHistory.billId, targetBillId),
+        isNotNull(recurringBillHistory.transactionId),
+      ),
+    );
+
+  const conflictingIds = existingTargetRows
+    .map((r) => r.transactionId)
+    .filter((id): id is string => id != null);
+
+  if (conflictingIds.length > 0) {
+    await db
+      .delete(recurringBillHistory)
+      .where(
+        and(
+          eq(recurringBillHistory.billId, siblingBillId),
+          inArray(recurringBillHistory.transactionId, conflictingIds),
+        ),
+      );
   }
-  return latest;
+
+  // Move remaining sibling history rows to the target bill
+  await db
+    .update(recurringBillHistory)
+    .set({ billId: targetBillId })
+    .where(eq(recurringBillHistory.billId, siblingBillId));
+
+  await db.delete(recurringBills).where(eq(recurringBills.id, siblingBillId));
+}
+
+async function mergeSignatureConflicts(
+  targetBillId: string,
+  merchantPattern: string,
+  amountSignature: string,
+  householdBills: BillScheduleIdentity[],
+): Promise<void> {
+  const conflicts = householdBills.filter(
+    (bill) =>
+      bill.id !== targetBillId &&
+      bill.merchantPattern === merchantPattern &&
+      bill.amountSignature === amountSignature,
+  );
+
+  for (const conflict of conflicts) {
+    await mergeBillIntoTarget(targetBillId, conflict.id);
+    const index = householdBills.findIndex((b) => b.id === conflict.id);
+    if (index >= 0) householdBills.splice(index, 1);
+  }
+}
+
+function findBillByAmountSignature<T extends BillScheduleIdentity>(
+  householdBills: T[],
+  merchant: string,
+  amountSignature: string,
+): T | undefined {
+  return householdBills.find(
+    (bill) =>
+      bill.merchantPattern === merchant &&
+      bill.amountSignature === amountSignature,
+  );
 }
 
 async function upsertDetectionResults(
@@ -292,28 +373,27 @@ async function upsertDetectionResults(
   let historyInserted = 0;
   if (results.length === 0) return 0;
 
-  // Batch-fetch all existing bills matching any result's conflict key
-  const matchKeys = results.map((r) => `${r.merchant}\0${r.amountSignature}`);
-  const existingBills = await db
+  type HouseholdBillForUpsert = BillScheduleIdentity & {
+    userEndedAt: Date | null;
+  };
+
+  const householdBills: HouseholdBillForUpsert[] = await db
     .select({
       id: recurringBills.id,
       merchantPattern: recurringBills.merchantPattern,
       amountSignature: recurringBills.amountSignature,
+      cadence: recurringBills.cadence,
+      typicalDayOfMonth: recurringBills.typicalDayOfMonth,
+      isDuplicateSubscription: recurringBills.isDuplicateSubscription,
       userEndedAt: recurringBills.userEndedAt,
     })
     .from(recurringBills)
     .where(eq(recurringBills.householdId, householdId));
 
-  const existingByKey = new Map(
-    existingBills
-      .filter((b) => matchKeys.includes(`${b.merchantPattern}\0${b.amountSignature}`))
-      .map((b) => [`${b.merchantPattern}\0${b.amountSignature}`, b]),
-  );
-
   for (const result of results) {
-    const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
-    const amountCents = lastObs ? Math.abs(Math.round(lastObs.value)) : null;
-    const lastPaymentDate = lastPaymentDateFromResult(result, txnById);
+    const lastTxn = lastTxnFromResult(result, txnById);
+    const bookAmountCents = lastTxn ? Math.abs(lastTxn.amountCents) : null;
+    const lastPaymentDate = lastTxn?.date ?? null;
     const autoEnded =
       lastPaymentDate != null &&
       isBillPastEndThreshold({
@@ -322,23 +402,30 @@ async function upsertDetectionResults(
         asOf: runStartTime,
       });
 
-    const existing = existingByKey.get(
-      `${result.merchant}\0${result.amountSignature}`,
-    );
+    const existing =
+      findBillForDetectedPattern(householdBills, result) ??
+      findBillByAmountSignature(
+        householdBills,
+        result.merchant,
+        result.amountSignature,
+      );
 
     const sharedFields = {
       cadence: result.cadence,
-      expectedAmountCents: amountCents,
+      expectedAmountCents: bookAmountCents,
       nextDueDate: result.predictedNextDate,
-      lastAmountCents: amountCents,
+      lastAmountCents: bookAmountCents,
+      amountSignature: result.amountSignature,
       detectedCadenceConfidence: result.confidence.toFixed(2),
       pattern: result.pattern,
       typicalDayOfMonth: result.typicalDayOfMonth,
-      originalCurrency: result.originalCurrency,
+      originalCurrency: lastTxn?.originalCurrency ?? result.originalCurrency,
       lastOriginalAmountCents:
-        result.lastOriginalAmount != null
-          ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
-          : null,
+        lastTxn?.originalAmountCents != null
+          ? Math.abs(lastTxn.originalAmountCents)
+          : result.lastOriginalAmount != null
+            ? Math.abs(result.lastOriginalAmount)
+            : null,
       amountTrend: result.amountTrend,
       lastDetectedAt: runStartTime,
       transactionCount: result.transactionCount,
@@ -350,6 +437,13 @@ async function upsertDetectionResults(
 
     if (existing) {
       billId = existing.id;
+      await mergeSignatureConflicts(
+        billId,
+        result.merchant,
+        result.amountSignature,
+        householdBills,
+      );
+
       const userEnded = existing.userEndedAt != null;
       await db
         .update(recurringBills)
@@ -363,21 +457,56 @@ async function upsertDetectionResults(
               }),
         })
         .where(eq(recurringBills.id, existing.id));
+
+      existing.amountSignature = result.amountSignature;
+      existing.typicalDayOfMonth = result.typicalDayOfMonth;
+      existing.cadence = result.cadence;
     } else {
-      const [inserted] = await db
-        .insert(recurringBills)
-        .values({
-          householdId,
-          name: result.merchant,
+      const preInsertConflict = findBillByAmountSignature(
+        householdBills,
+        result.merchant,
+        result.amountSignature,
+      );
+
+      if (preInsertConflict) {
+        billId = preInsertConflict.id;
+        const userEnded = preInsertConflict.userEndedAt != null;
+        await db
+          .update(recurringBills)
+          .set({
+            ...sharedFields,
+            ...(userEnded
+              ? {}
+              : {
+                  isPossiblyCancelled: false,
+                  isActive: !autoEnded,
+                }),
+          })
+          .where(eq(recurringBills.id, preInsertConflict.id));
+      } else {
+        const [inserted] = await db
+          .insert(recurringBills)
+          .values({
+            householdId,
+            name: result.merchant,
+            merchantPattern: result.merchant,
+            ...sharedFields,
+            isActive: !autoEnded,
+            isPossiblyCancelled: false,
+          })
+          .returning({ id: recurringBills.id });
+        if (!inserted) continue;
+        billId = inserted.id;
+        householdBills.push({
+          id: billId,
           merchantPattern: result.merchant,
           amountSignature: result.amountSignature,
-          ...sharedFields,
-          isActive: !autoEnded,
-          isPossiblyCancelled: false,
-        })
-        .returning({ id: recurringBills.id });
-      if (!inserted) continue;
-      billId = inserted.id;
+          cadence: result.cadence,
+          typicalDayOfMonth: result.typicalDayOfMonth,
+          isDuplicateSubscription: result.isDuplicateSubscription,
+          userEndedAt: null,
+        });
+      }
     }
 
     if (result.transactionIds.length === 0) continue;
@@ -439,11 +568,6 @@ export async function detectNewRecurringBills(input: {
 
   const flushDetectionBuffer = async () => {
     if (detectionBuffer.length === 0) return;
-    const batchTxnById = new Map<string, RecurringCandidateRow>();
-    for (const entry of detectionBuffer) {
-      const row = txnById.get(entry.id);
-      if (row) batchTxnById.set(entry.id, row);
-    }
 
     const results = detectRecurring(detectionBuffer);
     detected += results.length;
@@ -453,12 +577,9 @@ export async function detectNewRecurringBills(input: {
       input.householdId,
       input.runStartTime,
       results,
-      batchTxnById,
+      txnById,
     );
 
-    for (const entry of detectionBuffer) {
-      txnById.delete(entry.id);
-    }
     detectionBuffer = [];
   };
 
@@ -490,9 +611,6 @@ export async function detectNewRecurringBills(input: {
         normalizedMerchantName: row.normalizedMerchantName,
         transactionType: row.transactionType,
       });
-      if (detectionBuffer.length >= DETECTION_BATCH_SIZE) {
-        await flushDetectionBuffer();
-      }
     }
 
     if (page.length < EXPENSE_PAGE_SIZE) break;

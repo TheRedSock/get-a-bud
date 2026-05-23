@@ -4,7 +4,7 @@
  */
 
 import { addDays, nextCadenceDate } from "./calendar";
-import { toYearMonth } from "./analysis";
+import { coefficientOfVariation, toYearMonth } from "./analysis";
 import type {
   BillCadence,
   RecurrenceAnalysis,
@@ -12,6 +12,28 @@ import type {
 } from "./types";
 
 export const MIN_COVERAGE_RATIO = 0.4;
+export const SLOT_FILL_MIN_RATIO = 0.6;
+export const SLOT_FILL_MAX_AMOUNT_COV = 0.05;
+
+export function minTransactionCountForSlotFillCadence(
+  cadence: BillCadence,
+): number {
+  switch (cadence) {
+    case "quarterly":
+      return 4;
+    case "semi_annual":
+    case "yearly":
+      return 3;
+    default:
+      return 3;
+  }
+}
+
+const SLOT_FILL_CADENCES = new Set<BillCadence>([
+  "quarterly",
+  "semi_annual",
+  "yearly",
+]);
 
 function calendarDaysBetween(dateA: string, dateB: string): number {
   const a = new Date(dateA + "T12:00:00Z");
@@ -134,6 +156,60 @@ function transactionFitsPattern(
   return false;
 }
 
+function patternAmountCoV(pattern: RecurrenceAnalysis): number {
+  if (pattern.lastAmounts.length < 2) return 0;
+  return coefficientOfVariation(pattern.lastAmounts.map((a) => a.value));
+}
+
+function slotFillRatio(
+  pattern: RecurrenceAnalysis,
+  sorted: RecurringTransactionInput[],
+  slots: string[],
+): number {
+  if (slots.length === 0) return 0;
+
+  const patternTxns = sorted.filter((txn) =>
+    pattern.transactionIds.includes(txn.id),
+  );
+
+  let filled = 0;
+  for (const slot of slots) {
+    if (patternTxns.some((txn) => dateMatchesSlot(txn.date, slot))) {
+      filled += 1;
+    }
+  }
+
+  return filled / slots.length;
+}
+
+function patternTransactionDates(
+  pattern: RecurrenceAnalysis,
+  sorted: RecurringTransactionInput[],
+): RecurringTransactionInput[] {
+  return sorted.filter((txn) => pattern.transactionIds.includes(txn.id));
+}
+
+function passesSlotFillCoverage(
+  pattern: RecurrenceAnalysis,
+  sorted: RecurringTransactionInput[],
+): boolean {
+  if (!SLOT_FILL_CADENCES.has(pattern.cadence)) return false;
+
+  const minCount = minTransactionCountForSlotFillCadence(pattern.cadence);
+  if (pattern.transactionCount < minCount) return false;
+
+  if (patternAmountCoV(pattern) > SLOT_FILL_MAX_AMOUNT_COV) return false;
+
+  const patternTxns = patternTransactionDates(pattern, sorted);
+  if (patternTxns.length === 0) return false;
+
+  const minDate = patternTxns[0].date;
+  const maxDate = patternTxns[patternTxns.length - 1].date;
+  const slots = buildExpectedSlots(pattern, minDate, maxDate);
+
+  return slotFillRatio(pattern, sorted, slots) >= SLOT_FILL_MIN_RATIO;
+}
+
 /**
  * Validates that a detected recurring pattern covers a significant
  * portion of the merchant's total transaction history.
@@ -161,5 +237,7 @@ export function validatePatternCoverage(params: {
   }
 
   const minRatio = params.minCoverageRatio ?? MIN_COVERAGE_RATIO;
-  return numerator / denominator >= minRatio;
+  if (numerator / denominator >= minRatio) return true;
+
+  return passesSlotFillCoverage(params.pattern, sorted);
 }

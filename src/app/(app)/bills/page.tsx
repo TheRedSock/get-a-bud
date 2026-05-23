@@ -18,7 +18,11 @@ import {
   type BillStatusFilter,
 } from "@/lib/finance/bills";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { formatCents, centsToDecimalString } from "@/lib/finance/money";
+import {
+  billAmountCentsForEdit,
+  formatBillAmount,
+} from "@/lib/finance/bills";
+import { centsToDecimalString } from "@/lib/finance/money";
 
 type BillsPageProps = {
   searchParams?: Promise<{ status?: string }>;
@@ -126,16 +130,12 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <p className="font-semibold">
-                    {formatCents(
-                      bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
-                    )}
-                  </p>
+                  <p className="font-semibold">{formatBillAmount(bill)}</p>
                   <RecurringBillEditor
                     billId={bill.id}
                     name={bill.name}
                     expectedAmount={centsToDecimalString(
-                      bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
+                      billAmountCentsForEdit(bill),
                     )}
                     cadence={bill.cadence}
                     isActive={bill.isActive}

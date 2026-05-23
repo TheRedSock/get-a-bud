@@ -157,6 +157,116 @@ describe("validatePatternCoverage", () => {
     ).toBe(false);
   });
 
+  it("accepts Google-like quarterly via slot-fill when merchant is noisy", () => {
+    const merchant = "google d alligato";
+    const quarterlyDates = [
+      "2025-08-20",
+      "2025-11-20",
+      "2026-02-20",
+      "2026-05-19",
+    ];
+    const txns = quarterlyDates.map((date) =>
+      makeTxn({
+        date,
+        amountCents: -4000,
+        normalizedMerchantName: merchant,
+      }),
+    );
+    const pattern: RecurrenceAnalysis = {
+      isRecurring: true,
+      merchant,
+      cadence: "quarterly",
+      confidence: 0.9,
+      pattern: "day_of_month",
+      predictedNextDate: "2026-08-20",
+      typicalDayOfMonth: 20,
+      amountTrend: "stable",
+      lastAmounts: quarterlyDates.map((date) => ({
+        value: 4000,
+        currency: "NOK",
+        date,
+      })),
+      priceChangeDetected: false,
+      transactionCount: 4,
+      originalCurrency: null,
+      lastOriginalAmount: null,
+      amountSignature: "NOK~4000",
+      transactionIds: txns.map((t) => t.id),
+      delayedTransactionIds: [],
+      missingPeriods: [],
+      isDuplicateSubscription: false,
+    };
+
+    const all = [
+      ...txns,
+      ...Array.from({ length: 16 }, (_, i) => {
+        const date = new Date(Date.UTC(2024, i % 12, 10 + (i % 10)));
+        return makeTxn({
+          date: date.toISOString().slice(0, 10),
+          amountCents: -(1000 + i * 100),
+          normalizedMerchantName: merchant,
+        });
+      }),
+    ];
+
+    expect(
+      validatePatternCoverage({ pattern, allMerchantTransactions: all }),
+    ).toBe(true);
+  });
+
+  it("rejects Foodora-like quarterly slot alignment with random amounts", () => {
+    const merchant = "foodora norway";
+    const aligned = ["2024-06-26", "2024-09-28", "2024-12-26"];
+    const txns = aligned.map((date, i) =>
+      makeTxn({
+        date,
+        amountCents: -(48400 + i * 8000),
+        normalizedMerchantName: merchant,
+      }),
+    );
+    const pattern: RecurrenceAnalysis = {
+      isRecurring: true,
+      merchant,
+      cadence: "quarterly",
+      confidence: 0.7,
+      pattern: "day_of_month",
+      predictedNextDate: "2025-03-26",
+      typicalDayOfMonth: 26,
+      amountTrend: "stable",
+      lastAmounts: txns.map((t) => ({
+        value: Math.abs(t.amountCents),
+        currency: "NOK",
+        date: t.date,
+      })),
+      priceChangeDetected: false,
+      transactionCount: 3,
+      originalCurrency: null,
+      lastOriginalAmount: null,
+      amountSignature: "NOK~48400",
+      transactionIds: txns.map((t) => t.id),
+      delayedTransactionIds: [],
+      missingPeriods: [],
+      isDuplicateSubscription: false,
+    };
+
+    const all = [
+      ...txns,
+      ...Array.from({ length: 47 }, (_, i) =>
+        makeTxn({
+          date: new Date(Date.UTC(2024, i % 12, (i % 27) + 1))
+            .toISOString()
+            .slice(0, 10),
+          amountCents: -(30000 + i * 700),
+          normalizedMerchantName: merchant,
+        }),
+      ),
+    ];
+
+    expect(
+      validatePatternCoverage({ pattern, allMerchantTransactions: all }),
+    ).toBe(false);
+  });
+
   it("skips amount check for volatile patterns", () => {
     const merchant = "power co";
     const dates = ["2025-01-17", "2025-02-18", "2025-03-19", "2025-04-17"];
