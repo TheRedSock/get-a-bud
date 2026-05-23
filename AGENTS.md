@@ -116,6 +116,12 @@ conflicting migrations on subsequent runs.
 Before handing off substantive changes, run `npm run lint`, `npm run typecheck`
 and `npm run test` when practical, and mention any command you could not run.
 
+**When changing component boundaries or prop interfaces between server and client
+components**, also run `npm run build` — Next.js RSC serialization errors (e.g.
+"Functions cannot be passed directly to Client Components") are only caught
+during the build, not by `typecheck` or `lint`. CI runs the build on every push
+but catching it locally avoids broken deployments.
+
 ## Skills — Load Before Working
 
 Load the relevant skill before starting work on a particular area. Skills

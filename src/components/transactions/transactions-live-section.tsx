@@ -18,10 +18,11 @@ import {
   type PipelineRowChangeKind,
 } from "@/lib/ingestion/pipeline/infer-row-change";
 import { parseApiResponse } from "@/lib/api-client";
-import type {
-  AccountOption,
-  CategoryOption,
-  TransactionListFilters,
+import {
+  buildTransactionListHref,
+  type AccountOption,
+  type CategoryOption,
+  type TransactionListFilters,
 } from "@/lib/finance/transactions";
 import { cn } from "@/lib/utils";
 
@@ -36,9 +37,6 @@ type TransactionsLiveSectionProps = {
   filters: TransactionListFilters;
   options: { categories: CategoryOption[]; accounts: AccountOption[] };
   hasNextPage: boolean;
-  hrefFor: (
-    overrides: Partial<TransactionListFilters> & { page?: number },
-  ) => string;
   tableHeader: ReactNode;
 };
 
@@ -49,7 +47,6 @@ export function TransactionsLiveSection({
   filters,
   options,
   hasNextPage,
-  hrefFor,
   tableHeader,
 }: TransactionsLiveSectionProps) {
   const {
@@ -60,6 +57,12 @@ export function TransactionsLiveSection({
     setOffPageNewCount,
     setOverflowMessage,
   } = usePipelineLive();
+
+  const hrefFor = useCallback(
+    (overrides: Parameters<typeof buildTransactionListHref>[1]) =>
+      buildTransactionListHref(filters, overrides),
+    [filters],
+  );
 
   const [rows, setRows] = useState(initialRows);
   const [highlights, setHighlights] = useState<

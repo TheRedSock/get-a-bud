@@ -128,7 +128,6 @@ export default async function TransactionsPage({
             ].join("|")}
             filters={filters}
             hasNextPage={hasNextPage}
-            hrefFor={hrefFor}
             initialRows={enrichedRows}
             options={options}
             tableHeader={
