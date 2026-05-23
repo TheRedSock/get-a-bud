@@ -372,6 +372,8 @@ async function upsertDetectionResults(
 
   type HouseholdBillForUpsert = BillScheduleIdentity & {
     userEndedAt: Date | null;
+    nextDueDate: string | null;
+    isActive: boolean;
   };
 
   const householdBills: HouseholdBillForUpsert[] = await db
@@ -383,6 +385,8 @@ async function upsertDetectionResults(
       typicalDayOfMonth: recurringBills.typicalDayOfMonth,
       isDuplicateSubscription: recurringBills.isDuplicateSubscription,
       userEndedAt: recurringBills.userEndedAt,
+      nextDueDate: recurringBills.nextDueDate,
+      isActive: recurringBills.isActive,
     })
     .from(recurringBills)
     .where(eq(recurringBills.householdId, householdId));
@@ -402,7 +406,6 @@ async function upsertDetectionResults(
     const sharedFields = {
       cadence: result.cadence,
       expectedAmountCents: bookAmountCents,
-      nextDueDate: result.predictedNextDate,
       lastAmountCents: bookAmountCents,
       amountSignature: result.amountSignature,
       detectedCadenceConfidence: result.confidence.toFixed(2),
@@ -433,17 +436,25 @@ async function upsertDetectionResults(
         householdBills,
       );
 
-      const userEnded = existing.userEndedAt != null;
+      // Only advance nextDueDate — never regress it. Detection may see only
+      // old unclaimed transactions while match already set a more recent date.
+      const shouldAdvanceNextDue =
+        result.predictedNextDate != null &&
+        (existing.nextDueDate == null ||
+          result.predictedNextDate > existing.nextDueDate);
+
       await db
         .update(recurringBills)
         .set({
           ...sharedFields,
-          ...(userEnded
-            ? {}
-            : {
-                isPossiblyCancelled: false,
-                isActive: true,
-              }),
+          // Don't regress nextDueDate; keep the existing one if it's more recent
+          nextDueDate: shouldAdvanceNextDue
+            ? result.predictedNextDate
+            : undefined,
+          // Detection should not override isActive or isPossiblyCancelled — those
+          // are managed by the match phase (reactivation on new transactions) and
+          // lifecycle (ending on overdue). Detection may only see old unclaimed
+          // transactions and shouldn't flip active state based on stale data.
         })
         .where(eq(recurringBills.id, existing.id));
 
@@ -459,17 +470,18 @@ async function upsertDetectionResults(
 
       if (preInsertConflict) {
         billId = preInsertConflict.id;
-        const userEnded = preInsertConflict.userEndedAt != null;
+        const shouldAdvanceNextDue =
+          result.predictedNextDate != null &&
+          (preInsertConflict.nextDueDate == null ||
+            result.predictedNextDate > preInsertConflict.nextDueDate);
+
         await db
           .update(recurringBills)
           .set({
             ...sharedFields,
-            ...(userEnded
-              ? {}
-              : {
-                  isPossiblyCancelled: false,
-                  isActive: true,
-                }),
+            nextDueDate: shouldAdvanceNextDue
+              ? result.predictedNextDate
+              : undefined,
           })
           .where(eq(recurringBills.id, preInsertConflict.id));
       } else {
@@ -480,6 +492,7 @@ async function upsertDetectionResults(
             name: result.merchant,
             merchantPattern: result.merchant,
             ...sharedFields,
+            nextDueDate: result.predictedNextDate,
             isActive: true,
             isPossiblyCancelled: false,
           })
@@ -494,6 +507,8 @@ async function upsertDetectionResults(
           typicalDayOfMonth: result.typicalDayOfMonth,
           isDuplicateSubscription: result.isDuplicateSubscription,
           userEndedAt: null,
+          nextDueDate: result.predictedNextDate,
+          isActive: true,
         });
       }
     }
