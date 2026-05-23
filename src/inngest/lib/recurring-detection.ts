@@ -19,6 +19,8 @@ import {
 } from "@/db/schema";
 import { isTransferCandidate } from "@/lib/classification/linking";
 import { detectRecurring } from "@/lib/classification/recurring";
+import type { BillCadence } from "@/lib/classification/recurring";
+import { isBillPastEndThreshold } from "@/lib/finance/bills";
 
 import {
   comparableAmountForBill,
@@ -75,7 +77,6 @@ export async function loadClaimedTransactionIds(householdId: string) {
     .where(
       and(
         eq(recurringBills.householdId, householdId),
-        eq(recurringBills.isActive, true),
         isNotNull(recurringBillHistory.transactionId),
       ),
     );
@@ -116,12 +117,21 @@ export async function matchExistingRecurringBills(input: {
       cadence: recurringBills.cadence,
       nextDueDate: recurringBills.nextDueDate,
       pattern: recurringBills.pattern,
+      isActive: recurringBills.isActive,
+      userEndedAt: recurringBills.userEndedAt,
+      amountTrend: recurringBills.amountTrend,
     })
     .from(recurringBills)
     .where(
       and(
         eq(recurringBills.householdId, input.householdId),
-        eq(recurringBills.isActive, true),
+        or(
+          eq(recurringBills.isActive, true),
+          and(
+            eq(recurringBills.isActive, false),
+            isNull(recurringBills.userEndedAt),
+          ),
+        ),
       ),
     );
 
@@ -161,7 +171,7 @@ export async function matchExistingRecurringBills(input: {
 
       for (const bill of candidateBills) {
         if (!dateMatchesBillCadence(row, bill)) continue;
-        if (bill.expectedAmountCents != null) {
+        if (bill.amountTrend !== "volatile" && bill.expectedAmountCents != null) {
           const amt = comparableAmountForBill(row, bill);
           if (amt == null) continue;
           const expected = bill.expectedAmountCents;
@@ -203,6 +213,7 @@ export async function matchExistingRecurringBills(input: {
       const latest = newMatches.sort((a, b) => b.date.localeCompare(a.date))[0];
       const latestComparableAmount = comparableAmountForBill(latest, bill);
       const nextDueDate = nextDueDateAfterPayment(latest.date, bill);
+      const wasAutoEnded = !bill.isActive && bill.userEndedAt == null;
 
       await db
         .update(recurringBills)
@@ -210,16 +221,20 @@ export async function matchExistingRecurringBills(input: {
           lastDetectedAt: input.runStartTime,
           lastAmountCents: Math.abs(latest.amountCents),
           expectedAmountCents:
-            latestComparableAmount != null
-              ? latestComparableAmount
-              : bill.expectedAmountCents,
+            bill.amountTrend === "volatile"
+              ? bill.expectedAmountCents
+              : latestComparableAmount != null
+                ? latestComparableAmount
+                : bill.expectedAmountCents,
           nextDueDate,
           lastOriginalAmountCents:
             latest.originalAmountCents != null
               ? Math.abs(latest.originalAmountCents)
               : null,
           originalCurrency: latest.originalCurrency,
-          isPossiblyCancelled: false,
+          ...(wasAutoEnded
+            ? { isActive: true, isPossiblyCancelled: false }
+            : { isPossiblyCancelled: false }),
           updatedAt: new Date(),
         })
         .where(eq(recurringBills.id, bill.id));
@@ -255,6 +270,19 @@ type DetectionInput = {
   transactionType: string | null;
 };
 
+function lastPaymentDateFromResult(
+  result: ReturnType<typeof detectRecurring>[number],
+  txnById: Map<string, RecurringCandidateRow>,
+): string | null {
+  let latest: string | null = null;
+  for (const id of result.transactionIds) {
+    const txn = txnById.get(id);
+    if (!txn) continue;
+    if (!latest || txn.date > latest) latest = txn.date;
+  }
+  return latest;
+}
+
 async function upsertDetectionResults(
   householdId: string,
   runStartTime: Date,
@@ -262,74 +290,104 @@ async function upsertDetectionResults(
   txnById: Map<string, RecurringCandidateRow>,
 ): Promise<number> {
   let historyInserted = 0;
+  if (results.length === 0) return 0;
+
+  // Batch-fetch all existing bills matching any result's conflict key
+  const matchKeys = results.map((r) => `${r.merchant}\0${r.amountSignature}`);
+  const existingBills = await db
+    .select({
+      id: recurringBills.id,
+      merchantPattern: recurringBills.merchantPattern,
+      amountSignature: recurringBills.amountSignature,
+      userEndedAt: recurringBills.userEndedAt,
+    })
+    .from(recurringBills)
+    .where(eq(recurringBills.householdId, householdId));
+
+  const existingByKey = new Map(
+    existingBills
+      .filter((b) => matchKeys.includes(`${b.merchantPattern}\0${b.amountSignature}`))
+      .map((b) => [`${b.merchantPattern}\0${b.amountSignature}`, b]),
+  );
 
   for (const result of results) {
     const lastObs = result.lastAmounts[result.lastAmounts.length - 1];
     const amountCents = lastObs ? Math.abs(Math.round(lastObs.value)) : null;
+    const lastPaymentDate = lastPaymentDateFromResult(result, txnById);
+    const autoEnded =
+      lastPaymentDate != null &&
+      isBillPastEndThreshold({
+        lastPaymentDate,
+        cadence: result.cadence as BillCadence,
+        asOf: runStartTime,
+      });
 
-    const [bill] = await db
-      .insert(recurringBills)
-      .values({
-        householdId,
-        name: result.merchant,
-        merchantPattern: result.merchant,
-        amountSignature: result.amountSignature,
-        cadence: result.cadence,
-        expectedAmountCents: amountCents,
-        nextDueDate: result.predictedNextDate,
-        lastAmountCents: amountCents,
-        detectedCadenceConfidence: result.confidence.toFixed(2),
-        pattern: result.pattern,
-        typicalDayOfMonth: result.typicalDayOfMonth,
-        originalCurrency: result.originalCurrency,
-        lastOriginalAmountCents:
-          result.lastOriginalAmount != null
-            ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
-            : null,
-        amountTrend: result.amountTrend,
-        lastDetectedAt: runStartTime,
-        transactionCount: result.transactionCount,
-        isDuplicateSubscription: result.isDuplicateSubscription,
-        isPossiblyCancelled: false,
-      })
-      .onConflictDoUpdate({
-        target: [
-          recurringBills.householdId,
-          recurringBills.merchantPattern,
-          recurringBills.amountSignature,
-        ],
-        set: {
-          cadence: result.cadence,
-          expectedAmountCents: amountCents ?? undefined,
-          nextDueDate: result.predictedNextDate,
-          lastAmountCents: amountCents ?? undefined,
-          detectedCadenceConfidence: result.confidence.toFixed(2),
-          pattern: result.pattern,
-          typicalDayOfMonth: result.typicalDayOfMonth,
-          originalCurrency: result.originalCurrency,
-          lastOriginalAmountCents:
-            result.lastOriginalAmount != null
-              ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
-              : null,
-          amountTrend: result.amountTrend,
-          lastDetectedAt: runStartTime,
-          transactionCount: result.transactionCount,
-          isDuplicateSubscription: result.isDuplicateSubscription,
+    const existing = existingByKey.get(
+      `${result.merchant}\0${result.amountSignature}`,
+    );
+
+    const sharedFields = {
+      cadence: result.cadence,
+      expectedAmountCents: amountCents,
+      nextDueDate: result.predictedNextDate,
+      lastAmountCents: amountCents,
+      detectedCadenceConfidence: result.confidence.toFixed(2),
+      pattern: result.pattern,
+      typicalDayOfMonth: result.typicalDayOfMonth,
+      originalCurrency: result.originalCurrency,
+      lastOriginalAmountCents:
+        result.lastOriginalAmount != null
+          ? Math.round(Math.abs(result.lastOriginalAmount) * 100)
+          : null,
+      amountTrend: result.amountTrend,
+      lastDetectedAt: runStartTime,
+      transactionCount: result.transactionCount,
+      isDuplicateSubscription: result.isDuplicateSubscription,
+      updatedAt: new Date(),
+    };
+
+    let billId: string;
+
+    if (existing) {
+      billId = existing.id;
+      const userEnded = existing.userEndedAt != null;
+      await db
+        .update(recurringBills)
+        .set({
+          ...sharedFields,
+          ...(userEnded
+            ? {}
+            : {
+                isPossiblyCancelled: false,
+                isActive: !autoEnded,
+              }),
+        })
+        .where(eq(recurringBills.id, existing.id));
+    } else {
+      const [inserted] = await db
+        .insert(recurringBills)
+        .values({
+          householdId,
+          name: result.merchant,
+          merchantPattern: result.merchant,
+          amountSignature: result.amountSignature,
+          ...sharedFields,
+          isActive: !autoEnded,
           isPossiblyCancelled: false,
-          isActive: true,
-          updatedAt: new Date(),
-        },
-      })
-      .returning({ id: recurringBills.id });
+        })
+        .returning({ id: recurringBills.id });
+      if (!inserted) continue;
+      billId = inserted.id;
+    }
 
-    if (!bill || result.transactionIds.length === 0) continue;
+    if (result.transactionIds.length === 0) continue;
 
     const historyRows = result.transactionIds
       .map((txnId) => {
         const txn = txnById.get(txnId);
         if (!txn) return null;
         return {
-          billId: bill.id,
+          billId,
           amountCents: Math.abs(txn.amountCents),
           originalAmountCents:
             txn.originalAmountCents != null

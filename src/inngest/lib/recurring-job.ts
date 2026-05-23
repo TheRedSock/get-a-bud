@@ -3,6 +3,7 @@ import {
   adjustForBusinessDays,
   nextCadenceDate,
 } from "@/lib/classification/recurring/calendar";
+import { nextDueDateAfterPayment as computeNextDueDateAfterPayment } from "@/lib/finance/bills/scheduling";
 
 export type RecurringCandidateRow = {
   id: string;
@@ -73,7 +74,11 @@ function advanceExpectedDueDate(
     case "quarterly":
     case "semi_annual":
     case "yearly":
-      return nextCadenceDate(dueDate, anchorDay, cadence);
+      return nextCadenceDate(
+        dueDate,
+        anchorDay,
+        cadence as "monthly" | "quarterly" | "semi_annual" | "yearly",
+      );
     default:
       return dueDate;
   }
@@ -83,9 +88,7 @@ export function nextDueDateAfterPayment(
   paymentDate: string,
   bill: ExistingRecurringBill,
 ): string | null {
-  const anchorDay = bill.typicalDayOfMonth ?? dateDayOfMonth(paymentDate);
-  const next = advanceExpectedDueDate(paymentDate, bill.cadence, anchorDay);
-  return next === paymentDate ? null : adjustForBusinessDays(next);
+  return computeNextDueDateAfterPayment(paymentDate, bill);
 }
 
 export function dateMatchesBillCadence(

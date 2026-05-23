@@ -26,6 +26,7 @@ const { HOUSEHOLD_A, USER_A, dbOps, mockRequireUser, mockGetActiveHousehold } = 
     USER_A,
     dbOps: {
       selectResults: [] as unknown[],
+      selectQueue: [] as unknown[][],
       updateResults: [] as unknown[],
       deleteResults: [] as unknown[],
       insertResults: [] as unknown[],
@@ -68,6 +69,13 @@ vi.mock("@/inngest/client", () => ({
 }));
 
 vi.mock("@/db", () => {
+  const nextSelectResults = () => {
+    if (dbOps.selectQueue.length > 0) {
+      return dbOps.selectQueue.shift() ?? [];
+    }
+    return dbOps.selectResults;
+  };
+
   const createChain = (getResults: () => unknown[]) => {
     const chain: Record<string, unknown> = {};
     const methods = ["from", "where", "set", "values", "returning", "limit", "innerJoin", "leftJoin", "orderBy"];
@@ -81,13 +89,13 @@ vi.mock("@/db", () => {
 
   return {
     db: {
-      select: vi.fn().mockImplementation(() => createChain(() => dbOps.selectResults)),
+      select: vi.fn().mockImplementation(() => createChain(nextSelectResults)),
       update: vi.fn().mockImplementation(() => createChain(() => dbOps.updateResults)),
       delete: vi.fn().mockImplementation(() => createChain(() => dbOps.deleteResults)),
       insert: vi.fn().mockImplementation(() => createChain(() => dbOps.insertResults)),
       transaction: vi.fn().mockImplementation(async (fn: (tx: unknown) => unknown) => {
         const tx = {
-          select: vi.fn().mockImplementation(() => createChain(() => dbOps.selectResults)),
+          select: vi.fn().mockImplementation(() => createChain(nextSelectResults)),
           update: vi.fn().mockImplementation(() => createChain(() => dbOps.updateResults)),
           delete: vi.fn().mockImplementation(() => createChain(() => dbOps.deleteResults)),
           insert: vi.fn().mockImplementation(() => createChain(() => dbOps.insertResults)),
@@ -117,6 +125,8 @@ import {
   updateBillCategory,
   detectRecurringBills,
   getBillTransactions,
+  getUnlinkedTransactionsForBill,
+  linkTransactionToBill,
 } from "./actions";
 import { unauthorizedError } from "@/lib/errors/catalog";
 
@@ -130,6 +140,7 @@ describe("Bill Actions — Household Isolation", () => {
       role: "owner",
     });
     dbOps.selectResults = [];
+    dbOps.selectQueue = [];
     dbOps.updateResults = [];
     dbOps.deleteResults = [];
     dbOps.insertResults = [];
@@ -221,6 +232,141 @@ describe("Bill Actions — Household Isolation", () => {
 
       expect(result.data).toBeDefined();
       expect(result.data!.queued).toBe(true);
+    });
+  });
+
+  describe("linkTransactionToBill — household scoping", () => {
+    it("rejects bill from another household", async () => {
+      dbOps.selectResults = [];
+
+      const result = await linkTransactionToBill({
+        billId: "other-hh-bill",
+        transactionId: "txn-1",
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe("not_found");
+    });
+
+    it("rejects transaction from another household", async () => {
+      dbOps.selectQueue = [
+        [
+          {
+            id: "bill-a",
+            householdId: HOUSEHOLD_A,
+            amountTrend: "stable",
+            transactionCount: 1,
+            nextDueDate: null,
+            typicalDayOfMonth: null,
+            cadence: "monthly",
+            merchantPattern: "acme",
+            expectedAmountCents: null,
+            originalCurrency: null,
+            pattern: null,
+          },
+        ],
+        [],
+      ];
+
+      const result = await linkTransactionToBill({
+        billId: "bill-a",
+        transactionId: "other-hh-txn",
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe("not_found");
+    });
+  });
+
+  describe("linkTransactionToBill — validation", () => {
+    it("rejects positive amount transactions", async () => {
+      dbOps.selectQueue = [
+        [
+          {
+            id: "bill-a",
+            householdId: HOUSEHOLD_A,
+            amountTrend: "stable",
+            transactionCount: 1,
+            nextDueDate: null,
+            typicalDayOfMonth: 15,
+            cadence: "monthly",
+            merchantPattern: "acme",
+            expectedAmountCents: null,
+            originalCurrency: null,
+            pattern: "day_of_month",
+          },
+        ],
+        [
+          {
+            id: "txn-1",
+            amountCents: 5000,
+            excludedFromBudget: false,
+            date: "2025-01-01",
+            originalAmountCents: null,
+            originalCurrency: null,
+          },
+        ],
+      ];
+
+      const result = await linkTransactionToBill({
+        billId: "bill-a",
+        transactionId: "txn-1",
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe("validation_failed");
+    });
+
+    it("rejects already linked transactions", async () => {
+      dbOps.selectQueue = [
+        [
+          {
+            id: "bill-a",
+            householdId: HOUSEHOLD_A,
+            amountTrend: "stable",
+            transactionCount: 1,
+            nextDueDate: null,
+            typicalDayOfMonth: 15,
+            cadence: "monthly",
+            merchantPattern: "acme",
+            expectedAmountCents: null,
+            originalCurrency: null,
+            pattern: "day_of_month",
+          },
+        ],
+        [
+          {
+            id: "txn-1",
+            amountCents: -5000,
+            excludedFromBudget: false,
+            date: "2025-01-01",
+            originalAmountCents: null,
+            originalCurrency: null,
+          },
+        ],
+        [{ billId: "bill-b" }],
+      ];
+
+      const result = await linkTransactionToBill({
+        billId: "bill-a",
+        transactionId: "txn-1",
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe("conflict");
+    });
+  });
+
+  describe("getUnlinkedTransactionsForBill — household scoping", () => {
+    it("rejects bill from another household", async () => {
+      dbOps.selectResults = [];
+
+      const result = await getUnlinkedTransactionsForBill({
+        billId: "other-hh-bill",
+      });
+
+      expect(result.error).toBeDefined();
+      expect(result.error!.code).toBe("not_found");
     });
   });
 });

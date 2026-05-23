@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, not, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { db } from "@/db";
@@ -18,7 +18,12 @@ import {
   validateActionInput,
 } from "@/lib/actions/safe-action";
 import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
-import { notFoundError, validationError } from "@/lib/errors/catalog";
+import { nextDueDateAfterPayment } from "@/lib/finance/bills/scheduling";
+import {
+  conflictError,
+  notFoundError,
+  validationError,
+} from "@/lib/errors/catalog";
 import {
   createBillSchema,
   updateBillSchema,
@@ -45,6 +50,11 @@ const billUpdateEnvelope = z.object({
 const billCategoryEnvelope = z.object({
   billId: z.string().min(1),
   data: z.unknown(),
+});
+
+const linkTransactionToBillEnvelope = z.object({
+  billId: z.string().min(1),
+  transactionId: z.string().min(1),
 });
 
 // ---------------------------------------------------------------------------
@@ -157,6 +167,13 @@ export const updateBill = authenticatedAction(
       });
     }
 
+    const userEndedAtUpdate =
+      billInput.isActive === false
+        ? { userEndedAt: new Date() }
+        : billInput.isActive === true
+          ? { userEndedAt: null }
+          : {};
+
     const [updatedBill] = await db
       .update(recurringBills)
       .set({
@@ -175,6 +192,7 @@ export const updateBill = authenticatedAction(
         ...(billInput.isPossiblyCancelled !== undefined
           ? { isPossiblyCancelled: billInput.isPossiblyCancelled }
           : {}),
+        ...userEndedAtUpdate,
         updatedAt: new Date(),
       })
       .where(
@@ -555,5 +573,283 @@ export const getBillTransactions = authenticatedAction(
       },
       transactions: rows,
     };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getUnlinkedTransactionsForBill
+// ---------------------------------------------------------------------------
+
+export const getUnlinkedTransactionsForBill = authenticatedAction(
+  "bills.unlinked-transactions",
+  async (ctx, input: unknown) => {
+    const envelope = validateActionInput(
+      billIdEnvelope,
+      input,
+      "Please provide a valid bill ID.",
+    );
+    if (envelope.error)
+      throw validationError(envelope.error.message, {
+        fieldErrors: envelope.error.fieldErrors,
+      });
+    const { billId } = envelope.data;
+
+    const [bill] = await db
+      .select({
+        id: recurringBills.id,
+        merchantPattern: recurringBills.merchantPattern,
+      })
+      .from(recurringBills)
+      .where(
+        and(
+          eq(recurringBills.id, billId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!bill) {
+      throw notFoundError("Recurring bill not found.", {
+        billId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    // NOT EXISTS subquery: exclude transactions already in any bill's history
+    const notLinkedCondition = sql`not exists (
+      select 1 from ${recurringBillHistory}
+      inner join ${recurringBills} on ${recurringBills.id} = ${recurringBillHistory.billId}
+      where ${recurringBillHistory.transactionId} = ${transactions.id}
+        and ${recurringBills.householdId} = ${ctx.householdId}
+    )`;
+
+    const baseConditions = and(
+      eq(transactions.householdId, ctx.householdId),
+      lt(transactions.amountCents, 0),
+      eq(transactions.excludedFromBudget, false),
+      notLinkedCondition,
+    );
+
+    // Merchant-match candidates: build key condition based on pattern format
+    const merchantCondition = bill.merchantPattern.startsWith("merchant:")
+      ? eq(transactions.merchantId, bill.merchantPattern.slice("merchant:".length))
+      : eq(transactions.normalizedMerchantName, bill.merchantPattern);
+
+    // Two targeted queries: suggestions (same merchant, limit 30)
+    // then others (different merchant, limit 20)
+    const [suggestions, others] = await Promise.all([
+      db
+        .select({
+          id: transactions.id,
+          date: transactions.date,
+          amountCents: transactions.amountCents,
+          currency: transactions.currency,
+          description: transactions.description,
+          merchantName: transactions.merchantName,
+          normalizedMerchantName: transactions.normalizedMerchantName,
+          merchantId: transactions.merchantId,
+        })
+        .from(transactions)
+        .where(and(baseConditions, merchantCondition))
+        .orderBy(desc(transactions.date))
+        .limit(30),
+      db
+        .select({
+          id: transactions.id,
+          date: transactions.date,
+          amountCents: transactions.amountCents,
+          currency: transactions.currency,
+          description: transactions.description,
+          merchantName: transactions.merchantName,
+          normalizedMerchantName: transactions.normalizedMerchantName,
+          merchantId: transactions.merchantId,
+        })
+        .from(transactions)
+        .where(and(baseConditions, not(merchantCondition)))
+        .orderBy(desc(transactions.date))
+        .limit(20),
+    ]);
+
+    return {
+      suggestions: suggestions.map((row) => ({
+        ...row,
+        matchesMerchantPattern: true as const,
+      })),
+      others: others.map((row) => ({
+        ...row,
+        matchesMerchantPattern: false as const,
+      })),
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// linkTransactionToBill
+// ---------------------------------------------------------------------------
+
+export const linkTransactionToBill = authenticatedAction(
+  "bills.link-transaction",
+  async (ctx, input: unknown) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+
+    const envelope = validateActionInput(
+      linkTransactionToBillEnvelope,
+      input,
+      "Please provide a valid bill and transaction ID.",
+    );
+    if (envelope.error)
+      throw validationError(envelope.error.message, {
+        fieldErrors: envelope.error.fieldErrors,
+      });
+    const { billId, transactionId } = envelope.data;
+
+    const [bill] = await db
+      .select()
+      .from(recurringBills)
+      .where(
+        and(
+          eq(recurringBills.id, billId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!bill) {
+      throw notFoundError("Recurring bill not found.", {
+        billId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    const [transaction] = await db
+      .select({
+        id: transactions.id,
+        amountCents: transactions.amountCents,
+        currency: transactions.currency,
+        date: transactions.date,
+        originalAmountCents: transactions.originalAmountCents,
+        originalCurrency: transactions.originalCurrency,
+        excludedFromBudget: transactions.excludedFromBudget,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!transaction) {
+      throw notFoundError("Transaction not found.", {
+        transactionId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    if (transaction.amountCents >= 0) {
+      throw validationError("Only expense transactions can be linked to a bill.");
+    }
+
+    if (transaction.excludedFromBudget) {
+      throw validationError(
+        "This transaction is excluded from the budget and cannot be linked.",
+      );
+    }
+
+    const [existingLink] = await db
+      .select({ billId: recurringBillHistory.billId })
+      .from(recurringBillHistory)
+      .innerJoin(recurringBills, eq(recurringBills.id, recurringBillHistory.billId))
+      .where(
+        and(
+          eq(recurringBillHistory.transactionId, transactionId),
+          eq(recurringBills.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (existingLink) {
+      throw conflictError("This transaction is already linked to a bill.");
+    }
+
+    const [latestHistory] = await db
+      .select({ date: recurringBillHistory.date })
+      .from(recurringBillHistory)
+      .where(eq(recurringBillHistory.billId, bill.id))
+      .orderBy(desc(recurringBillHistory.date))
+      .limit(1);
+
+    const isLatest =
+      !latestHistory || transaction.date >= latestHistory.date;
+
+    await db.insert(recurringBillHistory).values({
+      billId: bill.id,
+      amountCents: Math.abs(transaction.amountCents),
+      originalAmountCents:
+        transaction.originalAmountCents != null
+          ? Math.abs(transaction.originalAmountCents)
+          : null,
+      originalCurrency: transaction.originalCurrency,
+      date: transaction.date,
+      transactionId: transaction.id,
+    });
+
+    const billForDue = {
+      id: bill.id,
+      merchantPattern: bill.merchantPattern,
+      typicalDayOfMonth: bill.typicalDayOfMonth,
+      expectedAmountCents: bill.expectedAmountCents,
+      originalCurrency: bill.originalCurrency,
+      cadence: bill.cadence,
+      nextDueDate: bill.nextDueDate,
+      pattern: bill.pattern,
+    };
+
+    const nextDueDate = nextDueDateAfterPayment(transaction.date, billForDue);
+    const updateVolatile = bill.amountTrend === "volatile";
+
+    await db
+      .update(recurringBills)
+      .set({
+        lastDetectedAt: new Date(),
+        transactionCount: (bill.transactionCount ?? 0) + 1,
+        nextDueDate: isLatest ? nextDueDate : bill.nextDueDate,
+        isPossiblyCancelled: false,
+        ...(isLatest && !updateVolatile
+          ? {
+              lastAmountCents: Math.abs(transaction.amountCents),
+              expectedAmountCents: Math.abs(transaction.amountCents),
+              lastOriginalAmountCents:
+                transaction.originalAmountCents != null
+                  ? Math.abs(transaction.originalAmountCents)
+                  : null,
+              originalCurrency: transaction.originalCurrency,
+            }
+          : isLatest
+            ? {
+                lastAmountCents: Math.abs(transaction.amountCents),
+                lastOriginalAmountCents:
+                  transaction.originalAmountCents != null
+                    ? Math.abs(transaction.originalAmountCents)
+                    : null,
+                originalCurrency: transaction.originalCurrency,
+              }
+            : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(recurringBills.id, bill.id));
+
+    writeAuditEventAsync({
+      householdId: ctx.householdId,
+      actorUserId: ctx.user.id,
+      action: AuditAction.BILL_UPDATE,
+      resourceType: "recurring_bill",
+      resourceId: billId,
+      outcome: "success",
+      metadata: { operation: "link_transaction", transactionId },
+    });
+
+    return { success: true };
   },
 );

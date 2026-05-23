@@ -14,6 +14,7 @@
  */
 
 import { clusterByAmount, extractPatterns } from "./analysis";
+import { validatePatternCoverage } from "./coverage";
 import type { RecurrenceAnalysis, RecurringTransactionInput } from "./types";
 
 const NON_BILL_TRANSACTION_TYPES = new Set(["internal_transfer", "investment"]);
@@ -58,7 +59,8 @@ export function groupByMerchant(
  * 2. Sub-cluster each merchant group by amount similarity
  * 3. Extract recurring patterns from each cluster via histogram peaks
  *    and weekly interval fallback
- * 4. Return all detected recurring patterns
+ * 4. Merchant-level coverage gate (reject sparse false positives)
+ * 5. Return all validated recurring patterns
  *
  * Important: this function should receive only *unclaimed* transactions
  * (i.e., not already linked to an active recurring bill). The inngest
@@ -72,6 +74,7 @@ export function detectRecurring(
 
   for (const [merchant, txns] of merchantGroups) {
     const clusters = clusterByAmount(txns);
+    const merchantPatterns: RecurrenceAnalysis[] = [];
 
     for (const cluster of clusters) {
       if (cluster.length < 3) continue;
@@ -80,9 +83,16 @@ export function detectRecurring(
         a.date.localeCompare(b.date),
       );
 
-      const patterns = extractPatterns(sorted, merchant);
-      results.push(...patterns);
+      merchantPatterns.push(...extractPatterns(sorted, merchant));
     }
+
+    const validated = merchantPatterns.filter((pattern) =>
+      validatePatternCoverage({
+        pattern,
+        allMerchantTransactions: txns,
+      }),
+    );
+    results.push(...validated);
   }
 
   return results;
@@ -107,3 +117,7 @@ export {
   isNorwegianHoliday,
   norwegianHolidays,
 } from "./calendar";
+export {
+  MIN_COVERAGE_RATIO,
+  validatePatternCoverage,
+} from "./coverage";

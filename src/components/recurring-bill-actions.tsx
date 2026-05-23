@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Eye, Loader2, Pencil, Play, Save, Trash2 } from "lucide-react";
+import { Eye, Link2, Loader2, Pencil, Play, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
@@ -12,6 +12,14 @@ import { DestructiveConfirmDialog } from "@/components/feedback/destructive-conf
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
 import { MoneyField } from "@/components/forms/money-field";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -23,6 +31,8 @@ import {
 import {
   detectRecurringBills,
   getBillTransactions,
+  getUnlinkedTransactionsForBill,
+  linkTransactionToBill,
   rejectBill,
   updateBill,
   updateBillCategory,
@@ -471,7 +481,190 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
 
 type BillMatchesLoadState = "idle" | "loading" | "success" | "error";
 
+type UnlinkedTransactionRow = {
+  id: string;
+  date: string;
+  amountCents: number;
+  currency: string;
+  description: string | null;
+  merchantName: string | null;
+  matchesMerchantPattern: boolean;
+};
+
+function LinkTransactionDialog({
+  billId,
+  onLinked,
+}: {
+  billId: string;
+  onLinked: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [loadState, setLoadState] = useState<BillMatchesLoadState>("idle");
+  const [suggestions, setSuggestions] = useState<UnlinkedTransactionRow[]>([]);
+  const [others, setOthers] = useState<UnlinkedTransactionRow[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [linking, setLinking] = useState(false);
+
+  async function loadCandidates() {
+    setLoadState("loading");
+    try {
+      const body = await unwrapAction(
+        getUnlinkedTransactionsForBill({ billId }),
+        "Could not load transactions to link",
+      );
+      setSuggestions(body.suggestions);
+      setOthers(body.others);
+      setLoadState("success");
+    } catch (error) {
+      setLoadState("error");
+      showErrorToast("Could not load transactions to link", error);
+    }
+  }
+
+  function handleOpenChange(nextOpen: boolean) {
+    if (linking) return;
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      setSelectedId(null);
+      return;
+    }
+    void loadCandidates();
+  }
+
+  async function handleLink() {
+    if (!selectedId) return;
+    setLinking(true);
+    try {
+      await unwrapAction(
+        linkTransactionToBill({ billId, transactionId: selectedId }),
+        "Could not link transaction to bill",
+      );
+      toast.success("Transaction linked to bill");
+      setOpen(false);
+      setSelectedId(null);
+      onLinked();
+    } catch (error) {
+      showErrorToast("Could not link transaction to bill", error);
+    } finally {
+      setLinking(false);
+    }
+  }
+
+  const totalCandidates = suggestions.length + others.length;
+
+  function renderCandidateList(
+    label: string,
+    items: UnlinkedTransactionRow[],
+  ) {
+    if (items.length === 0) return null;
+
+    return (
+      <div className="grid gap-2">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        {items.map((row) => (
+          <button
+            key={row.id}
+            type="button"
+            className={cn(
+              "w-full rounded-xl border bg-background/60 p-3 text-left text-sm transition-colors",
+              selectedId === row.id
+                ? "border-primary ring-1 ring-primary"
+                : "hover:bg-muted/50",
+            )}
+            onClick={() => setSelectedId(row.id)}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-medium">
+                  {row.description ?? row.merchantName ?? "Transaction"}
+                </p>
+                <p className="text-xs text-muted-foreground">{row.date}</p>
+              </div>
+              <p className="font-semibold">
+                {formatCents(row.amountCents, row.currency)}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <Button
+        size="sm"
+        type="button"
+        variant="outline"
+        onClick={() => setOpen(true)}
+      >
+        <Link2 className="size-4" aria-hidden />
+        Link transaction
+      </Button>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Link transaction to bill</DialogTitle>
+          <DialogDescription>
+            Choose an expense to add to this bill&apos;s payment history.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div aria-live="polite" className="grid gap-3">
+          {loadState === "loading" ? (
+            <p className="text-sm text-muted-foreground">Loading transactions...</p>
+          ) : loadState === "error" ? (
+            <div className="grid gap-2">
+              <p className="text-sm text-destructive" role="alert">
+                Could not load transactions. Please try again.
+              </p>
+              <Button
+                size="sm"
+                type="button"
+                variant="outline"
+                onClick={() => void loadCandidates()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : loadState === "success" && totalCandidates === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No unlinked transactions found for this merchant.
+            </p>
+          ) : loadState === "success" ? (
+            <>
+              {renderCandidateList("Suggested for this merchant", suggestions)}
+              {renderCandidateList("Other expenses", others)}
+            </>
+          ) : null}
+        </div>
+
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={linking}
+            onClick={() => handleOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            disabled={!selectedId || linking}
+            onClick={() => void handleLink()}
+          >
+            {linking ? (
+              <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : null}
+            Link selected
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function BillTransactionsViewer({ billId }: { billId: string }) {
+  const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [loadState, setLoadState] = useState<BillMatchesLoadState>("idle");
   const [rows, setRows] = useState<BillTransactionRow[]>([]);
@@ -509,16 +702,25 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
     await loadMatches();
   }
 
+  function handleLinked() {
+    setLoadState("idle");
+    void loadMatches();
+    router.refresh();
+  }
+
   return (
     <div className="mt-3">
-      <Button size="sm" type="button" variant="outline" onClick={() => void toggle()}>
-        {loadState === "loading" ? (
-          <Loader2 className="size-4 animate-spin" aria-hidden />
-        ) : (
-          <Eye className="size-4" aria-hidden />
-        )}
-        {expanded ? "Hide matches" : "Show matches"}
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" type="button" variant="outline" onClick={() => void toggle()}>
+          {loadState === "loading" ? (
+            <Loader2 className="size-4 animate-spin" aria-hidden />
+          ) : (
+            <Eye className="size-4" aria-hidden />
+          )}
+          {expanded ? "Hide matches" : "Show matches"}
+        </Button>
+        <LinkTransactionDialog billId={billId} onLinked={handleLinked} />
+      </div>
 
       {expanded ? (
         <div className="mt-3 grid gap-3 rounded-2xl border bg-card/50 p-4">

@@ -1,9 +1,10 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 
 import { db } from "@/db";
 import { recurringBills } from "@/db/schema";
 import { cadenceToExpectedDays } from "@/lib/classification/recurring";
 import type { BillCadence } from "@/lib/classification/recurring";
+import { daysOverdueVsDueDate } from "@/lib/finance/bills";
 import { inngest } from "@/inngest/client";
 import {
   detectRecurringBillsSchema,
@@ -125,38 +126,40 @@ export const detectRecurringBills = inngest.createFunction(
       cleanupStaleRecurringBills(householdId),
     );
 
-    const activeBillsForCancellation = await step.run(
-      "load-active-for-cancellation",
-      () =>
-        db
-          .select({
-            id: recurringBills.id,
-            nextDueDate: recurringBills.nextDueDate,
-            cadence: recurringBills.cadence,
-          })
-          .from(recurringBills)
-          .where(
-            and(
-              eq(recurringBills.householdId, householdId),
-              eq(recurringBills.isActive, true),
-              eq(recurringBills.isPossiblyCancelled, false),
-              isNotNull(recurringBills.nextDueDate),
-            ),
+    const billsForLifecycle = await step.run("load-bills-for-lifecycle", () =>
+      db
+        .select({
+          id: recurringBills.id,
+          nextDueDate: recurringBills.nextDueDate,
+          cadence: recurringBills.cadence,
+          isActive: recurringBills.isActive,
+        })
+        .from(recurringBills)
+        .where(
+          and(
+            eq(recurringBills.householdId, householdId),
+            eq(recurringBills.isActive, true),
+            isNotNull(recurringBills.nextDueDate),
+            isNull(recurringBills.userEndedAt),
           ),
+        ),
     );
 
     const possiblyCancelledIds: string[] = [];
-    const now = runStartTime.getTime();
+    const endedIds: string[] = [];
 
-    for (const bill of activeBillsForCancellation) {
+    for (const bill of billsForLifecycle) {
       if (!bill.nextDueDate) continue;
 
       const expectedDays = cadenceToExpectedDays(bill.cadence as BillCadence);
-      const thresholdDays = expectedDays * 1.5;
-      const dueMs = new Date(bill.nextDueDate + "T12:00:00Z").getTime();
-      const daysSinceDue = (now - dueMs) / (1000 * 60 * 60 * 24);
+      const daysOverdue = daysOverdueVsDueDate({
+        nextDueDate: bill.nextDueDate,
+        asOf: runStartTime,
+      });
 
-      if (daysSinceDue > thresholdDays) {
+      if (daysOverdue > expectedDays * 2) {
+        endedIds.push(bill.id);
+      } else if (daysOverdue > expectedDays * 1.5 && bill.isActive) {
         possiblyCancelledIds.push(bill.id);
       }
     }
@@ -170,6 +173,19 @@ export const detectRecurringBills = inngest.createFunction(
       );
     }
 
+    if (endedIds.length > 0) {
+      await step.run("mark-ended-bills", () =>
+        db
+          .update(recurringBills)
+          .set({
+            isActive: false,
+            isPossiblyCancelled: false,
+            updatedAt: new Date(),
+          })
+          .where(inArray(recurringBills.id, endedIds)),
+      );
+    }
+
     return {
       detected: phaseB.detected,
       existingMatched: phaseA.existingMatched,
@@ -179,6 +195,7 @@ export const detectRecurringBills = inngest.createFunction(
       staleDeleted: staleBillCleanup.deleted,
       staleMarkedForReview: staleBillCleanup.markedForReview,
       possiblyCancelled: possiblyCancelledIds.length,
+      ended: endedIds.length,
     };
   },
 );

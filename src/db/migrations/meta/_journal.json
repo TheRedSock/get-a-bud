@@ -8,6 +8,13 @@
       "when": 1779008082325,
       "tag": "0000_steep_talisman",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1779100000000,
+      "tag": "0001_recurring_bills_user_ended_at",
+      "breakpoints": true
     }
   ]
 }

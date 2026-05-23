@@ -1001,6 +1001,57 @@ describe("detectRecurring", () => {
     expect(results).toHaveLength(0);
   });
 
+  it("rejects Foodora-like sparse monthly alignment across many purchases", () => {
+    const merchant = "foodora norway";
+    const txns: RecurringTransactionInput[] = [
+      makeTxn({
+        date: "2024-06-26",
+        amountCents: -48400,
+        normalizedMerchantName: merchant,
+      }),
+      makeTxn({
+        date: "2024-07-29",
+        amountCents: -38500,
+        normalizedMerchantName: merchant,
+      }),
+      makeTxn({
+        date: "2024-08-26",
+        amountCents: -40800,
+        normalizedMerchantName: merchant,
+      }),
+    ];
+
+    for (let i = 0; i < 29; i++) {
+      const month = Math.floor(i / 10);
+      const day = (i % 28) + 1;
+      txns.push(
+        makeTxn({
+          date: new Date(Date.UTC(2024, month, day)).toISOString().slice(0, 10),
+          amountCents: -(40000 + i * 500),
+          normalizedMerchantName: merchant,
+        }),
+      );
+    }
+
+    const results = detectRecurring(txns);
+    expect(results.some((r) => r.merchant === merchant)).toBe(false);
+  });
+
+  it("detects subscription at merchant with occasional one-off purchases", () => {
+    const merchant = "streaming svc";
+    const txns = [
+      ...monthlySequence(merchant, 6, "2025-01-15"),
+      makeTxn({
+        date: "2025-03-20",
+        amountCents: -75000,
+        normalizedMerchantName: merchant,
+      }),
+    ];
+
+    const results = detectRecurring(txns);
+    expect(results.some((r) => r.merchant === merchant)).toBe(true);
+  });
+
   it("detects duplicate subscriptions through full pipeline", () => {
     // Two Netflix subs: one on 5th, other on 20th
     const txns: RecurringTransactionInput[] = [];

@@ -72,6 +72,7 @@ export const recurringBills = pgTable(
     amountTrend: text("amount_trend").default("stable"),
     lastDetectedAt: timestamp("last_detected_at", { mode: "date" }),
     transactionCount: integer("transaction_count").default(0),
+    userEndedAt: timestamp("user_ended_at", { mode: "date" }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
   },
