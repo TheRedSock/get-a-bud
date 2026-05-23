@@ -88,10 +88,12 @@ export function RunRecurringDetectionButton() {
 
     try {
       await unwrapAction(
-        detectRecurringBills(undefined as void),
+        detectRecurringBills({ replayUnapproved: true }),
         "Could not queue recurring detection",
       );
-      toast.success("Recurring detection queued");
+      toast.success(
+        "Recurring detection queued — pending bills will be rescanned.",
+      );
       router.refresh();
     } catch (error) {
       showErrorToast("Could not queue recurring detection", error);

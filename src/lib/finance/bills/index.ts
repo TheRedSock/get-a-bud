@@ -13,3 +13,7 @@ export {
   nextDueDateAfterPayment,
   type BillSchedulingShape,
 } from "./scheduling";
+export {
+  clearUnapprovedBillsForReplay,
+  shouldClearUnapprovedForReplayStart,
+} from "./replay";

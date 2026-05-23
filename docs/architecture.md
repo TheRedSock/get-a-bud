@@ -95,6 +95,14 @@ The pipeline currently includes:
 - recurring bill detection that tracks cadence, amount patterns, original
   currency, delayed payments and possible cancellations.
 
+Automated recurring detection (after transfer linking on sync) is incremental:
+it matches new expenses to existing bills and only clusters unclaimed
+transactions. Manual **Run recurring detection** on the bills page clears
+unapproved bills (`categoryId` unset, not user-ended) and their history first,
+then redetects so algorithm updates apply to pending suggestions without
+touching approved bills. Rejecting a bill still permanently excludes its
+transactions via `metadata.recurringDetection.ignored`.
+
 The transaction list is the main review surface. It shows confidence state,
 suggestions, approve/reject actions, auto-label undo, transfer badges and bank
 facts alongside editable user enrichment. Search mirrors the classification

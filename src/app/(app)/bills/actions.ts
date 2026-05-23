@@ -474,20 +474,35 @@ export const updateBillCategory = authenticatedAction(
   },
 );
 
+const detectRecurringBillsInputSchema = z.object({
+  replayUnapproved: z.boolean().optional().default(false),
+});
+
 // ---------------------------------------------------------------------------
 // detectRecurringBills
 // ---------------------------------------------------------------------------
 
 export const detectRecurringBills = authenticatedAction(
   "bills.detect-recurring",
-  async (ctx, _input: void) => {
+  async (ctx, input: unknown) => {
     await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+
+    const validated = validateActionInput(
+      detectRecurringBillsInputSchema,
+      input ?? {},
+      "Please provide valid recurring detection options.",
+    );
+    if (validated.error)
+      throw validationError(validated.error.message, {
+        fieldErrors: validated.error.fieldErrors,
+      });
 
     await sendInngestEvent(EVENT_NAMES.detectRecurringBills, {
       householdId: ctx.householdId,
+      replayUnapproved: validated.data.replayUnapproved,
     });
 
-    return { queued: true };
+    return { queued: true, replayUnapproved: validated.data.replayUnapproved };
   },
 );
 

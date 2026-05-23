@@ -29,6 +29,7 @@ export const detectRecurringBillsSchema = z.object({
   householdId: idSchema,
   matchExpenseOffset: z.number().int().nonnegative().optional(),
   expenseOffset: z.number().int().nonnegative().optional(),
+  replayUnapproved: z.boolean().optional(),
 });
 
 export const retrainModelSchema = z.object({

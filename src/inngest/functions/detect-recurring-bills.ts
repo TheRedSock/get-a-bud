@@ -4,7 +4,11 @@ import { db } from "@/db";
 import { recurringBills } from "@/db/schema";
 import { cadenceToExpectedDays } from "@/lib/classification/recurring";
 import type { BillCadence } from "@/lib/classification/recurring";
-import { daysOverdueVsDueDate } from "@/lib/finance/bills";
+import {
+  clearUnapprovedBillsForReplay,
+  daysOverdueVsDueDate,
+  shouldClearUnapprovedForReplayStart,
+} from "@/lib/finance/bills";
 import { inngest } from "@/inngest/client";
 import {
   detectRecurringBillsSchema,
@@ -32,6 +36,7 @@ export const detectRecurringBills = inngest.createFunction(
       householdId,
       matchExpenseOffset,
       expenseOffset = 0,
+      replayUnapproved,
     } = parseJobEvent(detectRecurringBillsSchema, event.data, {
       eventName: EVENT_NAMES.detectRecurringBills,
     });
@@ -42,6 +47,20 @@ export const detectRecurringBills = inngest.createFunction(
     const cutoffStr = cutoffDate.toISOString().slice(0, 10);
 
     const isPhaseBContinuation = expenseOffset > 0;
+    const isReplayStart = shouldClearUnapprovedForReplayStart({
+      replayUnapproved,
+      matchExpenseOffset,
+      expenseOffset,
+    });
+
+    let removedUnapproved = 0;
+
+    if (isReplayStart) {
+      const replayResult = await step.run("clear-unapproved-for-replay", () =>
+        clearUnapprovedBillsForReplay(householdId),
+      );
+      removedUnapproved = replayResult.removed;
+    }
 
     let phaseA: {
       existingMatched: number;
@@ -75,6 +94,7 @@ export const detectRecurringBills = inngest.createFunction(
           continued: true,
           phase: "match" as const,
           nextMatchOffset: matchResult.nextMatchOffset,
+          removedUnapproved,
         };
       }
 
@@ -119,6 +139,7 @@ export const detectRecurringBills = inngest.createFunction(
         continued: true,
         phase: "detect" as const,
         nextOffset: phaseB.nextOffset,
+        removedUnapproved,
       };
     }
 
@@ -196,6 +217,7 @@ export const detectRecurringBills = inngest.createFunction(
       staleMarkedForReview: staleBillCleanup.markedForReview,
       possiblyCancelled: possiblyCancelledIds.length,
       ended: endedIds.length,
+      removedUnapproved,
     };
   },
 );

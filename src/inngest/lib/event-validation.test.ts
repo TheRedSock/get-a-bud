@@ -85,4 +85,17 @@ describe("parseJobEvent", () => {
       matchExpenseOffset: 500,
     });
   });
+
+  it("accepts recurring detect events with replayUnapproved", () => {
+    const data = parseJobEvent(
+      detectRecurringBillsSchema,
+      { householdId: "hh-1", replayUnapproved: true },
+      { eventName: "transactions.recurring.detect" },
+    );
+
+    expect(data).toEqual({
+      householdId: "hh-1",
+      replayUnapproved: true,
+    });
+  });
 });

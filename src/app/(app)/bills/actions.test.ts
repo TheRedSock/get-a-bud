@@ -64,8 +64,14 @@ vi.mock("@/lib/audit", () => ({
   writeAuditEventAsync: vi.fn(),
 }));
 
+const mockSendInngestEvent = vi.fn().mockResolvedValue(undefined);
+
 vi.mock("@/inngest/client", () => ({
   inngest: { send: vi.fn().mockResolvedValue(undefined) },
+}));
+
+vi.mock("@/inngest/lib/send-event", () => ({
+  sendInngestEvent: (...args: unknown[]) => mockSendInngestEvent(...args),
 }));
 
 vi.mock("@/db", () => {
@@ -128,6 +134,7 @@ import {
   getUnlinkedTransactionsForBill,
   linkTransactionToBill,
 } from "./actions";
+import { EVENT_NAMES } from "@/inngest/lib/events";
 import { unauthorizedError } from "@/lib/errors/catalog";
 
 describe("Bill Actions — Household Isolation", () => {
@@ -228,10 +235,26 @@ describe("Bill Actions — Household Isolation", () => {
 
   describe("detectRecurringBills — authentication", () => {
     it("returns data when authenticated", async () => {
-      const result = await detectRecurringBills(undefined as void);
+      const result = await detectRecurringBills({});
 
       expect(result.data).toBeDefined();
       expect(result.data!.queued).toBe(true);
+      expect(result.data!.replayUnapproved).toBe(false);
+    });
+
+    it("queues replay when replayUnapproved is true", async () => {
+      mockSendInngestEvent.mockClear();
+
+      const result = await detectRecurringBills({ replayUnapproved: true });
+
+      expect(result.data?.replayUnapproved).toBe(true);
+      expect(mockSendInngestEvent).toHaveBeenCalledWith(
+        EVENT_NAMES.detectRecurringBills,
+        expect.objectContaining({
+          householdId: HOUSEHOLD_A,
+          replayUnapproved: true,
+        }),
+      );
     });
   });
 
