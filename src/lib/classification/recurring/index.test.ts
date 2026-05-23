@@ -707,6 +707,20 @@ describe("determineCadenceFromMonthGaps", () => {
     const result = determineCadenceFromMonthGaps(txns);
     expect(result).toBeNull();
   });
+
+  it("rejects semi-annual with only 2/3 matching gaps (higher threshold for sparse cadences)", () => {
+    // Peppes-style: 4 transactions with month gaps [3, 6, 5].
+    // Only 2/3 gaps match semi-annual (±1 tolerance) → 67% < 75% threshold.
+    const txns = [
+      makeTxn({ date: "2024-12-18", normalizedMerchantName: "restaurant" }),
+      makeTxn({ date: "2025-03-19", normalizedMerchantName: "restaurant" }),
+      makeTxn({ date: "2025-09-15", normalizedMerchantName: "restaurant" }),
+      makeTxn({ date: "2026-02-18", normalizedMerchantName: "restaurant" }),
+    ];
+    const result = determineCadenceFromMonthGaps(txns);
+    // Should not classify as semi-annual (or anything) due to weak regularity
+    expect(result?.cadence).not.toBe("semi_annual");
+  });
 });
 
 describe("extractPatterns", () => {

@@ -616,7 +616,10 @@ export function determineCadenceFromMonthGaps(
       (g) => Math.abs(g - expectedGap) <= tolerance,
     );
     const regularity = matching.length / gaps.length;
-    if (regularity > bestRegularity && regularity >= 0.6) {
+    // Sparse cadences (semi-annual, yearly) have fewer gaps to verify so
+    // random alignment probability is higher — require stronger evidence.
+    const minRegularity = expectedGap >= 6 ? 0.75 : 0.6;
+    if (regularity > bestRegularity && regularity >= minRegularity) {
       bestRegularity = regularity;
       bestCadence = cadence;
     }
