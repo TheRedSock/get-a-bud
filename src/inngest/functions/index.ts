@@ -5,6 +5,7 @@ import { linkTransferPairs } from "@/inngest/functions/link-transfer-pairs";
 import { notificationBatch } from "@/inngest/functions/notification-batch";
 import { retrainClassificationModel } from "@/inngest/functions/retrain-classification-model";
 import { scheduledBankSync } from "@/inngest/functions/scheduled-bank-sync";
+import { pipelineMaintenance } from "@/inngest/functions/pipeline-maintenance";
 import { syncBankConnection } from "@/inngest/functions/sync-bank-connection";
 
 export const functions = [
@@ -16,4 +17,5 @@ export const functions = [
   retrainClassificationModel,
   backfillParsedFields,
   notificationBatch,
+  pipelineMaintenance,
 ];

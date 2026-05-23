@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 
 import { AppHeader } from "@/components/app-header";
 import { AppNav } from "@/components/app-nav";
+import { PipelineShell } from "@/components/pipeline/pipeline-shell";
 import { authOptions } from "@/lib/auth/options";
 
 export default async function AppLayout({
@@ -21,7 +22,7 @@ export default async function AppLayout({
       <AppNav />
       <main className="px-4 pb-28 sm:px-6 lg:ml-80 lg:px-8 lg:pb-10">
         <AppHeader title="Your money cockpit" />
-        {children}
+        <PipelineShell>{children}</PipelineShell>
       </main>
     </div>
   );

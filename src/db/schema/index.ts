@@ -55,6 +55,17 @@ export {
 // Classification
 export { classificationModels } from "./classification";
 
+// Pipeline
+export {
+  pipelineKindEnum,
+  pipelinePhaseEnum,
+  pipelineActivityKindEnum,
+  householdPipelineRuns,
+  pipelineActivityEvents,
+  type PipelineCounters,
+  type PipelinePhaseProgress,
+} from "./pipeline";
+
 // Audit
 export { auditEvents } from "./audit";
 

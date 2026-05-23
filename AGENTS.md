@@ -92,6 +92,27 @@ Dependency flow: `app/ -> components/ -> lib/`. Never import backwards.
 
 Operational runbooks: `docs/runbooks/`.
 
+## Database Migrations
+
+**Never hand-write migration SQL files, journal entries, or snapshot files.**
+Always use drizzle-kit to generate migrations from schema changes:
+
+1. Make schema changes in `src/db/schema/*.ts`.
+2. Run `npm run db:generate` — this produces the SQL migration, updates
+   `meta/_journal.json`, and creates the corresponding `meta/NNNN_snapshot.json`.
+3. Review the generated SQL for correctness.
+4. Commit the migration, journal, and snapshot together.
+
+Manually creating or editing files under `src/db/migrations/` (including the
+`meta/` folder) breaks drizzle-kit's state tracking and causes duplicate or
+conflicting migrations on subsequent runs.
+
+**Running migrations against databases:**
+
+- Local: `npm run db:migrate` (reads `.env.local`)
+- Preview: `node scripts/db-migrate.mjs .env.preview`
+- Production: `npm run db:prod:migrate` (reads `.env.prod`)
+
 Before handing off substantive changes, run `npm run lint`, `npm run typecheck`
 and `npm run test` when practical, and mention any command you could not run.
 

@@ -116,6 +116,22 @@ continuation event. Parser backfill marks each attempted row with
 `parser_source` (`norwegian` or `none`) so retries and continuations are
 idempotent.
 
+## Pipeline progress UI
+
+Post-sync work (sync → classify → link → recurring) is tracked in
+`household_pipeline_runs` with phase counters and `lastHeartbeatAt` for stall
+detection. The app shell polls `GET /api/pipeline/active` (2s while runs are
+active, 30s idle discovery) and renders a banner stepper with global counters.
+Connection-level bank import detail remains on `sync_runs` via the existing
+Enable Banking sync API.
+
+Live table updates on the transactions page poll
+`GET /api/pipeline/{runId}/changes` with a composite `(updatedAt, id)` cursor,
+returning enriched rows for client-side merge and highlight inference. Users can
+pause live view to freeze the table while editing. Activity events
+(`pipeline_activity_events`) power an optional feed with batched sampling and
+daily retention via the `pipeline-maintenance` Inngest cron.
+
 ## Inngest Environments
 
 Inngest app sync is environment-specific. Production events must target the

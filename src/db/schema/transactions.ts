@@ -94,10 +94,18 @@ export const transactions = pgTable(
     transferGroupId: text("transfer_group_id"),
     metadata: jsonb("metadata").$type<Record<string, unknown>>(),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { mode: "date" })
+      .notNull()
+      .defaultNow()
+      .$onUpdateFn(() => new Date()),
   },
   (table) => [
     index("transactions_household_date_idx").on(table.householdId, table.date),
+    index("transactions_household_updated_id_idx").on(
+      table.householdId,
+      table.updatedAt,
+      table.id,
+    ),
     index("transactions_account_idx").on(table.accountId),
     index("transactions_merchant_idx").on(table.merchantId),
     index("transactions_category_idx").on(table.categoryId),

@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import type { z } from "zod";
 
 import { DestructiveConfirmDialog } from "@/components/feedback/destructive-confirm-dialog";
+import { usePipelineLiveOptional } from "@/components/pipeline/pipeline-live-context";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
 import { MoneyField } from "@/components/forms/money-field";
 import { Button } from "@/components/ui/button";
@@ -81,20 +82,25 @@ type BillTransactionRow = {
 
 export function RunRecurringDetectionButton() {
   const router = useRouter();
+  const pipeline = usePipelineLiveOptional();
   const [loading, setLoading] = useState(false);
 
   async function runDetection() {
     setLoading(true);
 
     try {
-      await unwrapAction(
+      const result = await unwrapAction(
         detectRecurringBills({ replayUnapproved: true }),
         "Could not queue recurring detection",
       );
+      if (result.pipelineRunId) {
+        pipeline?.trackPipelineRunId(result.pipelineRunId);
+      } else {
+        void pipeline?.refreshRuns();
+      }
       toast.success(
         "Recurring detection queued — pending bills will be rescanned.",
       );
-      router.refresh();
     } catch (error) {
       showErrorToast("Could not queue recurring detection", error);
     } finally {

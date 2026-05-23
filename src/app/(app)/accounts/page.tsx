@@ -1,5 +1,6 @@
 import { Plus, RefreshCcw } from "lucide-react";
 
+import { AccountsLiveHint } from "@/components/accounts/accounts-live-hint";
 import { AccountEditor } from "@/components/account-editor";
 import { BankSyncPanel } from "@/components/bank-sync-panel";
 import { CreateAccountForm } from "@/components/forms/create-account-form";
@@ -49,6 +50,7 @@ export default async function AccountsPage() {
           </Button>
         </CardHeader>
         <CardContent className="grid gap-3">
+          <AccountsLiveHint />
           {accounts.length ? (
             accounts.map((account) => (
               <AccountEditor

@@ -15,6 +15,13 @@ import {
   parseJobEvent,
 } from "@/inngest/lib/event-validation";
 import { detectRecurringBillsEvent, EVENT_NAMES } from "@/inngest/lib/events";
+import {
+  completeHouseholdPipelineChains,
+  pipelineHeartbeat,
+  recordRecurringProgress,
+  resolvePipelineForPostSyncJob,
+  resolveRecurringReplayPipeline,
+} from "@/inngest/lib/pipeline-progress";
 import { sendValidatedStepEvent } from "@/inngest/lib/send-event";
 import {
   cleanupStaleRecurringBills,
@@ -40,6 +47,22 @@ export const detectRecurringBills = inngest.createFunction(
     } = parseJobEvent(detectRecurringBillsSchema, event.data, {
       eventName: EVENT_NAMES.detectRecurringBills,
     });
+
+    const pipelineRun = await step.run("resolve-pipeline-run", async () => {
+      if (replayUnapproved) {
+        return resolveRecurringReplayPipeline(householdId);
+      }
+      return resolvePipelineForPostSyncJob({ householdId });
+    });
+
+    // Heartbeat only — phase advance is done by link-transfer-pairs before
+    // emitting the recurring event. For recurring_replay (standalone), the
+    // run is created with initialPhase="recurring" so no advance needed.
+    if (pipelineRun && !matchExpenseOffset && expenseOffset === 0) {
+      await step.run("pipeline-heartbeat-recurring", () =>
+        pipelineHeartbeat(pipelineRun.id, { currentPhase: "recurring" }),
+      );
+    }
 
     const runStartTime = new Date();
     const cutoffDate = new Date();
@@ -77,6 +100,14 @@ export const detectRecurringBills = inngest.createFunction(
           maxPages: MAX_MATCH_EXPENSE_PAGES_PER_RUN,
         }),
       );
+
+      if (pipelineRun) {
+        await step.run("pipeline-recurring-match-progress", () =>
+          recordRecurringProgress(pipelineRun.id, {
+            billsUpdated: matchResult.existingMatched,
+          }),
+        );
+      }
 
       if (matchResult.needsContinuation && matchResult.nextMatchOffset != null) {
         await sendValidatedStepEvent(
@@ -121,6 +152,15 @@ export const detectRecurringBills = inngest.createFunction(
         maxPages: MAX_DETECT_EXPENSE_PAGES_PER_RUN,
       }),
     );
+
+    if (pipelineRun) {
+      await step.run("pipeline-recurring-detect-progress", () =>
+        recordRecurringProgress(pipelineRun.id, {
+          billsCreated: phaseB.detected,
+          billsUpdated: phaseA.existingMatched,
+        }),
+      );
+    }
 
     if (phaseB.needsContinuation && phaseB.nextOffset != null) {
       await sendValidatedStepEvent(
@@ -206,6 +246,20 @@ export const detectRecurringBills = inngest.createFunction(
           .where(inArray(recurringBills.id, endedIds)),
       );
     }
+
+    if (pipelineRun) {
+      await step.run("pipeline-recurring-flag-progress", () =>
+        recordRecurringProgress(pipelineRun.id, {
+          billsFlagged: possiblyCancelledIds.length + endedIds.length,
+        }),
+      );
+    }
+
+    await step.run("complete-pipeline-runs", () =>
+      completeHouseholdPipelineChains(householdId, {
+        kinds: replayUnapproved ? ["recurring_replay"] : ["full_post_sync"],
+      }),
+    );
 
     return {
       detected: phaseB.detected,

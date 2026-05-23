@@ -13,11 +13,12 @@ import {
 } from "lucide-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
 import { AutoLabelUndoButton } from "@/components/auto-label-undo-button";
+import { useRegisterFrozenRow } from "@/components/pipeline/use-register-frozen-row";
 import { ClassificationIndicator } from "@/components/classification-indicator";
 import { SuggestionActions } from "@/components/suggestion-actions";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
@@ -112,12 +113,22 @@ type TransactionEditorProps = {
 export function TransactionEditor({
   categories,
   transaction,
-}: TransactionEditorProps) {
+  rowClassName,
+}: TransactionEditorProps & { rowClassName?: string }) {
   const router = useRouter();
+  const frozenRow = useRegisterFrozenRow();
   const { canEditAmount, canEditDate, classificationState, undoAutoLabelAvailable } =
     transaction;
   const [editing, setEditing] = useState(false);
   const [savingCategory, setSavingCategory] = useState(false);
+
+  useEffect(() => {
+    if (editing) {
+      frozenRow.register?.(transaction.id);
+      return () => frozenRow.unregister?.(transaction.id);
+    }
+    return undefined;
+  }, [editing, transaction.id, frozenRow]);
 
   const {
     register,
@@ -510,6 +521,7 @@ export function TransactionEditor({
     <tr
       className={cn(
         "border-b transition-colors hover:bg-secondary/30",
+        rowClassName,
         transaction.status === "pending" &&
           "border-l-[3px] border-l-warning bg-warning/[0.06]",
         transaction.status === "excluded" &&

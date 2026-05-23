@@ -15,6 +15,13 @@
       "when": 1779100000000,
       "tag": "0001_recurring_bills_user_ended_at",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779551011060,
+      "tag": "0002_green_speed",
+      "breakpoints": true
     }
   ]
 }

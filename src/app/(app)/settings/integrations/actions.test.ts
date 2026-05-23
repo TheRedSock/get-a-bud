@@ -87,6 +87,15 @@ vi.mock("@/lib/ingestion/sync-runs", () => ({
   }),
 }));
 
+vi.mock("@/lib/ingestion/pipeline/runs", () => ({
+  resolvePipelineRunForSlot: vi.fn().mockResolvedValue({
+    id: "pipeline-run-1",
+    householdId: "household-a-id",
+    kind: "full_post_sync",
+    status: "queued",
+  }),
+}));
+
 vi.mock("@/lib/ingestion/enable-banking/state", () => ({
   createAuthorizationState: vi.fn().mockReturnValue({
     state: "state-abc",
@@ -139,6 +148,15 @@ vi.mock("@/db", () => {
 vi.mock("@/db/schema", () => ({
   ingestionConnections: { id: "id", householdId: "householdId", consentSessionId: "consentSessionId" },
   syncRuns: { id: "id", connectionId: "connectionId" },
+  householdPipelineRuns: {
+    id: "id",
+    householdId: "householdId",
+    kind: "kind",
+    status: "status",
+    connectionId: "connectionId",
+    syncRunId: "syncRunId",
+    startedAt: "startedAt",
+  },
 }));
 
 import { createEnableBankingConnection, startEnableBankingAuth, queueEnableBankingSync } from "./actions";

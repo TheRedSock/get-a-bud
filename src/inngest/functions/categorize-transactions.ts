@@ -11,6 +11,11 @@ import {
   parseJobEvent,
 } from "@/inngest/lib/event-validation";
 import { categorizeTransactionsEvent, EVENT_NAMES } from "@/inngest/lib/events";
+import {
+  pipelineAdvancePhase,
+  recordCategorizePageProgress,
+  resolvePipelineForPostSyncJob,
+} from "@/inngest/lib/pipeline-progress";
 import { sendValidatedStepEvent } from "@/inngest/lib/send-event";
 
 export const categorizeTransactions = inngest.createFunction(
@@ -51,6 +56,16 @@ export const categorizeTransactions = inngest.createFunction(
       }
     }
 
+    const pipelineRun = await step.run("resolve-pipeline-run", () =>
+      resolvePipelineForPostSyncJob({ householdId: householdId!, connectionId }),
+    );
+
+    if (pipelineRun && !afterId) {
+      await step.run("pipeline-phase-categorize", () =>
+        pipelineAdvancePhase(pipelineRun.id, "categorize"),
+      );
+    }
+
     const pageResult = await step.run(
       `categorize-page-${afterId ?? "start"}`,
       () =>
@@ -60,6 +75,15 @@ export const categorizeTransactions = inngest.createFunction(
         }),
     );
 
+    if (pipelineRun) {
+      await step.run("pipeline-categorize-progress", () =>
+        recordCategorizePageProgress(pipelineRun.id, householdId!, {
+          updated: pageResult.updated,
+          scanned: pageResult.scanned,
+        }),
+      );
+    }
+
     if (pageResult.hasMore && pageResult.lastScannedId) {
       await sendValidatedStepEvent(step, "continue-categorize", EVENT_NAMES.categorizeTransactions, {
         householdId,
@@ -67,6 +91,12 @@ export const categorizeTransactions = inngest.createFunction(
         ...(connectionId ? { connectionId } : {}),
       });
       return pageResult;
+    }
+
+    if (pipelineRun) {
+      await step.run("pipeline-phase-link", () =>
+        pipelineAdvancePhase(pipelineRun.id, "link"),
+      );
     }
 
     await sendValidatedStepEvent(step, "link-transfer-pairs", EVENT_NAMES.linkTransferPairs, {

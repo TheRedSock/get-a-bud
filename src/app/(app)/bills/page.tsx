@@ -1,6 +1,7 @@
 import { BellRing, TrendingUp } from "lucide-react";
 import Link from "next/link";
 
+import { BillsLiveHint } from "@/components/bills/bills-live-hint";
 import {
   BillTransactionsViewer,
   RejectRecurringBillButton,
@@ -81,6 +82,7 @@ export default async function BillsPage({ searchParams }: BillsPageProps = {}) {
           <RunRecurringDetectionButton />
         </CardHeader>
         <CardContent className="grid gap-4">
+          <BillsLiveHint />
           <div className="flex flex-wrap gap-2">
             {statusFilters.map((status) => (
               <Button

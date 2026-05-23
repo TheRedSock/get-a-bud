@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { parseApiResponse } from "@/lib/api-client";
 import { showErrorToast } from "@/lib/toast-errors";
 import { queueEnableBankingSync } from "@/app/(app)/settings/integrations/actions";
+import { usePipelineLiveOptional } from "@/components/pipeline/pipeline-live-context";
 import { unwrapAction } from "@/lib/actions/client";
 
 export type SyncRun = {
@@ -87,6 +88,7 @@ function progressMessage(run: SyncRun) {
 
 export function useBankSyncRuns() {
   const router = useRouter();
+  const pipeline = usePipelineLiveOptional();
   const notifiedRunIds = useRef(new Set<string>());
   const [runsByConnectionId, setRunsByConnectionId] = useState<
     Record<string, SyncRun>
@@ -145,10 +147,17 @@ export function useBankSyncRuns() {
 
   const queueSync = useCallback(async (connectionId: string) => {
     try {
-      const { run } = await unwrapAction(
+      const result = await unwrapAction(
         queueEnableBankingSync({ connectionId }),
         "Could not queue bank sync",
       );
+      const { run } = result;
+
+      if (result.pipelineRunId) {
+        pipeline?.trackPipelineRunId(result.pipelineRunId);
+      } else {
+        void pipeline?.refreshRuns();
+      }
 
       setRunsByConnectionId((current) => ({
         ...current,
@@ -175,7 +184,7 @@ export function useBankSyncRuns() {
 
       return null;
     }
-  }, []);
+  }, [pipeline]);
 
   const loadLatestRuns = useCallback(
     async (connections: ConnectionRef[]) => {
@@ -251,10 +260,10 @@ export function useBankSyncRuns() {
       notifiedRunIds.current.add(run.id);
 
       if (run.status === "succeeded") {
-        toast.success("Bank sync complete", {
-          description: terminalMessage(run),
+        toast.info("Bank import finished", {
+          description:
+            "Classification and bill detection continue in the background.",
         });
-        router.refresh();
       } else if (run.status === "rate_limited") {
         toast.warning("Bank sync rate limited", {
           description: terminalMessage(run),

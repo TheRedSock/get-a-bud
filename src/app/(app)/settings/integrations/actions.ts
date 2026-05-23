@@ -26,6 +26,7 @@ import {
   queueEnqueueRateLimit,
 } from "@/lib/security/arcjet";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
+import { resolvePipelineRunForSlot } from "@/lib/ingestion/pipeline/runs";
 import { resolveSyncRunForEnqueue } from "@/lib/ingestion/sync-runs";
 import { capturePsuHeaders } from "@/lib/ingestion/enable-banking/psu-headers";
 import {
@@ -347,6 +348,13 @@ export const queueEnableBankingSync = authenticatedAction(
 
     const run = await resolveSyncRunForEnqueue({ connectionId });
 
+    const pipelineRun = await resolvePipelineRunForSlot({
+      householdId: ctx.householdId,
+      kind: "full_post_sync",
+      connectionId,
+      syncRunId: run.id,
+    });
+
     try {
       await sendInngestEvent(EVENT_NAMES.bankConnectionSync, {
         connectionId,
@@ -374,6 +382,9 @@ export const queueEnableBankingSync = authenticatedAction(
       });
     }
 
-    return { run: { id: run.id, status: "queued" as const } };
+    return {
+      run: { id: run.id, status: "queued" as const },
+      pipelineRunId: pipelineRun.id,
+    };
   },
 );

@@ -117,11 +117,17 @@ across all of them. Apply more care here than in most code decisions.
 
 ## Migration Discipline
 
+- **Never hand-write migration SQL, journal entries, or snapshot files.**
+  Always run `npm run db:generate` to let drizzle-kit produce migrations from
+  schema diffs. Manually created files under `src/db/migrations/` (including
+  `meta/_journal.json` and `meta/NNNN_snapshot.json`) break drizzle-kit's state
+  tracking and cause duplicate or conflicting migrations.
 - Migrations are part of history. Never rewrite old migrations.
 - Ship schema changes in backward-compatible steps.
 - Treat destructive changes (drops, type changes) with extreme care.
 - Every migration is reviewed and committed. No auto-apply in production.
-- Name descriptively: `0012_add_budget_rollover_flag.sql`.
+- Workflow: schema change → `npm run db:generate` → review SQL → commit
+  migration + snapshot + journal together.
 
 ## Avoiding Schema Bloat
 

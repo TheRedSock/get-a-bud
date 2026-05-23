@@ -74,6 +74,15 @@ vi.mock("@/inngest/lib/send-event", () => ({
   sendInngestEvent: (...args: unknown[]) => mockSendInngestEvent(...args),
 }));
 
+vi.mock("@/lib/ingestion/pipeline/runs", () => ({
+  resolvePipelineRunForSlot: vi.fn().mockResolvedValue({
+    id: "pipeline-run-1",
+    householdId: "household-a-id",
+    kind: "recurring_replay",
+    status: "queued",
+  }),
+}));
+
 vi.mock("@/db", () => {
   const nextSelectResults = () => {
     if (dbOps.selectQueue.length > 0) {
@@ -118,6 +127,16 @@ vi.mock("@/db/schema", () => ({
   transactions: { id: "id", householdId: "householdId" },
   categories: { id: "id", householdId: "householdId" },
   financialAccounts: { id: "id" },
+  householdPipelineRuns: {
+    id: "id",
+    householdId: "householdId",
+    kind: "kind",
+    status: "status",
+    connectionId: "connectionId",
+    syncRunId: "syncRunId",
+    startedAt: "startedAt",
+  },
+  ingestionConnections: { id: "id", householdId: "householdId" },
 }));
 
 // ---------------------------------------------------------------------------

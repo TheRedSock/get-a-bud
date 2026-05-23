@@ -497,12 +497,25 @@ export const detectRecurringBills = authenticatedAction(
         fieldErrors: validated.error.fieldErrors,
       });
 
+    const { resolvePipelineRunForSlot } = await import(
+      "@/lib/ingestion/pipeline/runs"
+    );
+
+    const pipelineRun = await resolvePipelineRunForSlot({
+      householdId: ctx.householdId,
+      kind: "recurring_replay",
+    });
+
     await sendInngestEvent(EVENT_NAMES.detectRecurringBills, {
       householdId: ctx.householdId,
       replayUnapproved: validated.data.replayUnapproved,
     });
 
-    return { queued: true, replayUnapproved: validated.data.replayUnapproved };
+    return {
+      queued: true,
+      replayUnapproved: validated.data.replayUnapproved,
+      pipelineRunId: pipelineRun.id,
+    };
   },
 );
 

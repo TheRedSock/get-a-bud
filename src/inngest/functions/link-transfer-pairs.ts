@@ -13,6 +13,12 @@ import {
   parseJobEvent,
 } from "@/inngest/lib/event-validation";
 import { linkTransferPairsEvent, EVENT_NAMES } from "@/inngest/lib/events";
+import {
+  pipelineAdvancePhase,
+  pipelineHeartbeat,
+  recordLinkPageProgress,
+  resolvePipelineForPostSyncJob,
+} from "@/inngest/lib/pipeline-progress";
 import { sendValidatedStepEvent } from "@/inngest/lib/send-event";
 
 export const linkTransferPairs = inngest.createFunction(
@@ -28,6 +34,17 @@ export const linkTransferPairs = inngest.createFunction(
       { eventName: EVENT_NAMES.linkTransferPairs },
     );
     const PAGE_SIZE = 100;
+
+    const pipelineRun = await step.run("resolve-pipeline-run", () =>
+      resolvePipelineForPostSyncJob({ householdId }),
+    );
+
+    // Phase advance only when this is a standalone entry (no prior advance from categorize)
+    if (pipelineRun && !afterId) {
+      await step.run("pipeline-heartbeat-link", () =>
+        pipelineHeartbeat(pipelineRun.id, { currentPhase: "link" }),
+      );
+    }
 
     // Load unlinked transfer candidates
     const candidateRows = await step.run("load-candidates", () =>
@@ -74,6 +91,12 @@ export const linkTransferPairs = inngest.createFunction(
     }));
 
     if (candidates.length === 0) {
+      if (pipelineRun) {
+        await step.run("pipeline-phase-recurring", () =>
+          pipelineAdvancePhase(pipelineRun.id, "recurring"),
+        );
+      }
+
       await sendValidatedStepEvent(
         step,
         "detect-recurring-bills",
@@ -165,6 +188,12 @@ export const linkTransferPairs = inngest.createFunction(
       );
     }
 
+    if (pipelineRun) {
+      await step.run("pipeline-link-progress", () =>
+        recordLinkPageProgress(pipelineRun.id, householdId, linked),
+      );
+    }
+
     // If we loaded a full page, there may be more candidates. Re-enqueue.
     if (candidates.length >= PAGE_SIZE && lastScannedId) {
       await sendValidatedStepEvent(
@@ -174,6 +203,12 @@ export const linkTransferPairs = inngest.createFunction(
         { householdId, afterId: lastScannedId },
       );
     } else {
+      if (pipelineRun) {
+        await step.run("pipeline-phase-recurring", () =>
+          pipelineAdvancePhase(pipelineRun.id, "recurring"),
+        );
+      }
+
       await sendValidatedStepEvent(
         step,
         "detect-recurring-bills",
