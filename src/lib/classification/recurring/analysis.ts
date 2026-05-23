@@ -99,38 +99,35 @@ export function clusterByAmount(
 ): RecurringTransactionInput[][] {
   if (txns.length === 0) return [];
 
-  // Assign in date order against each cluster's median amount so a gradual
-  // price change (e.g. HOA fee increase) stays in one cluster. Sorting by
-  // amount alone splits those into separate clusters when a one-off outlier
-  // sits between two similar amounts in the sorted list.
-  const sorted = [...txns].sort((a, b) => a.date.localeCompare(b.date));
+  // Sort by comparable amount so adjacent values are close. Split only when
+  // consecutive amounts differ by more than 15%. This keeps volatile utility
+  // bills (e.g. electricity with 2x seasonal variation) in one cluster because
+  // when sorted, adjacent amounts are typically within 15% of each other even
+  // if the full range is wide.
+  const sorted = [...txns].sort(
+    (a, b) => getComparableAmount(a) - getComparableAmount(b),
+  );
   const clusters: RecurringTransactionInput[][] = [];
+  let current: RecurringTransactionInput[] = [sorted[0]];
 
-  for (const txn of sorted) {
-    const amt = getComparableAmount(txn);
-    const cur = getComparableCurrency(txn);
+  for (let i = 1; i < sorted.length; i++) {
+    const prevAmt = getComparableAmount(sorted[i - 1]);
+    const currAmt = getComparableAmount(sorted[i]);
+    const prevCur = getComparableCurrency(sorted[i - 1]);
+    const currCur = getComparableCurrency(sorted[i]);
 
-    let placed = false;
-    for (const cluster of clusters) {
-      const clusterCur = getComparableCurrency(cluster[0]);
-      if (clusterCur !== cur) continue;
+    const withinRange =
+      prevCur === currCur &&
+      Math.abs(currAmt - prevAmt) / Math.max(prevAmt, 0.01) <= 0.15;
 
-      const clusterMedian = median(cluster.map(getComparableAmount));
-      const withinRange =
-        Math.abs(amt - clusterMedian) / Math.max(clusterMedian, 0.01) <= 0.15;
-
-      if (withinRange) {
-        cluster.push(txn);
-        placed = true;
-        break;
-      }
-    }
-
-    if (!placed) {
-      clusters.push([txn]);
+    if (withinRange) {
+      current.push(sorted[i]);
+    } else {
+      clusters.push(current);
+      current = [sorted[i]];
     }
   }
-
+  clusters.push(current);
   return clusters;
 }
 

@@ -168,7 +168,16 @@ export async function matchExistingRecurringBills(input: {
       const patternKey = merchantPatternKey(row);
       if (!patternKey) continue;
 
-      const candidateBills = billsByPattern.get(patternKey);
+      // Try both the primary key (merchant:{id} or normalizedMerchantName) and
+      // the normalizedMerchantName as fallback. Bills created before merchant
+      // resolution use the name as their merchantPattern; after resolution,
+      // transactions get a merchantId key. Checking both ensures matching
+      // regardless of when merchant resolution ran relative to detection.
+      const candidateBills =
+        billsByPattern.get(patternKey) ??
+        (row.merchantId && row.normalizedMerchantName
+          ? billsByPattern.get(row.normalizedMerchantName)
+          : undefined);
       if (!candidateBills) continue;
 
       for (const bill of candidateBills) {

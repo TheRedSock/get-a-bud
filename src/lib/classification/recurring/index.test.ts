@@ -136,7 +136,7 @@ describe("clusterByAmount", () => {
     expect(clusters[1]).toHaveLength(1); // 500 cluster
   });
 
-  it("keeps gradual price increases in one cluster when sorted by date", () => {
+  it("keeps gradual price increases together while separating outliers", () => {
     const txns = [
       makeTxn({ date: "2024-09-20", amountCents: -291700 }),
       makeTxn({ date: "2024-10-21", amountCents: -291800 }),
@@ -150,6 +150,9 @@ describe("clusterByAmount", () => {
     ];
 
     const clusters = clusterByAmount(txns);
+    // When sorted by amount, 2917→3222 are adjacent with only 10.4% gap (< 15%),
+    // so they stay in one cluster. The 302 outlier is far from 2917 (866% gap)
+    // and sorts to the bottom, forming its own cluster.
     const mainCluster = clusters.find((c) => c.length >= 6);
     expect(mainCluster).toBeDefined();
     expect(mainCluster!.length).toBeGreaterThanOrEqual(6);
