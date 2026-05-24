@@ -5,16 +5,18 @@ import { BillRowActions } from "@/components/bills/bill-row-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatConfidencePercent } from "@/lib/classification/ui-state";
-import type { BillListItem, CategoryOption } from "@/lib/finance/bills";
 import {
   billAmountCentsForEdit,
-  buildBillListHref,
   formatBillAmount,
   formatBillScheduleLabel,
   formatCadenceLabel,
+} from "@/lib/finance/bills/display";
+import {
+  buildBillListHref,
   type BillListFilters,
   type BillSortKey,
-} from "@/lib/finance/bills";
+} from "@/lib/finance/bills/filters";
+import type { BillListItem, CategoryOption } from "@/lib/finance/bills/list-types";
 import { centsToDecimalString } from "@/lib/finance/money";
 import { cn } from "@/lib/utils";
 

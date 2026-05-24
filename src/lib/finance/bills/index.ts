@@ -1,9 +1,19 @@
+/**
+ * Bills domain public API — **server-side only**.
+ *
+ * Client components must import from client-safe submodules:
+ * - `@/lib/finance/bills/display`
+ * - `@/lib/finance/bills/filters`
+ * - `@/lib/finance/bills/constants`
+ * - `@/lib/finance/bills/list-types`
+ */
+
+export type { BillListItem, CategoryOption } from "./list-types";
+export { DEFAULT_BILL_CATEGORY_NAME } from "./constants";
 export {
   getBillCategoryOptions,
   getBillsForListing,
   getPendingBillCount,
-  type BillListItem,
-  type CategoryOption,
 } from "./queries";
 export type { BillStatusFilter } from "./filters";
 export {
@@ -51,7 +61,4 @@ export {
   suggestCategoriesForHouseholdBills,
   suggestCategoryForBill,
 } from "./suggest-categories";
-export {
-  DEFAULT_BILL_CATEGORY_NAME,
-  ensureDefaultBillCategory,
-} from "./default-category";
+export { ensureDefaultBillCategory } from "./default-category";

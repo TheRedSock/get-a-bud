@@ -8,8 +8,12 @@
  * This script uses the Neon serverless driver (WebSocket-based) which exits
  * cleanly after all queries complete.
  *
- * Usage: node scripts/db-migrate.mjs [env-file]
- *   env-file defaults to .env.local
+ * Usage:
+ *   node scripts/db-migrate.mjs [env-file]                  Apply pending migrations
+ *   node scripts/db-migrate.mjs [env-file] --baseline       Record ALL migrations
+ *       as applied without executing (for existing databases).
+ *   node scripts/db-migrate.mjs [env-file] --baseline=TAG   Record migrations up to
+ *       TAG as applied, then stop. Subsequent `db:migrate` will apply the rest.
  */
 
 import { createHash } from "node:crypto";
@@ -43,7 +47,18 @@ function parseEnvFile(path) {
   return env;
 }
 
-const envFileArg = process.argv[2] || ".env.local";
+// Parse CLI args: [env-file] [--baseline[=tag]]
+const args = process.argv.slice(2);
+const flags = args.filter((a) => a.startsWith("--"));
+const positional = args.filter((a) => !a.startsWith("--"));
+const baselineFlag = flags.find((f) => f.startsWith("--baseline"));
+const baselineMode = Boolean(baselineFlag);
+// Optional: --baseline=0002_green_speed limits baseline to that migration tag
+const baselineUntilTag = baselineFlag?.includes("=")
+  ? baselineFlag.split("=")[1]
+  : null;
+
+const envFileArg = positional[0] || ".env.local";
 const envPath = resolve(process.cwd(), envFileArg);
 
 if (!existsSync(envPath)) {
@@ -69,6 +84,16 @@ if (!existsSync(journalPath)) {
 }
 
 const journal = JSON.parse(readFileSync(journalPath, "utf8"));
+
+/**
+ * Compute a normalized hash for a migration file.
+ * Normalizes CRLF → LF before hashing so the same file produces the same hash
+ * regardless of OS line endings or git autocrlf settings.
+ */
+function migrationHash(sqlContent) {
+  const normalized = sqlContent.replaceAll("\r\n", "\n");
+  return createHash("sha256").update(normalized).digest("hex");
+}
 
 // Dynamic import of @neondatabase/serverless (ESM)
 const { Pool } = await import("@neondatabase/serverless");
@@ -101,9 +126,26 @@ try {
     }
 
     const sqlContent = readFileSync(sqlFile, "utf8");
-    const hash = createHash("sha256").update(sqlContent).digest("hex");
+    const hash = migrationHash(sqlContent);
+
+    // In baseline mode with a target tag: stop AFTER processing the target,
+    // regardless of whether it was already applied or newly baselined.
+    const isBaselineTarget = baselineMode && baselineUntilTag && entry.tag === baselineUntilTag;
 
     if (appliedHashes.has(hash)) {
+      if (isBaselineTarget) break;
+      continue;
+    }
+
+    if (baselineMode) {
+      // Record migration as applied without executing SQL
+      console.log(`Baseline: ${entry.tag}`);
+      await pool.query(
+        "INSERT INTO __drizzle_migrations (hash, created_at) VALUES ($1, $2)",
+        [hash, entry.when],
+      );
+      appliedCount++;
+      if (isBaselineTarget) break;
       continue;
     }
 
@@ -130,6 +172,8 @@ try {
 
   if (appliedCount === 0) {
     console.log("No pending migrations.");
+  } else if (baselineMode) {
+    console.log(`Baselined ${appliedCount} migration(s).`);
   } else {
     console.log(`Applied ${appliedCount} migration(s) successfully.`);
   }

@@ -6,7 +6,7 @@ import { AppNav } from "@/components/app-nav";
 import { PipelineShell } from "@/components/pipeline/pipeline-shell";
 import { authOptions } from "@/lib/auth/options";
 import { getActiveHousehold } from "@/lib/finance/household";
-import { getPendingBillCount } from "@/lib/finance/bills";
+import { getPendingBillCount } from "@/lib/finance/bills/queries";
 
 export default async function AppLayout({
   children,

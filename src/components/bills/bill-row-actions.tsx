@@ -51,7 +51,7 @@ import {
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
-import { DEFAULT_BILL_CATEGORY_NAME } from "@/lib/finance/bills/default-category";
+import { DEFAULT_BILL_CATEGORY_NAME } from "@/lib/finance/bills/constants";
 import { showErrorToast } from "@/lib/toast-errors";
 
 type BillRowActionsProps = {

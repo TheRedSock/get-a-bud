@@ -4,8 +4,9 @@ import { db } from "@/db";
 import { categories, categoryGroups } from "@/db/schema";
 import { notFoundError, unexpectedError } from "@/lib/errors/catalog";
 
-/** Exact household category name used for one-click bill approval. */
-export const DEFAULT_BILL_CATEGORY_NAME = "Bills – Uncategorized";
+import { DEFAULT_BILL_CATEGORY_NAME } from "./constants";
+
+export { DEFAULT_BILL_CATEGORY_NAME };
 
 /**
  * Idempotent find-or-create for the default bill category within a household.
