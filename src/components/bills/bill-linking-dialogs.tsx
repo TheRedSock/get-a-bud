@@ -182,7 +182,7 @@ export function LinkTransactionForBillDialog({
   const [others, setOthers] = useState<UnlinkedTransactionRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef = useRef<number | null>(null);
 
   const loadCandidates = useCallback(async (query: string) => {
     setLoadState("loading");
@@ -364,7 +364,7 @@ export function LinkTransactionToBillDialog({
   const [others, setOthers] = useState<BillLinkOption[]>([]);
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
-  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchDebounceRef = useRef<number | null>(null);
 
   const loadCandidates = useCallback(async (query: string) => {
     setLoadState("loading");
