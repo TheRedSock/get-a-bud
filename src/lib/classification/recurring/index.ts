@@ -59,8 +59,10 @@ export function groupByMerchant(
  * 2. Sub-cluster each merchant group by amount similarity
  * 3. Extract recurring patterns from each cluster via histogram peaks
  *    and weekly interval fallback
- * 4. Merchant-level coverage gate (reject sparse false positives)
- * 5. Return all validated recurring patterns
+ * 4. Coverage gate per pattern (reject sparse false positives)
+ * 5. Flag duplicate subscriptions only when 2+ validated patterns remain
+ *    in the same amount cluster
+ * 6. Return all validated recurring patterns
  *
  * Important: this function should receive only *unclaimed* transactions
  * (i.e., not already linked to an active recurring bill). The inngest
@@ -74,7 +76,6 @@ export function detectRecurring(
 
   for (const [merchant, txns] of merchantGroups) {
     const clusters = clusterByAmount(txns);
-    const merchantPatterns: RecurrenceAnalysis[] = [];
 
     for (const cluster of clusters) {
       if (cluster.length < 3) continue;
@@ -83,41 +84,34 @@ export function detectRecurring(
         a.date.localeCompare(b.date),
       );
 
-      merchantPatterns.push(...extractPatterns(sorted, merchant));
-    }
+      const clusterResults = extractPatterns(sorted, merchant);
+      const clusterValidated = clusterResults.filter((pattern) =>
+        validatePatternCoverage({
+          pattern,
+          allMerchantTransactions: txns,
+        }),
+      );
 
-    const validated = merchantPatterns.filter((pattern) =>
-      validatePatternCoverage({
-        pattern,
-        allMerchantTransactions: txns,
-      }),
-    );
-    results.push(...validated);
+      if (clusterValidated.length === 1) {
+        clusterValidated[0].isDuplicateSubscription = false;
+      } else if (clusterValidated.length > 1) {
+        // Only flag when multiple subscriptions share a cadence (e.g. two
+        // monthly bills on the 5th and 20th). Mixed cadences in one cluster
+        // are usually billing drift (month-end vs early-month), not duplicates.
+        const sameCadence = clusterValidated.every(
+          (pattern) => pattern.cadence === clusterValidated[0].cadence,
+        );
+        for (const pattern of clusterValidated) {
+          pattern.isDuplicateSubscription = sameCadence;
+        }
+      }
+
+      results.push(...clusterValidated);
+    }
   }
 
   return results;
 }
 
-// Re-export types and analysis helpers for convenience
 export type { RecurrenceAnalysis, RecurringTransactionInput, BillCadence } from "./types";
-export {
-  analyzeCluster,
-  analyzeRecurrence,
-  cadenceToExpectedDays,
-  clusterByAmount,
-  computeIntervals,
-  extractPatterns,
-  findDayOfMonthPeaks,
-  determineCadenceFromMonthGaps,
-  reconcileDelayedPayments,
-  toYearMonth,
-} from "./analysis";
-export {
-  adjustForBusinessDays,
-  isNorwegianHoliday,
-  norwegianHolidays,
-} from "./calendar";
-export {
-  MIN_COVERAGE_RATIO,
-  validatePatternCoverage,
-} from "./coverage";
+export { cadenceToExpectedDays } from "./analysis";

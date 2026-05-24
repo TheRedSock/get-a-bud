@@ -376,89 +376,6 @@ export function analyzeRecurrence(
   };
 }
 
-// ---------------------------------------------------------------------------
-// Interleaved duplicate subscription detection
-// ---------------------------------------------------------------------------
-
-/**
- * The "doubled cadence" map: if a cluster's detected cadence is X,
- * the individual subscriptions would each have cadence 2X.
- */
-const DOUBLED_CADENCE: Partial<Record<BillCadence, BillCadence>> = {
-  biweekly: "monthly",
-  monthly: "quarterly",
-  quarterly: "semi_annual",
-  semi_annual: "yearly",
-};
-
-/**
- * Analyze a date-sorted, amount-clustered set of transactions for one
- * merchant. Returns 1 result for a normal recurring pattern, or 2 results
- * (flagged as duplicate subscriptions) when two interleaved subscriptions
- * at the same price point are detected.
- *
- * Detection heuristic:
- *   If the cluster maps to cadence X, but cadence 2X also exists, try
- *   splitting into even-indexed and odd-indexed subsequences. If BOTH
- *   subsequences independently qualify as recurring at cadence 2X, return
- *   them separately with isDuplicateSubscription = true and distinct
- *   amountSignatures.
- *
- * Example: two monthly Netflix subs produce ~15-day intervals → biweekly.
- * Split into even/odd → each ~30 days → monthly. Flag both.
- */
-export function analyzeCluster(
-  sorted: RecurringTransactionInput[],
-  merchant: string,
-): RecurrenceAnalysis[] {
-  const single = analyzeRecurrence(sorted, merchant);
-
-  // If not recurring at all, or fewer than 6 transactions (need 3+ per
-  // subsequence), skip interleave detection.
-  if (!single.isRecurring || sorted.length < 6) {
-    return single.isRecurring ? [single] : [];
-  }
-
-  const doubleCadence = DOUBLED_CADENCE[single.cadence];
-  if (!doubleCadence) return [single];
-
-  // Split into even-indexed and odd-indexed subsequences (by date order)
-  const even = sorted.filter((_, i) => i % 2 === 0);
-  const odd = sorted.filter((_, i) => i % 2 !== 0);
-
-  if (even.length < 3 || odd.length < 3) return [single];
-
-  const analysisA = analyzeRecurrence(even, merchant);
-  const analysisB = analyzeRecurrence(odd, merchant);
-
-  // Both subsequences must be recurring at the expected doubled cadence
-  if (
-    !analysisA.isRecurring ||
-    !analysisB.isRecurring ||
-    analysisA.cadence !== doubleCadence ||
-    analysisB.cadence !== doubleCadence
-  ) {
-    return [single];
-  }
-
-  // Confirmed interleaved duplicate subscriptions — return both with
-  // distinct signatures (append ~0 / ~1) and the duplicate flag.
-  const baseSig = analysisA.amountSignature || computeAmountSignature(
-    even.map((t) => ({
-      value: t.originalAmountCents !== null
-        ? Math.abs(t.originalAmountCents)
-        : Math.abs(t.amountCents),
-      currency: t.originalCurrency ?? t.currency,
-      date: t.date,
-    })),
-  );
-
-  return [
-    { ...analysisA, amountSignature: `${baseSig}~0`, isDuplicateSubscription: true },
-    { ...analysisB, amountSignature: `${baseSig}~1`, isDuplicateSubscription: true },
-  ];
-}
-
 // =========================================================================
 // Histogram-based pattern extraction (primary detection tier)
 // =========================================================================
@@ -794,8 +711,8 @@ function detectWeeklyPattern(
  *         yearly patterns, with delayed-payment reconciliation.
  * Tier 2: Weekly interval detection on remaining unclaimed transactions.
  *
- * Returns 0–N patterns. Multiple patterns from the same cluster are
- * flagged isDuplicateSubscription (possible duplicate subscriptions).
+ * Returns 0–N patterns. Duplicate-subscription flagging is applied in
+ * detectRecurring after coverage validation per amount cluster.
  */
 export function extractPatterns(
   clusterTransactions: RecurringTransactionInput[],
@@ -937,11 +854,6 @@ export function extractPatterns(
   const unclaimed = sorted.filter((t) => !claimed.has(t.id));
   const weeklyResult = detectWeeklyPattern(unclaimed, merchant);
   if (weeklyResult) results.push(weeklyResult);
-
-  // Flag duplicate subscriptions when multiple patterns found in same cluster
-  if (results.length > 1) {
-    for (const r of results) r.isDuplicateSubscription = true;
-  }
 
   return results;
 }

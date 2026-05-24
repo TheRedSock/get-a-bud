@@ -13,7 +13,6 @@ import {
   mode,
   standardDeviation,
   analyzeRecurrence,
-  analyzeCluster,
 } from "./analysis";
 import {
   addDays,
@@ -762,7 +761,7 @@ describe("extractPatterns", () => {
     expect(results[0].transactionIds).toHaveLength(6);
   });
 
-  it("detects two subscriptions on different days as duplicates", () => {
+  it("detects two subscriptions on different days as separate patterns", () => {
     // Two Netflix subs: one on the 5th, one on the 20th
     const txns: RecurringTransactionInput[] = [];
     for (let i = 0; i < 6; i++) {
@@ -786,7 +785,7 @@ describe("extractPatterns", () => {
     const results = extractPatterns(sorted, "netflix com");
 
     expect(results).toHaveLength(2);
-    expect(results.every((r) => r.isDuplicateSubscription)).toBe(true);
+    expect(results.every((r) => !r.isDuplicateSubscription)).toBe(true);
     expect(results.every((r) => r.cadence === "monthly")).toBe(true);
     const days = results
       .map((r) => r.typicalDayOfMonth)
@@ -1089,6 +1088,46 @@ describe("detectRecurring", () => {
 
     const results = detectRecurring(txns);
     expect(results.some((r) => r.merchant === merchant)).toBe(true);
+  });
+
+  it("does not flag duplicate when billing-day drift splits peaks across cadences", () => {
+    const merchant = "disney plus";
+    const dates = [
+      "2024-12-02",
+      "2024-12-30",
+      "2025-01-30",
+      "2025-03-03",
+      "2025-03-31",
+      "2025-04-29",
+      "2025-05-30",
+      "2025-06-30",
+      "2025-07-29",
+      "2025-08-29",
+      "2025-09-29",
+      "2025-10-29",
+      "2025-12-01",
+      "2025-12-29",
+      "2026-01-29",
+      "2026-03-02",
+      "2026-03-30",
+      "2026-04-29",
+    ];
+    const txns = dates.map((date) =>
+      makeTxn({
+        date,
+        amountCents: -10900,
+        normalizedMerchantName: merchant,
+      }),
+    );
+
+    const results = detectRecurring(txns);
+    const disney = results.filter((r) => r.merchant === merchant);
+
+    expect(disney.length).toBeGreaterThanOrEqual(1);
+    expect(disney.every((r) => !r.isDuplicateSubscription)).toBe(true);
+    const monthly = disney.find((r) => r.cadence === "monthly");
+    expect(monthly).toBeDefined();
+    expect(monthly!.transactionIds.length).toBeGreaterThanOrEqual(10);
   });
 
   it("detects duplicate subscriptions through full pipeline", () => {

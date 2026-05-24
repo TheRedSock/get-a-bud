@@ -25,14 +25,11 @@ export function scheduleIdentityMatches(
   bill: BillScheduleIdentity,
   result: Pick<
     RecurrenceAnalysis,
-    "merchant" | "cadence" | "typicalDayOfMonth" | "isDuplicateSubscription"
+    "merchant" | "cadence" | "typicalDayOfMonth"
   >,
 ): boolean {
   if (bill.merchantPattern !== result.merchant) return false;
   if (bill.cadence !== result.cadence) return false;
-  if (bill.isDuplicateSubscription !== result.isDuplicateSubscription) {
-    return false;
-  }
   return typicalDayOfMonthMatches(
     bill.typicalDayOfMonth,
     result.typicalDayOfMonth,
@@ -46,7 +43,7 @@ export function findBillForDetectedPattern<T extends BillScheduleIdentity>(
   householdBills: T[],
   result: Pick<
     RecurrenceAnalysis,
-    "merchant" | "cadence" | "typicalDayOfMonth" | "isDuplicateSubscription"
+    "merchant" | "cadence" | "typicalDayOfMonth"
   >,
 ): T | undefined {
   return householdBills.find((bill) => scheduleIdentityMatches(bill, result));

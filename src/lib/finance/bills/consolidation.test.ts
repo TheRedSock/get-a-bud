@@ -52,7 +52,6 @@ describe("findBillForDetectedPattern", () => {
       merchant: "merchant:hoa",
       cadence: "monthly",
       typicalDayOfMonth: 20,
-      isDuplicateSubscription: false,
     });
     expect(found?.id).toBe("a1");
   });
@@ -62,7 +61,6 @@ describe("findBillForDetectedPattern", () => {
       merchant: "merchant:hoa",
       cadence: "monthly",
       typicalDayOfMonth: 20,
-      isDuplicateSubscription: false,
     });
     expect(["a1", "a2"]).toContain(found?.id);
   });
@@ -75,23 +73,37 @@ describe("findBillForDetectedPattern", () => {
         merchant: "merchant:hoa",
         cadence: "monthly",
         typicalDayOfMonth: 20,
-        isDuplicateSubscription: false,
       },
     );
     expect(foundForHoa?.id).not.toBe("b1");
   });
 
-  it("separates duplicate subscriptions on same day", () => {
-    const bills = [
-      bill({ id: "sub-a", isDuplicateSubscription: true }),
-      bill({ id: "sub-b", isDuplicateSubscription: true, typicalDayOfMonth: 5 }),
-    ];
+  it("matches bill when schedule matches regardless of duplicate flag", () => {
+    const flaggedBill = bill({ id: "sub-a", isDuplicateSubscription: true });
     expect(
-      scheduleIdentityMatches(bills[0], {
+      scheduleIdentityMatches(flaggedBill, {
         merchant: "merchant:hoa",
         cadence: "monthly",
         typicalDayOfMonth: 20,
-        isDuplicateSubscription: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not cross-match different typical billing days", () => {
+    const day5 = bill({ id: "sub-a", typicalDayOfMonth: 5 });
+    const day20 = bill({ id: "sub-b", typicalDayOfMonth: 20 });
+    expect(
+      scheduleIdentityMatches(day5, {
+        merchant: "merchant:hoa",
+        cadence: "monthly",
+        typicalDayOfMonth: 20,
+      }),
+    ).toBe(false);
+    expect(
+      scheduleIdentityMatches(day20, {
+        merchant: "merchant:hoa",
+        cadence: "monthly",
+        typicalDayOfMonth: 5,
       }),
     ).toBe(false);
   });

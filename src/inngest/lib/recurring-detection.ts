@@ -284,6 +284,16 @@ type DetectionInput = {
   transactionType: string | null;
 };
 
+function syncInMemoryBillFromDetection(
+  bill: BillScheduleIdentity,
+  fields: Pick<
+    BillScheduleIdentity,
+    "cadence" | "amountSignature" | "typicalDayOfMonth" | "isDuplicateSubscription"
+  >,
+): void {
+  Object.assign(bill, fields);
+}
+
 function lastTxnFromResult(
   result: ReturnType<typeof detectRecurring>[number],
   txnById: Map<string, RecurringCandidateRow>,
@@ -467,9 +477,12 @@ async function upsertDetectionResults(
         })
         .where(eq(recurringBills.id, existing.id));
 
-      existing.amountSignature = result.amountSignature;
-      existing.typicalDayOfMonth = result.typicalDayOfMonth;
-      existing.cadence = result.cadence;
+      syncInMemoryBillFromDetection(existing, {
+        cadence: sharedFields.cadence,
+        amountSignature: sharedFields.amountSignature,
+        typicalDayOfMonth: sharedFields.typicalDayOfMonth,
+        isDuplicateSubscription: sharedFields.isDuplicateSubscription,
+      });
     } else {
       const preInsertConflict = findBillByAmountSignature(
         householdBills,
@@ -493,6 +506,13 @@ async function upsertDetectionResults(
               : undefined,
           })
           .where(eq(recurringBills.id, preInsertConflict.id));
+
+        syncInMemoryBillFromDetection(preInsertConflict, {
+          cadence: sharedFields.cadence,
+          amountSignature: sharedFields.amountSignature,
+          typicalDayOfMonth: sharedFields.typicalDayOfMonth,
+          isDuplicateSubscription: sharedFields.isDuplicateSubscription,
+        });
       } else {
         const [inserted] = await db
           .insert(recurringBills)
