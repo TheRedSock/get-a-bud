@@ -148,6 +148,7 @@ export const createBillSchema = z.object({
   name: z.string().min(1).max(120),
   merchantPattern: z.string().min(1).max(160),
   cadence: billCadenceSchema.default("monthly"),
+  categoryId: z.string().min(1),
   expectedAmountCents: z.preprocess(moneyPreprocessor, z.number().int().optional()),
   nextDueDate: z.string().min(8).optional(),
 });

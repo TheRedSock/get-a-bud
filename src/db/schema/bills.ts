@@ -42,6 +42,10 @@ export const recurringBills = pgTable(
     categoryId: text("category_id").references(() => categories.id, {
       onDelete: "set null",
     }),
+    suggestedCategoryId: text("suggested_category_id").references(
+      () => categories.id,
+      { onDelete: "set null" },
+    ),
     name: text("name").notNull(),
     merchantPattern: text("merchant_pattern").notNull(),
     amountSignature: text("amount_signature").notNull().default(""),
@@ -73,6 +77,7 @@ export const recurringBills = pgTable(
     lastDetectedAt: timestamp("last_detected_at", { mode: "date" }),
     transactionCount: integer("transaction_count").default(0),
     userEndedAt: timestamp("user_ended_at", { mode: "date" }),
+    autoEndedAt: timestamp("auto_ended_at", { mode: "date" }),
     createdAt: timestamp("created_at", { mode: "date" }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date" }).notNull().defaultNow(),
   },
@@ -108,6 +113,7 @@ export const recurringBillHistory = pgTable(
   },
   (table) => [
     index("recurring_bill_history_bill_idx").on(table.billId),
+    index("recurring_bill_history_bill_date_idx").on(table.billId, table.date),
     uniqueIndex("recurring_bill_history_bill_txn_uidx").on(
       table.billId,
       table.transactionId,

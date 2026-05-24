@@ -3,7 +3,7 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Eye, Loader2, Pencil, Play, Save, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import type { z } from "zod";
@@ -30,6 +30,7 @@ import {
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { formatBillPatternSummary } from "@/lib/finance/bills/display";
 import { formatCents } from "@/lib/finance/money";
 import {
   updateBillFormSchema,
@@ -201,6 +202,9 @@ export function RecurringBillEditor({
   isPossiblyCancelled,
   name,
   nextDueDate,
+  embedded = false,
+  showEndToggle = true,
+  onSaved,
 }: {
   billId: string;
   cadence: string;
@@ -209,9 +213,12 @@ export function RecurringBillEditor({
   isPossiblyCancelled: boolean;
   name: string;
   nextDueDate: string | null;
+  embedded?: boolean;
+  showEndToggle?: boolean;
+  onSaved?: () => void;
 }) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(embedded);
 
   const {
     register,
@@ -270,7 +277,8 @@ export function RecurringBillEditor({
         "Could not update bill details",
       );
       toast.success("Bill details saved");
-      setExpanded(false);
+      if (!embedded) setExpanded(false);
+      onSaved?.();
       router.refresh();
     } catch (error) {
       showErrorToast("Could not update bill details", error);
@@ -278,15 +286,20 @@ export function RecurringBillEditor({
   });
 
   return (
-    <div className="mt-3">
-      <Button size="sm" type="button" variant="ghost" onClick={toggleExpanded}>
-        <Pencil className="size-4" aria-hidden />
-        {expanded ? "Close details" : "Edit details"}
-      </Button>
+    <div className={embedded ? undefined : "mt-3"}>
+      {embedded ? null : (
+        <Button size="sm" type="button" variant="ghost" onClick={toggleExpanded}>
+          <Pencil className="size-4" aria-hidden />
+          {expanded ? "Close details" : "Edit details"}
+        </Button>
+      )}
 
       {expanded ? (
         <form
-          className="mt-3 grid gap-3 rounded-2xl border bg-card/50 p-4"
+          className={cn(
+            "grid gap-3",
+            embedded ? undefined : "mt-3 rounded-2xl border bg-card/50 p-4",
+          )}
           noValidate
           onSubmit={saveBill}
         >
@@ -368,23 +381,27 @@ export function RecurringBillEditor({
             </FormField>
           </div>
 
+          {showEndToggle ? (
+            <div className="flex flex-wrap gap-2">
+              <Button
+                size="sm"
+                type="button"
+                variant={formIsActive ? "default" : "outline"}
+                onClick={() => setValue("isActive", true)}
+              >
+                Active
+              </Button>
+              <Button
+                size="sm"
+                type="button"
+                variant={!formIsActive ? "default" : "outline"}
+                onClick={() => setValue("isActive", false)}
+              >
+                Ended
+              </Button>
+            </div>
+          ) : null}
           <div className="flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              type="button"
-              variant={formIsActive ? "default" : "outline"}
-              onClick={() => setValue("isActive", true)}
-            >
-              Active
-            </Button>
-            <Button
-              size="sm"
-              type="button"
-              variant={!formIsActive ? "default" : "outline"}
-              onClick={() => setValue("isActive", false)}
-            >
-              Ended
-            </Button>
             <Button
               size="sm"
               type="button"
@@ -393,7 +410,7 @@ export function RecurringBillEditor({
                 setValue("isPossiblyCancelled", !formNeedsCheck)
               }
             >
-              Needs status check
+              Possibly cancelled
             </Button>
           </div>
 
@@ -480,9 +497,20 @@ export function RejectRecurringBillButton({ billId }: { billId: string }) {
 
 type BillMatchesLoadState = "idle" | "loading" | "success" | "error";
 
-export function BillTransactionsViewer({ billId }: { billId: string }) {
+export function BillTransactionsViewer({
+  billId,
+  embedded = false,
+  loadOnMount = false,
+  onLinked,
+}: {
+  billId: string;
+  embedded?: boolean;
+  /** When true, fetches matches once after mount (dialog use). */
+  loadOnMount?: boolean;
+  onLinked?: () => void;
+}) {
   const router = useRouter();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(embedded);
   const [loadState, setLoadState] = useState<BillMatchesLoadState>("idle");
   const [rows, setRows] = useState<BillTransactionRow[]>([]);
   const [pattern, setPattern] = useState<{
@@ -493,7 +521,7 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
     amountSignature: string;
   } | null>(null);
 
-  async function loadMatches() {
+  const loadMatches = useCallback(async () => {
     setLoadState("loading");
     try {
       const body = await unwrapAction(
@@ -507,7 +535,13 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
       setLoadState("error");
       showErrorToast("Could not load matching transactions", error);
     }
-  }
+  }, [billId]);
+
+  useEffect(() => {
+    if (!loadOnMount) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- mount-only fetch in dialog
+    void loadMatches();
+  }, [loadOnMount, loadMatches]);
 
   async function toggle() {
     const nextExpanded = !expanded;
@@ -522,11 +556,13 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
   function handleLinked() {
     setLoadState("idle");
     void loadMatches();
+    onLinked?.();
     router.refresh();
   }
 
   return (
-    <div className="mt-3">
+    <div className={embedded ? undefined : "mt-3"}>
+      {embedded ? null : (
       <div className="flex flex-wrap gap-2">
         <Button size="sm" type="button" variant="outline" onClick={() => void toggle()}>
           {loadState === "loading" ? (
@@ -538,18 +574,18 @@ export function BillTransactionsViewer({ billId }: { billId: string }) {
         </Button>
         <LinkTransactionForBillDialog billId={billId} onLinked={handleLinked} />
       </div>
+      )}
 
       {expanded ? (
         <div className="mt-3 grid gap-3 rounded-2xl border bg-card/50 p-4">
-          {pattern ? (
+          {pattern?.amountSignature ? (
             <p className="text-xs text-muted-foreground">
-              Pattern: {pattern.cadence.replace("_", " ")}
-              {pattern.typicalDayOfMonth
-                ? ` around day ${pattern.typicalDayOfMonth}`
-                : ""}
-              {" · "}
-              Merchant key: {pattern.merchantPattern}
-              {pattern.amountSignature ? ` · ${pattern.amountSignature}` : ""}
+              Pattern:{" "}
+              {formatBillPatternSummary({
+                cadence: pattern.cadence,
+                typicalDayOfMonth: pattern.typicalDayOfMonth,
+                amountSignature: pattern.amountSignature,
+              })}
             </p>
           ) : null}
 

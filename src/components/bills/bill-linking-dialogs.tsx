@@ -171,11 +171,19 @@ function renderBillList(
 export function LinkTransactionForBillDialog({
   billId,
   onLinked,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+  hideTrigger = false,
 }: {
   billId: string;
   onLinked: () => void;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  hideTrigger?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [search, setSearch] = useState("");
   const [suggestions, setSuggestions] = useState<UnlinkedTransactionRow[]>([]);
@@ -255,15 +263,17 @@ export function LinkTransactionForBillDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <Button
-        size="sm"
-        type="button"
-        variant="outline"
-        onClick={() => handleOpenChange(true)}
-      >
-        <Link2 className="size-4" aria-hidden />
-        Link transaction
-      </Button>
+      {hideTrigger ? null : (
+        <Button
+          size="sm"
+          type="button"
+          variant="outline"
+          onClick={() => handleOpenChange(true)}
+        >
+          <Link2 className="size-4" aria-hidden />
+          Link transaction
+        </Button>
+      )}
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Link transaction to bill</DialogTitle>

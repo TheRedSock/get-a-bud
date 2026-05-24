@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNotNull, lt, sql } from "drizzle-orm";
 
 import { db } from "@/db";
 import {
@@ -8,6 +8,7 @@ import {
   transactions,
 } from "@/db/schema";
 import { getBudgetsWithSpending } from "@/lib/finance/budget-calculations";
+import { formatBillScheduleLabel } from "@/lib/finance/bills/display";
 
 import type {
   BalancePoint,
@@ -240,7 +241,7 @@ export async function getRecentTransactions(
   }));
 }
 
-/** Upcoming recurring bills for the bills section. */
+/** Upcoming recurring bills for the bills section (approved active only). */
 export async function getUpcomingBills(
   householdId: string,
 ): Promise<DashboardBill[]> {
@@ -251,15 +252,31 @@ export async function getUpcomingBills(
       expectedAmountCents: recurringBills.expectedAmountCents,
       lastAmountCents: recurringBills.lastAmountCents,
       isActive: recurringBills.isActive,
+      userEndedAt: recurringBills.userEndedAt,
+      autoEndedAt: recurringBills.autoEndedAt,
+      updatedAt: recurringBills.updatedAt,
     })
     .from(recurringBills)
-    .where(eq(recurringBills.householdId, householdId));
+    .where(
+      and(
+        eq(recurringBills.householdId, householdId),
+        eq(recurringBills.isActive, true),
+        isNotNull(recurringBills.categoryId),
+      ),
+    );
 
   return rows.map((bill) => ({
     name: bill.name,
-    due: bill.nextDueDate ?? "No due date",
+    due: formatBillScheduleLabel({
+      isActive: bill.isActive,
+      nextDueDate: bill.nextDueDate,
+      userEndedAt: bill.userEndedAt,
+      autoEndedAt: bill.autoEndedAt,
+      lastPaymentDate: null,
+      updatedAt: bill.updatedAt,
+    }),
     amount: bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
-    status: bill.isActive ? "Active" : "Paused",
+    status: "Active",
   }));
 }
 

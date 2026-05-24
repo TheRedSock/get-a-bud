@@ -241,11 +241,18 @@ export const detectRecurringBills = inngest.createFunction(
           .set({
             isActive: false,
             isPossiblyCancelled: false,
+            autoEndedAt: runStartTime,
             updatedAt: new Date(),
           })
           .where(inArray(recurringBills.id, endedIds)),
       );
     }
+
+    await step.run("suggest-categories-for-matched-bills", () =>
+      import("@/lib/finance/bills/suggest-categories").then((m) =>
+        m.suggestCategoriesForHouseholdBills(householdId),
+      ),
+    );
 
     const possiblyCancelled = possiblyCancelledIds.length;
     const ended = endedIds.length;

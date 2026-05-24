@@ -18,7 +18,9 @@ import {
   validateActionInput,
 } from "@/lib/actions/safe-action";
 import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
+import { ensureDefaultBillCategory } from "@/lib/finance/bills/default-category";
 import { nextDueDateAfterPayment } from "@/lib/finance/bills/scheduling";
+import { suggestCategoryForBill } from "@/lib/finance/bills/suggest-categories";
 import {
   buildBillMatchesTransactionCondition,
   buildBillNameSearchCondition,
@@ -81,7 +83,7 @@ const billsForTransactionLinkEnvelope = z.object({
 const billUpdateSchema = updateBillSchema;
 
 const billCategorySchema = z.object({
-  categoryId: z.string().min(1).nullable(),
+  categoryId: z.string().min(1),
   applyToTransactions: z.coerce.boolean().default(true),
 });
 
@@ -100,6 +102,19 @@ type TransactionMetadata = Record<string, unknown> & {
 };
 
 // ---------------------------------------------------------------------------
+// resolveDefaultBillCategoryId
+// ---------------------------------------------------------------------------
+
+export const resolveDefaultBillCategoryId = authenticatedAction(
+  "bills.resolve-default-category",
+  async (ctx) => {
+    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    const categoryId = await ensureDefaultBillCategory(ctx.householdId);
+    return { categoryId };
+  },
+);
+
+// ---------------------------------------------------------------------------
 // createBill
 // ---------------------------------------------------------------------------
 
@@ -116,6 +131,24 @@ export const createBill = authenticatedAction(
     if (validated.error) throw validationError(validated.error.message, { fieldErrors: validated.error.fieldErrors });
     const billInput = validated.data;
 
+    const [category] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(
+        and(
+          eq(categories.id, billInput.categoryId),
+          eq(categories.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!category) {
+      throw notFoundError("Choose a category from this household.", {
+        categoryId: billInput.categoryId,
+        householdId: ctx.householdId,
+      });
+    }
+
     const [bill] = await db
       .insert(recurringBills)
       .values({
@@ -123,6 +156,7 @@ export const createBill = authenticatedAction(
         name: billInput.name,
         merchantPattern: billInput.merchantPattern,
         cadence: billInput.cadence,
+        categoryId: billInput.categoryId,
         expectedAmountCents: billInput.expectedAmountCents ?? null,
         nextDueDate: billInput.nextDueDate,
       })
@@ -184,11 +218,11 @@ export const updateBill = authenticatedAction(
       });
     }
 
-    const userEndedAtUpdate =
+    const lifecycleUpdate =
       billInput.isActive === false
-        ? { userEndedAt: new Date() }
+        ? { userEndedAt: new Date(), autoEndedAt: null }
         : billInput.isActive === true
-          ? { userEndedAt: null }
+          ? { userEndedAt: null, autoEndedAt: null }
           : {};
 
     const [updatedBill] = await db
@@ -209,7 +243,7 @@ export const updateBill = authenticatedAction(
         ...(billInput.isPossiblyCancelled !== undefined
           ? { isPossiblyCancelled: billInput.isPossiblyCancelled }
           : {}),
-        ...userEndedAtUpdate,
+        ...lifecycleUpdate,
         updatedAt: new Date(),
       })
       .where(
@@ -392,30 +426,31 @@ export const updateBillCategory = authenticatedAction(
       });
     }
 
-    // Validate category belongs to household
-    if (categoryInput.categoryId) {
-      const [category] = await db
-        .select({ id: categories.id })
-        .from(categories)
-        .where(
-          and(
-            eq(categories.id, categoryInput.categoryId),
-            eq(categories.householdId, ctx.householdId),
-          ),
-        )
-        .limit(1);
+    const [category] = await db
+      .select({ id: categories.id })
+      .from(categories)
+      .where(
+        and(
+          eq(categories.id, categoryInput.categoryId),
+          eq(categories.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
 
-      if (!category) {
-        throw notFoundError("Choose a category from this household.", {
-          categoryId: categoryInput.categoryId,
-          householdId: ctx.householdId,
-        });
-      }
+    if (!category) {
+      throw notFoundError("Choose a category from this household.", {
+        categoryId: categoryInput.categoryId,
+        householdId: ctx.householdId,
+      });
     }
 
     const [updatedBill] = await db
       .update(recurringBills)
-      .set({ categoryId: categoryInput.categoryId, updatedAt: new Date() })
+      .set({
+        categoryId: categoryInput.categoryId,
+        suggestedCategoryId: null,
+        updatedAt: new Date(),
+      })
       .where(
         and(
           eq(recurringBills.id, billId),
@@ -1006,6 +1041,8 @@ export const linkTransactionToBill = authenticatedAction(
       outcome: "success",
       metadata: { operation: "link_transaction", transactionId },
     });
+
+    await suggestCategoryForBill(ctx.householdId, billId);
 
     return { success: true };
   },

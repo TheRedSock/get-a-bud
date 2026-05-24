@@ -249,7 +249,11 @@ export async function matchExistingRecurringBills(input: {
               : null,
           originalCurrency: latest.originalCurrency,
           ...(wasAutoEnded
-            ? { isActive: true, isPossiblyCancelled: false }
+            ? {
+                isActive: true,
+                isPossiblyCancelled: false,
+                autoEndedAt: null,
+              }
             : { isPossiblyCancelled: false }),
           updatedAt: new Date(),
         })

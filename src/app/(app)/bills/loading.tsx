@@ -3,21 +3,40 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 
 export default function BillsLoading() {
   return (
-    <Card>
-      <CardHeader>
-        <Skeleton className="h-6 w-32" />
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="flex items-center justify-between gap-4">
-              <Skeleton className="h-4 w-36" />
-              <Skeleton className="h-4 w-24" />
-              <Skeleton className="h-4 w-20" />
+    <div className="grid gap-6 xl:grid-cols-[1fr_320px]">
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-40" />
+        </CardHeader>
+        <CardContent className="grid gap-4">
+          <Skeleton className="h-10 w-full rounded-2xl" />
+          <div className="flex gap-2">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-20 rounded-full" />
+            ))}
+          </div>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="grid gap-3 rounded-3xl border p-4 sm:grid-cols-[1fr_1fr_auto_auto_auto]"
+            >
+              <Skeleton className="h-5 w-3/4" />
+              <Skeleton className="h-8 w-full" />
+              <Skeleton className="h-5 w-16" />
+              <Skeleton className="h-5 w-20" />
+              <Skeleton className="size-9 rounded-full" />
             </div>
           ))}
-        </div>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+      <Card className="h-fit">
+        <CardHeader>
+          <Skeleton className="h-6 w-32" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-48 w-full" />
+        </CardContent>
+      </Card>
+    </div>
   );
 }

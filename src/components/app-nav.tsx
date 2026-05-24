@@ -33,7 +33,11 @@ const navItems = [
 const mobileMainItems = navItems.slice(0, 4);
 const mobileOverflowItems = navItems.slice(4);
 
-export function AppNav() {
+type AppNavProps = {
+  pendingBillCount?: number;
+};
+
+export function AppNav({ pendingBillCount = 0 }: AppNavProps) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -68,7 +72,17 @@ export function AppNav() {
                 )}
               >
                 <Icon className="size-4" />
-                {item.label}
+                <span className="flex flex-1 items-center justify-between gap-2">
+                  {item.label}
+                  {item.href === "/bills" && pendingBillCount > 0 ? (
+                    <span
+                      className="grid min-w-5 place-items-center rounded-full bg-warning px-1.5 py-0.5 text-[10px] font-bold text-warning-foreground"
+                      aria-label={`${pendingBillCount} bills need approval`}
+                    >
+                      {pendingBillCount > 99 ? "99+" : pendingBillCount}
+                    </span>
+                  ) : null}
+                </span>
               </Link>
             );
           })}
