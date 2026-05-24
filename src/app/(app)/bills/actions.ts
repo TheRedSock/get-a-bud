@@ -20,6 +20,13 @@ import {
 import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
 import { nextDueDateAfterPayment } from "@/lib/finance/bills/scheduling";
 import {
+  buildBillMatchesTransactionCondition,
+  buildBillNameSearchCondition,
+  buildTransactionMatchesBillMerchantCondition,
+  buildTransactionTextSearchCondition,
+  normalizeLinkSearchQuery,
+} from "@/lib/finance/bills/transaction-linking";
+import {
   conflictError,
   notFoundError,
   validationError,
@@ -55,6 +62,16 @@ const billCategoryEnvelope = z.object({
 const linkTransactionToBillEnvelope = z.object({
   billId: z.string().min(1),
   transactionId: z.string().min(1),
+});
+
+const unlinkedTransactionsEnvelope = z.object({
+  billId: z.string().min(1),
+  search: z.string().max(200).optional(),
+});
+
+const billsForTransactionLinkEnvelope = z.object({
+  transactionId: z.string().min(1),
+  search: z.string().max(200).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -612,7 +629,7 @@ export const getUnlinkedTransactionsForBill = authenticatedAction(
   "bills.unlinked-transactions",
   async (ctx, input: unknown) => {
     const envelope = validateActionInput(
-      billIdEnvelope,
+      unlinkedTransactionsEnvelope,
       input,
       "Please provide a valid bill ID.",
     );
@@ -620,12 +637,14 @@ export const getUnlinkedTransactionsForBill = authenticatedAction(
       throw validationError(envelope.error.message, {
         fieldErrors: envelope.error.fieldErrors,
       });
-    const { billId } = envelope.data;
+    const { billId, search: rawSearch } = envelope.data;
+    const search = normalizeLinkSearchQuery(rawSearch);
 
     const [bill] = await db
       .select({
         id: recurringBills.id,
         merchantPattern: recurringBills.merchantPattern,
+        name: recurringBills.name,
       })
       .from(recurringBills)
       .where(
@@ -651,51 +670,44 @@ export const getUnlinkedTransactionsForBill = authenticatedAction(
         and ${recurringBills.householdId} = ${ctx.householdId}
     )`;
 
+    const searchCondition = buildTransactionTextSearchCondition(search);
     const baseConditions = and(
       eq(transactions.householdId, ctx.householdId),
       lt(transactions.amountCents, 0),
       eq(transactions.excludedFromBudget, false),
       notLinkedCondition,
+      searchCondition,
     );
 
-    // Merchant-match candidates: build key condition based on pattern format
-    const merchantCondition = bill.merchantPattern.startsWith("merchant:")
-      ? eq(transactions.merchantId, bill.merchantPattern.slice("merchant:".length))
-      : eq(transactions.normalizedMerchantName, bill.merchantPattern);
+    const merchantCondition = buildTransactionMatchesBillMerchantCondition(
+      bill.merchantPattern,
+      bill.name,
+    );
 
-    // Two targeted queries: suggestions (same merchant, limit 30)
-    // then others (different merchant, limit 20)
+    const txnColumns = {
+      id: transactions.id,
+      date: transactions.date,
+      amountCents: transactions.amountCents,
+      currency: transactions.currency,
+      description: transactions.description,
+      merchantName: transactions.merchantName,
+      normalizedMerchantName: transactions.normalizedMerchantName,
+      merchantId: transactions.merchantId,
+    };
+
     const [suggestions, others] = await Promise.all([
       db
-        .select({
-          id: transactions.id,
-          date: transactions.date,
-          amountCents: transactions.amountCents,
-          currency: transactions.currency,
-          description: transactions.description,
-          merchantName: transactions.merchantName,
-          normalizedMerchantName: transactions.normalizedMerchantName,
-          merchantId: transactions.merchantId,
-        })
+        .select(txnColumns)
         .from(transactions)
         .where(and(baseConditions, merchantCondition))
         .orderBy(desc(transactions.date))
-        .limit(30),
+        .limit(40),
       db
-        .select({
-          id: transactions.id,
-          date: transactions.date,
-          amountCents: transactions.amountCents,
-          currency: transactions.currency,
-          description: transactions.description,
-          merchantName: transactions.merchantName,
-          normalizedMerchantName: transactions.normalizedMerchantName,
-          merchantId: transactions.merchantId,
-        })
+        .select(txnColumns)
         .from(transactions)
         .where(and(baseConditions, not(merchantCondition)))
         .orderBy(desc(transactions.date))
-        .limit(20),
+        .limit(30),
     ]);
 
     return {
@@ -706,6 +718,123 @@ export const getUnlinkedTransactionsForBill = authenticatedAction(
       others: others.map((row) => ({
         ...row,
         matchesMerchantPattern: false as const,
+      })),
+    };
+  },
+);
+
+// ---------------------------------------------------------------------------
+// getBillsForTransactionLink
+// ---------------------------------------------------------------------------
+
+export const getBillsForTransactionLink = authenticatedAction(
+  "bills.transaction-link-options",
+  async (ctx, input: unknown) => {
+    const envelope = validateActionInput(
+      billsForTransactionLinkEnvelope,
+      input,
+      "Please provide a valid transaction ID.",
+    );
+    if (envelope.error)
+      throw validationError(envelope.error.message, {
+        fieldErrors: envelope.error.fieldErrors,
+      });
+    const { transactionId, search: rawSearch } = envelope.data;
+    const search = normalizeLinkSearchQuery(rawSearch);
+
+    const [transaction] = await db
+      .select({
+        id: transactions.id,
+        amountCents: transactions.amountCents,
+        excludedFromBudget: transactions.excludedFromBudget,
+        merchantId: transactions.merchantId,
+        normalizedMerchantName: transactions.normalizedMerchantName,
+        merchantName: transactions.merchantName,
+        description: transactions.description,
+      })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.id, transactionId),
+          eq(transactions.householdId, ctx.householdId),
+        ),
+      )
+      .limit(1);
+
+    if (!transaction) {
+      throw notFoundError("Transaction not found.", {
+        transactionId,
+        householdId: ctx.householdId,
+      });
+    }
+
+    if (transaction.amountCents >= 0) {
+      throw validationError("Only expense transactions can be linked to a bill.");
+    }
+
+    const billColumns = {
+      id: recurringBills.id,
+      name: recurringBills.name,
+      cadence: recurringBills.cadence,
+      nextDueDate: recurringBills.nextDueDate,
+      expectedAmountCents: recurringBills.expectedAmountCents,
+      merchantPattern: recurringBills.merchantPattern,
+      isActive: recurringBills.isActive,
+    };
+
+    const searchCondition = buildBillNameSearchCondition(search);
+    const householdCondition = eq(recurringBills.householdId, ctx.householdId);
+    const merchantMatch = buildBillMatchesTransactionCondition(transaction);
+
+    if (!merchantMatch) {
+      const rows = await db
+        .select(billColumns)
+        .from(recurringBills)
+        .where(and(householdCondition, searchCondition))
+        .orderBy(
+          sql`${recurringBills.isActive} desc`,
+          desc(recurringBills.nextDueDate),
+        )
+        .limit(40);
+
+      return {
+        suggestions: [],
+        others: rows.map((row) => ({
+          ...row,
+          matchesTransactionMerchant: false as const,
+        })),
+      };
+    }
+
+    const [suggestions, others] = await Promise.all([
+      db
+        .select(billColumns)
+        .from(recurringBills)
+        .where(and(householdCondition, merchantMatch, searchCondition))
+        .orderBy(
+          sql`${recurringBills.isActive} desc`,
+          desc(recurringBills.nextDueDate),
+        )
+        .limit(30),
+      db
+        .select(billColumns)
+        .from(recurringBills)
+        .where(and(householdCondition, not(merchantMatch), searchCondition))
+        .orderBy(
+          sql`${recurringBills.isActive} desc`,
+          desc(recurringBills.nextDueDate),
+        )
+        .limit(20),
+    ]);
+
+    return {
+      suggestions: suggestions.map((row) => ({
+        ...row,
+        matchesTransactionMerchant: true as const,
+      })),
+      others: others.map((row) => ({
+        ...row,
+        matchesTransactionMerchant: false as const,
       })),
     };
   },

@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+import { LinkTransactionToBillDialog } from "@/components/bills/bill-linking-dialogs";
 import { AutoLabelUndoButton } from "@/components/auto-label-undo-button";
 import { useRegisterFrozenRow } from "@/components/pipeline/use-register-frozen-row";
 import { ClassificationIndicator } from "@/components/classification-indicator";
@@ -491,6 +492,14 @@ export function TransactionEditor({
     );
   }
 
+  const canLinkToBill =
+    transaction.amountCents < 0 &&
+    !transaction.recurringBill &&
+    !transaction.excludedFromBudget &&
+    !isOneSidedTransfer;
+  const linkTransactionLabel =
+    transaction.merchantName ?? transaction.description;
+
   const recurringBillTitle = transaction.recurringBill
     ? [
         `Recurring bill: ${transaction.recurringBill.billName}`,
@@ -671,6 +680,12 @@ export function TransactionEditor({
           ) : null}
           {undoAutoLabelAvailable ? (
             <AutoLabelUndoButton iconOnly transactionId={transaction.id} />
+          ) : null}
+          {canLinkToBill ? (
+            <LinkTransactionToBillDialog
+              transactionId={transaction.id}
+              transactionLabel={linkTransactionLabel}
+            />
           ) : null}
           <Button
             aria-label="Edit transaction"
