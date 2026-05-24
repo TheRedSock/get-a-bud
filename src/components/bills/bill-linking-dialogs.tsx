@@ -2,7 +2,7 @@
 
 import { Link2, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -45,14 +45,7 @@ type BillLinkOption = {
   isActive: boolean;
 };
 
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
-}
+const SEARCH_DEBOUNCE_MS = 300;
 
 function TransactionCandidateButton({
   row,
@@ -185,13 +178,13 @@ export function LinkTransactionForBillDialog({
   const [open, setOpen] = useState(false);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search, 300);
   const [suggestions, setSuggestions] = useState<UnlinkedTransactionRow[]>([]);
   const [others, setOthers] = useState<UnlinkedTransactionRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function loadCandidates(query: string) {
+  const loadCandidates = useCallback(async (query: string) => {
     setLoadState("loading");
     try {
       const body = await unwrapAction(
@@ -208,23 +201,36 @@ export function LinkTransactionForBillDialog({
       setLoadState("error");
       showErrorToast("Could not load transactions to link", error);
     }
+  }, [billId]);
+
+  function clearSearchDebounce() {
+    if (searchDebounceRef.current != null) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
   }
 
   function handleOpenChange(nextOpen: boolean) {
     if (linking) return;
     setOpen(nextOpen);
     if (!nextOpen) {
+      clearSearchDebounce();
       setSelectedId(null);
       setSearch("");
       setLoadState("idle");
+      return;
     }
+    void loadCandidates("");
   }
 
-  useEffect(() => {
-    if (!open) return;
-    void loadCandidates(debouncedSearch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reload when debounced search changes
-  }, [debouncedSearch, open, billId]);
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    clearSearchDebounce();
+    searchDebounceRef.current = window.setTimeout(() => {
+      searchDebounceRef.current = null;
+      void loadCandidates(value);
+    }, SEARCH_DEBOUNCE_MS);
+  }
 
   async function handleLink() {
     if (!selectedId) return;
@@ -271,7 +277,7 @@ export function LinkTransactionForBillDialog({
           aria-label="Search transactions"
           placeholder="Search description or merchant…"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => handleSearchChange(event.target.value)}
         />
 
         <div aria-live="polite" className="grid gap-3">
@@ -288,7 +294,7 @@ export function LinkTransactionForBillDialog({
                 size="sm"
                 type="button"
                 variant="outline"
-                onClick={() => void loadCandidates(debouncedSearch)}
+                onClick={() => void loadCandidates(search)}
               >
                 Try again
               </Button>
@@ -354,13 +360,13 @@ export function LinkTransactionToBillDialog({
   const [open, setOpen] = useState(false);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [search, setSearch] = useState("");
-  const debouncedSearch = useDebouncedValue(search, 300);
   const [suggestions, setSuggestions] = useState<BillLinkOption[]>([]);
   const [others, setOthers] = useState<BillLinkOption[]>([]);
   const [selectedBillId, setSelectedBillId] = useState<string | null>(null);
   const [linking, setLinking] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  async function loadCandidates(query: string) {
+  const loadCandidates = useCallback(async (query: string) => {
     setLoadState("loading");
     try {
       const body = await unwrapAction(
@@ -377,23 +383,36 @@ export function LinkTransactionToBillDialog({
       setLoadState("error");
       showErrorToast("Could not load bills", error);
     }
+  }, [transactionId]);
+
+  function clearSearchDebounce() {
+    if (searchDebounceRef.current != null) {
+      window.clearTimeout(searchDebounceRef.current);
+      searchDebounceRef.current = null;
+    }
   }
 
   function handleOpenChange(nextOpen: boolean) {
     if (linking) return;
     setOpen(nextOpen);
     if (!nextOpen) {
+      clearSearchDebounce();
       setSelectedBillId(null);
       setSearch("");
       setLoadState("idle");
+      return;
     }
+    void loadCandidates("");
   }
 
-  useEffect(() => {
-    if (!open) return;
-    void loadCandidates(debouncedSearch);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedSearch, open, transactionId]);
+  function handleSearchChange(value: string) {
+    setSearch(value);
+    clearSearchDebounce();
+    searchDebounceRef.current = window.setTimeout(() => {
+      searchDebounceRef.current = null;
+      void loadCandidates(value);
+    }, SEARCH_DEBOUNCE_MS);
+  }
 
   async function handleLink() {
     if (!selectedBillId) return;
@@ -446,7 +465,7 @@ export function LinkTransactionToBillDialog({
           aria-label="Search bills"
           placeholder="Search bill name…"
           value={search}
-          onChange={(event) => setSearch(event.target.value)}
+          onChange={(event) => handleSearchChange(event.target.value)}
         />
 
         <div aria-live="polite" className="grid gap-3">
@@ -461,7 +480,7 @@ export function LinkTransactionToBillDialog({
                 size="sm"
                 type="button"
                 variant="outline"
-                onClick={() => void loadCandidates(debouncedSearch)}
+                onClick={() => void loadCandidates(search)}
               >
                 Try again
               </Button>
