@@ -1,10 +1,17 @@
 import { and, eq, gt, isNotNull, isNull, lte, or } from "drizzle-orm";
-import { cron } from "inngest";
 
 import { db } from "@/db";
 import { ingestionConnections } from "@/db/schema";
 import { inngest } from "@/inngest/client";
-import { EVENT_NAMES } from "@/inngest/lib/events";
+import {
+  parseJobEvent,
+  scheduledBankSyncSchema,
+} from "@/inngest/lib/event-validation";
+import { EVENT_NAMES, scheduledBankSyncEvent } from "@/inngest/lib/events";
+import {
+  SCHEDULED_BANK_SYNC_CRON,
+  scheduledJobTriggers,
+} from "@/inngest/lib/scheduled-triggers";
 import { sendValidatedStepEvent } from "@/inngest/lib/send-event";
 import {
   findActiveSyncRunsByConnectionIds,
@@ -12,14 +19,20 @@ import {
 } from "@/lib/ingestion/sync-runs";
 import { logger } from "@/lib/logger";
 
-/** Cron-triggered job; no event payload to validate. */
+/** Queues sync for all active connections; invoke manually or via optional cron. */
 export const scheduledBankSync = inngest.createFunction(
   {
     id: "scheduled-bank-sync",
     name: "Scheduled bank sync",
-    triggers: cron("0 */6 * * *"),
+    triggers: scheduledJobTriggers(
+      scheduledBankSyncEvent,
+      SCHEDULED_BANK_SYNC_CRON,
+    ),
   },
-  async ({ step }) => {
+  async ({ event, step }) => {
+    parseJobEvent(scheduledBankSyncSchema, event.data, {
+      eventName: EVENT_NAMES.scheduledBankSync,
+    });
     const now = new Date();
     const connections = await step.run("load-active-connections", () =>
       db

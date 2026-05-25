@@ -13,6 +13,15 @@ Per `.env.example`:
 - Vercel integration sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`.
 - Do **not** set `INNGEST_ENV` on Vercel preview/production unless following a deliberate branch-routing policy.
 
+## Scheduled jobs (cron)
+
+`scheduled-bank-sync` and `pipeline-maintenance` register an Inngest cron only when
+`INNGEST_SCHEDULED_CRONS_ENABLED=true` on the deployment. With the variable unset,
+runs are manual only: Inngest → Functions → choose the function → **Invoke** (empty `{}` payload).
+
+To turn schedules back on, set `INNGEST_SCHEDULED_CRONS_ENABLED=true` in Vercel for the
+target environment and redeploy.
+
 ## Verification
 
 1. Open Inngest dashboard → Apps → confirm which deployment URL is registered.

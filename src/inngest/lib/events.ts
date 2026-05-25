@@ -7,7 +7,9 @@ import {
   detectRecurringBillsSchema,
   linkTransferPairsSchema,
   notificationBatchSchema,
+  pipelineMaintenanceSchema,
   retrainModelSchema,
+  scheduledBankSyncSchema,
 } from "@/inngest/lib/event-validation";
 
 export const EVENT_NAMES = {
@@ -18,6 +20,8 @@ export const EVENT_NAMES = {
   notificationBatch: "notifications.batch",
   backfillParsedFields: "transactions.backfill-parsed-fields",
   retrainModel: "model.retrain",
+  scheduledBankSync: "jobs.scheduled-bank-sync",
+  pipelineMaintenance: "jobs.pipeline-maintenance",
 } as const;
 
 export const bankConnectionSyncEvent = eventType(
@@ -47,4 +51,12 @@ export const backfillParsedFieldsEvent = eventType(
 export const retrainModelEvent = eventType(
   EVENT_NAMES.retrainModel,
   { schema: retrainModelSchema },
+);
+export const scheduledBankSyncEvent = eventType(
+  EVENT_NAMES.scheduledBankSync,
+  { schema: scheduledBankSyncSchema },
+);
+export const pipelineMaintenanceEvent = eventType(
+  EVENT_NAMES.pipelineMaintenance,
+  { schema: pipelineMaintenanceSchema },
 );

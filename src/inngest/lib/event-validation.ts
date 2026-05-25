@@ -43,6 +43,10 @@ export const backfillParsedFieldsSchema = z.object({
 
 export const notificationBatchSchema = z.object({}).strict();
 
+export const scheduledBankSyncSchema = z.object({}).strict();
+
+export const pipelineMaintenanceSchema = z.object({}).strict();
+
 export type BankConnectionSyncEvent = z.infer<typeof bankConnectionSyncSchema>;
 export type CategorizeTransactionsEvent = z.infer<
   typeof categorizeTransactionsSchema
@@ -52,6 +56,8 @@ export type DetectRecurringBillsEvent = z.infer<typeof detectRecurringBillsSchem
 export type RetrainModelEvent = z.infer<typeof retrainModelSchema>;
 export type BackfillParsedFieldsEvent = z.infer<typeof backfillParsedFieldsSchema>;
 export type NotificationBatchEvent = z.infer<typeof notificationBatchSchema>;
+export type ScheduledBankSyncEvent = z.infer<typeof scheduledBankSyncSchema>;
+export type PipelineMaintenanceEvent = z.infer<typeof pipelineMaintenanceSchema>;
 
 export function parseJobEvent<TSchema extends z.ZodTypeAny>(
   schema: TSchema,
