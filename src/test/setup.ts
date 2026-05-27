@@ -7,6 +7,16 @@ process.env.NEXTAUTH_SECRET ??= "test-secret-32-bytes-long-enough";
 process.env.NEXTAUTH_URL ??= "http://localhost:3000";
 process.env.FIELD_ENCRYPTION_KEY ??= "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
 
+// jsdom does not provide ResizeObserver. Stub it so components that use it
+// (e.g. custom select scroll tracking) can mount without throwing.
+if (typeof window !== "undefined" && !window.ResizeObserver) {
+  window.ResizeObserver = class ResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof globalThis.ResizeObserver;
+}
+
 // jsdom does not compute CSS. @testing-library/user-event v14+ walks the
 // ancestor chain calling getComputedStyle on each element and rejects
 // interactions when any ancestor reports pointer-events: none. On Linux CI,
