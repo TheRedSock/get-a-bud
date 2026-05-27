@@ -72,11 +72,11 @@ describe("src/config/env", () => {
     expect(serverEnv.SENTRY_DSN).toBeUndefined();
   });
 
-  it("treats ARCJET_KEY as optional in non-production", async () => {
+  it("defaults rate limiting to noop in non-production", async () => {
     process.env = { ...VALID_ENV };
 
     const { serverEnv } = await import("@/config/env");
-    expect(serverEnv.ARCJET_KEY).toBeUndefined();
+    expect(serverEnv.RATE_LIMIT_PROVIDER).toBeUndefined();
   });
 
   it("accepts valid optional variables", async () => {
@@ -84,15 +84,44 @@ describe("src/config/env", () => {
       ...originalEnv,
       ...VALID_ENV,
       SENTRY_DSN: "https://abc@sentry.io/123",
-      ARCJET_KEY: "ajkey_test123",
+      RATE_LIMIT_PROVIDER: "noop",
       GOOGLE_CLIENT_ID: "google-id",
       GOOGLE_CLIENT_SECRET: "google-secret",
     };
 
     const { serverEnv } = await import("@/config/env");
     expect(serverEnv.SENTRY_DSN).toBe("https://abc@sentry.io/123");
-    expect(serverEnv.ARCJET_KEY).toBe("ajkey_test123");
+    expect(serverEnv.RATE_LIMIT_PROVIDER).toBe("noop");
     expect(serverEnv.GOOGLE_CLIENT_ID).toBe("google-id");
+  });
+
+  it("requires Upstash credentials in production when provider is upstash", async () => {
+    process.env = {
+      ...originalEnv,
+      ...VALID_ENV,
+      NODE_ENV: "production",
+      SENTRY_DSN: "https://abc@sentry.io/123",
+      RATE_LIMIT_PROVIDER: "upstash",
+    };
+
+    await expect(import("@/config/env")).rejects.toThrow(
+      /UPSTASH_REDIS_REST/,
+    );
+  });
+
+  it("accepts Upstash credentials in production", async () => {
+    process.env = {
+      ...originalEnv,
+      ...VALID_ENV,
+      NODE_ENV: "production",
+      SENTRY_DSN: "https://abc@sentry.io/123",
+      RATE_LIMIT_PROVIDER: "upstash",
+      UPSTASH_REDIS_REST_URL: "https://example.upstash.io",
+      UPSTASH_REDIS_REST_TOKEN: "test-token",
+    };
+
+    const { serverEnv } = await import("@/config/env");
+    expect(serverEnv.UPSTASH_REDIS_REST_URL).toBe("https://example.upstash.io");
   });
 
   it("parses public env variables", async () => {

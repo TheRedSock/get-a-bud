@@ -37,11 +37,7 @@ import {
   createBillSchema,
   updateBillSchema,
 } from "@/lib/finance/validation";
-import {
-  authenticatedMutationRateLimit,
-  enforceActionRateLimit,
-  queueEnqueueRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Envelope schemas
@@ -108,7 +104,7 @@ type TransactionMetadata = Record<string, unknown> & {
 export const resolveDefaultBillCategoryId = authenticatedAction(
   "bills.resolve-default-category",
   async (ctx) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
     const categoryId = await ensureDefaultBillCategory(ctx.householdId);
     return { categoryId };
   },
@@ -121,7 +117,7 @@ export const resolveDefaultBillCategoryId = authenticatedAction(
 export const createBill = authenticatedAction(
   "bills.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createBillSchema,
@@ -182,7 +178,7 @@ export const createBill = authenticatedAction(
 export const updateBill = authenticatedAction(
   "bills.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       billUpdateEnvelope,
@@ -274,7 +270,7 @@ export const updateBill = authenticatedAction(
 export const rejectBill = authenticatedAction(
   "bills.reject",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       billIdEnvelope,
@@ -390,7 +386,7 @@ export const rejectBill = authenticatedAction(
 export const updateBillCategory = authenticatedAction(
   "bills.update-category",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       billCategoryEnvelope,
@@ -537,7 +533,7 @@ const detectRecurringBillsInputSchema = z.object({
 export const detectRecurringBills = authenticatedAction(
   "bills.detect-recurring",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+    await enforceRateLimit("queueEnqueue", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       detectRecurringBillsInputSchema,
@@ -882,7 +878,7 @@ export const getBillsForTransactionLink = authenticatedAction(
 export const linkTransactionToBill = authenticatedAction(
   "bills.link-transaction",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       linkTransactionToBillEnvelope,

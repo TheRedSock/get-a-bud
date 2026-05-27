@@ -19,7 +19,7 @@ jobs:
       FIELD_ENCRYPTION_KEY: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
       # next build sets NODE_ENV=production, so these become required:
       SENTRY_DSN: "https://stub@o0.ingest.sentry.io/0"
-      ARCJET_KEY: "ajkey_ci_stub"
+      RATE_LIMIT_PROVIDER: "noop"
 
     steps:
       - uses: actions/checkout@v6
@@ -56,7 +56,7 @@ jobs:
       NEXTAUTH_URL: http://localhost:3000
       FIELD_ENCRYPTION_KEY: MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
       SENTRY_DSN: https://stub@o0.ingest.sentry.io/0
-      ARCJET_KEY: ajkey_ci_stub
+      RATE_LIMIT_PROVIDER: noop
 
     steps:
       - uses: actions/checkout@v6

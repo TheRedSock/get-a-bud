@@ -26,7 +26,7 @@ authenticate -> validate -> authorize -> execute -> return typed result
   action itself. The action is a thin controller.
 - **Return typed results.** `{ data } | { error }`. Never throw raw errors
   to the client.
-- **Rate-limit sensitive actions** via Arcjet before they hit business logic.
+- **Rate-limit sensitive actions** via `enforceRateLimit` before they hit business logic.
 
 ### Naming Convention
 
@@ -103,15 +103,15 @@ All financial data is scoped to **households**, not individual users.
 Expected business errors are normal control flow. Unexpected system errors are
 incident-worthy events. Do not collapse them into the same handling path.
 
-## Security — Arcjet & Runtime Protection
+## Security — Rate Limiting & Runtime Protection
 
-- Apply Arcjet guards at the top of public API routes and sensitive server
-  actions. Protect before any database query.
+- Apply `enforceRateLimit(presetId)` at the top of public API routes and
+  sensitive server actions. Protect before any database query.
 - Rate limit by userId (authenticated) and IP (unauthenticated).
-- Bot detection on public-facing routes.
-- Shield rules on all mutation endpoints.
-- Centralize Arcjet rules as named presets in the security module. Reference
-  presets by name, not inline definitions.
+- Centralize presets in `src/lib/security/rate-limit/`. Reference preset ids,
+  not inline window/max values.
+- Production uses Upstash Redis; tests use `RATE_LIMIT_PROVIDER=noop`.
+- Fail open on rate-limit provider infrastructure errors; log deviations.
 - Never store secrets, credentials, auth codes, session IDs, key material,
   raw headers, or tokens in logs, client state, or unencrypted database fields.
 
@@ -127,7 +127,7 @@ Before completing API layer work, verify:
 - [ ] Client gets a safe, human-readable error message
 - [ ] Route handlers wrapped with `withApiHandler()`
 - [ ] Webhook signatures validated
-- [ ] Rate limiting applied via Arcjet for sensitive operations
+- [ ] Rate limiting applied via named presets for sensitive operations
 - [ ] No raw SQL or heavy business logic in the action itself
 - [ ] No internal error details exposed to the client
 - [ ] Action has a household-isolation test (or one is needed)

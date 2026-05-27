@@ -48,16 +48,13 @@ vi.mock("@/lib/auth/session", () => ({
 }));
 
 // ---------------------------------------------------------------------------
-// Arcjet — bypassed in integration tests
+// Rate limiting — bypassed in integration tests
 // ---------------------------------------------------------------------------
 
-vi.mock("@/lib/security/arcjet", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/security/arcjet")>();
-  return {
-    ...actual,
-    enforceActionRateLimit: vi.fn().mockResolvedValue(undefined),
-  };
-});
+vi.mock("@/lib/security/rate-limit", () => ({
+  enforceRateLimit: vi.fn().mockResolvedValue(undefined),
+  enforceActionRateLimit: vi.fn().mockResolvedValue(undefined),
+}));
 
 // ---------------------------------------------------------------------------
 // Audit — full action enum so tests don't break on new actions

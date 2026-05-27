@@ -16,8 +16,8 @@ Implemented in this prototype:
 - Manual fallback APIs for accounts, transactions, categories, budgets, assets,
   liabilities and bills, with editable account metadata and transaction notes,
   merchant, category, status and budget exclusion fields.
-- Auth middleware for app/API routes plus Arcjet rate limits on registration,
-  credentials auth and Enable Banking authorization starts.
+- Auth middleware for app/API routes plus Upstash-backed rate limits on
+  registration, credentials auth, financial mutations, and Enable Banking flows.
 - Working client forms for manual accounts, transactions, budgets, assets and
   liabilities, backed by the standard API error envelope and toast handling.
 - Enable Banking adapter with server-side JWT signing, encrypted PEM storage,

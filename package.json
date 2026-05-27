@@ -42,7 +42,6 @@
   },
   "homepage": "https://github.com/TheRedSock/get-a-bud#readme",
   "dependencies": {
-    "@arcjet/next": "^1.4.0",
     "@auth/drizzle-adapter": "^1.11.2",
     "@hookform/resolvers": "^5.2.2",
     "@neondatabase/serverless": "^1.1.0",
@@ -59,7 +58,8 @@
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-toast": "^1.2.15",
     "@sentry/nextjs": "^10.53.1",
-    "arcjet": "^1.4.0",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

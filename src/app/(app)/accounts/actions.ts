@@ -16,10 +16,7 @@ import {
   updateAccountSchema,
 } from "@/lib/finance/validation";
 import { requireStepUp } from "@/lib/auth/step-up";
-import {
-  authenticatedMutationRateLimit,
-  enforceActionRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Envelope schemas
@@ -37,7 +34,7 @@ const accountUpdateEnvelope = z.object({
 export const createAccount = authenticatedAction(
   "accounts.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createAccountSchema,
@@ -102,7 +99,7 @@ export const createAccount = authenticatedAction(
 export const updateAccount = authenticatedAction(
   "accounts.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       accountUpdateEnvelope,
@@ -173,7 +170,7 @@ const accountIdEnvelope = z.object({
 export const deleteAccount = authenticatedAction(
   "accounts.delete",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
     await requireStepUp(ctx.user.id);
 
     const envelope = validateActionInput(

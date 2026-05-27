@@ -7,7 +7,7 @@ import { users } from "@/db/schema";
 import { hashPassword } from "@/lib/auth/password";
 import { provisionNewHousehold } from "@/lib/auth/onboarding";
 import { registerFormSchema } from "@/lib/auth/validation";
-import { enforceActionRateLimit, registerRateLimit } from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import type { ActionResult } from "@/lib/actions/types";
 import { isAppError } from "@/lib/errors/app-error";
 
@@ -15,7 +15,7 @@ export async function registerUser(
   input: unknown,
 ): Promise<ActionResult<{ ok: true }>> {
   try {
-    await enforceActionRateLimit(registerRateLimit);
+    await enforceRateLimit("register");
 
     const parsed = registerFormSchema.safeParse(input);
     if (!parsed.success) {

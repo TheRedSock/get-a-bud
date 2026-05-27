@@ -2,9 +2,9 @@ import NextAuth from "next-auth";
 import type { NextRequest } from "next/server";
 
 import { authOptions } from "@/lib/auth/options";
-import { authRateLimit } from "@/lib/security/arcjet";
-import { rateLimitedError } from "@/lib/errors/catalog";
+import { isAppError } from "@/lib/errors/app-error";
 import { errorResponse } from "@/lib/errors/api";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 const handler = NextAuth(authOptions);
 
@@ -14,12 +14,16 @@ export async function POST(
   request: NextRequest,
   context: { params: Promise<{ nextauth: string[] }> },
 ) {
-  const decision = await authRateLimit.protect(request);
-  if (decision.isDenied()) {
-    const error = rateLimitedError(
-      "Too many sign-in attempts. Please try again later.",
-    );
-    return errorResponse(error, crypto.randomUUID());
+  try {
+    await enforceRateLimit("auth", {
+      headers: request.headers,
+      message: "Too many sign-in attempts. Please try again later.",
+    });
+  } catch (error) {
+    if (isAppError(error) && error.code === "rate_limited") {
+      return errorResponse(error, crypto.randomUUID());
+    }
+    throw error;
   }
 
   return handler(request, context);

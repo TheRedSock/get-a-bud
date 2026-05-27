@@ -49,10 +49,8 @@ vi.mock("@/lib/finance/household", () => ({
   getActiveHousehold: mockGetActiveHousehold,
 }));
 
-vi.mock("@/lib/security/arcjet", () => ({
-  authenticatedMutationRateLimit: {},
-  queueEnqueueRateLimit: {},
-  enforceActionRateLimit: vi.fn().mockResolvedValue(undefined),
+vi.mock("@/lib/security/rate-limit", () => ({
+  enforceRateLimit: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/audit", () => ({

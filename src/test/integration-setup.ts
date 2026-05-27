@@ -15,4 +15,4 @@ process.env.NEXTAUTH_URL ??= "http://localhost:3000";
 process.env.FIELD_ENCRYPTION_KEY ??=
   "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
 process.env.SENTRY_DSN ??= "https://stub@o0.ingest.sentry.io/0";
-process.env.ARCJET_KEY ??= "ajkey_ci_stub";
+process.env.RATE_LIMIT_PROVIDER ??= "noop";

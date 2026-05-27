@@ -8,7 +8,7 @@ import {
 } from "@/lib/actions/safe-action";
 import { issueStepUpCookie, verifyUserPassword } from "@/lib/auth/step-up";
 import { validationError } from "@/lib/errors/catalog";
-import { enforceActionRateLimit, authenticatedMutationRateLimit } from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 const confirmStepUpSchema = z.object({
   password: z.string().min(8),
@@ -17,7 +17,7 @@ const confirmStepUpSchema = z.object({
 export const confirmStepUp = authenticatedAction(
   "auth.stepUp.confirm",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       confirmStepUpSchema,

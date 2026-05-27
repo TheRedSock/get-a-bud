@@ -3,7 +3,7 @@
 This document defines the architectural ideals for a personal finance platform
 built with Next.js App Router, TypeScript, Tailwind, shadcn/ui-style
 components, Recharts, Neon Postgres, Drizzle ORM, Auth.js, Inngest, Sentry,
-Arcjet, and Vercel.
+Upstash, and Vercel.
 
 It is a target to measure against — not a description of current state. Use it
 as the reference for how code should be structured, how features should grow,
@@ -43,7 +43,7 @@ they do not yet exist, this document's principles inform their creation.
 10. [Background Jobs — Inngest](#10-background-jobs--inngest)
 11. [Ingestion & External Provider Integration](#11-ingestion--external-provider-integration)
 12. [Data Fetching, Caching & Computational Efficiency](#12-data-fetching-caching--computational-efficiency)
-13. [Security — Arcjet & Runtime Protection](#13-security--arcjet--runtime-protection)
+13. [Security — Rate Limiting & Runtime Protection](#13-security--rate-limiting--runtime-protection)
 14. [Error Handling](#14-error-handling)
 15. [Logging & Observability](#15-logging--observability)
 16. [Testing Strategy](#16-testing-strategy)
@@ -155,7 +155,7 @@ src/
 │   │   ├── types.ts                  # Normalized shapes all providers map into
 │   │   ├── [provider-name]/          # One directory per external provider
 │   │   └── imports/                  # File-based import adapters
-│   ├── security/                     # Arcjet presets, encryption, rate limit helpers
+│   ├── security/                     # Rate-limit presets, encryption
 │   ├── logger.ts                     # Structured logger
 │   └── [concern].ts                  # Narrow single-purpose utility modules
 │
@@ -324,7 +324,7 @@ domain logic portable and independently testable.
   or introduce a coordination layer.
 - **Keep public interfaces small.** Export only what is truly intended for
   reuse. Large exports mean large coupling surfaces.
-- **Isolate third-party SDKs.** Wrap external infrastructure (Arcjet, Sentry,
+- **Isolate third-party SDKs.** Wrap external infrastructure (Upstash, Sentry,
   Inngest, banking providers) in local adapter modules. If an SDK changes or
   is swapped, the blast radius is one module, not forty files.
 - **State flows down, events flow up.** React components receive data as
@@ -756,7 +756,7 @@ authenticate → validate → authorize → execute → return typed result
 - **Server actions are thin controllers.** Their only jobs are: check auth,
   validate input with Zod, call a domain function, handle errors, and return
   the result. No raw SQL or heavy loop manipulation inside the action itself.
-- **Rate-limit sensitive actions** via Arcjet before they hit business logic.
+- **Rate-limit sensitive actions** via `enforceRateLimit` before business logic.
 
 ### Route Handlers (for webhooks, external integrations)
 
@@ -1124,18 +1124,20 @@ For every data operation, ask:
 
 ---
 
-## 13. Security — Arcjet & Runtime Protection
+## 13. Security — Rate Limiting & Runtime Protection
 
-### Application-Level Rate Limiting (Arcjet)
+### Application-Level Rate Limiting
 
-- **Apply Arcjet guards** at the top of public API routes and sensitive server
-  actions. Protect against brute-force attacks before any database query.
-- **Rate limit by userId (authenticated) and IP (unauthenticated).**
-- **Bot detection on public-facing routes.**
-- **Shield rules on all mutation endpoints.**
-- **Centralize Arcjet rules as named presets** in a single security module.
-  Route handlers and actions reference presets by name, not inline rule
-  definitions.
+- **Apply rate limits** at the top of public API routes and sensitive server
+  actions. Protect against brute-force abuse before any database query.
+- **Rate limit by userId (authenticated) and IP (unauthenticated).** Use stable
+  identifier prefixes (`user:`, `ip:`) in the shared security module.
+- **Centralize rules as named presets** in `src/lib/security/rate-limit/`.
+  Route handlers and actions reference preset ids, not inline window/max values.
+- **Provider:** Upstash Redis (`@upstash/ratelimit`) in production; `noop` in
+  tests. Fail open on provider infrastructure errors (log deviation, allow request).
+- **Future (optional paid WAF/bot layer):** bot detection and Shield-style rules
+  are not implemented in-app today; add via edge WAF or a future provider adapter.
 - Middleware protects all authenticated app pages and non-public API routes.
   Public exceptions are intentionally narrow and explicitly listed.
 
@@ -1371,7 +1373,7 @@ These tests are **mandatory**, not optional hardening:
   parameter (accountId, budgetId, transactionId), test that supplying an ID
   from another household is rejected — not silently ignored, not partially
   processed.
-- **Rate limit tests.** Verify that Arcjet rules engage on protected endpoints
+- **Rate limit tests.** Verify that rate limit presets engage on protected endpoints
   when thresholds are exceeded.
 - **Input validation tests.** Verify that malformed, oversized, or malicious
   input is rejected by Zod schemas before reaching domain logic.

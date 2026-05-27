@@ -17,7 +17,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.enablebanking.com https://*.sentry.io https://*.ingest.de.sentry.io https://*.neon.tech https://*.inngest.com https://*.arcjet.com",
+      "connect-src 'self' https://api.enablebanking.com https://*.sentry.io https://*.ingest.de.sentry.io https://*.neon.tech https://*.inngest.com https://*.upstash.io",
       "upgrade-insecure-requests",
     ].join("; "),
   },

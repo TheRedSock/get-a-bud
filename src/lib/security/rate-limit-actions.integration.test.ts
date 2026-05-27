@@ -4,7 +4,7 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTransaction } from "@/app/(app)/transactions/actions";
 import { rateLimitedError } from "@/lib/errors/catalog";
-import { enforceActionRateLimit } from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { createTwoHouseholds } from "@/test/factories";
 import {
   closeIntegrationDb,
@@ -15,7 +15,7 @@ import { setIntegrationSession } from "@/test/integration-mocks";
 
 const dbAvailable = await isDatabaseAvailable();
 
-describe.skipIf(!dbAvailable)("Arcjet enforcement on createTransaction", () => {
+describe.skipIf(!dbAvailable)("Rate limit enforcement on createTransaction", () => {
   beforeEach(async () => {
     await resetDatabase();
   });
@@ -24,7 +24,7 @@ describe.skipIf(!dbAvailable)("Arcjet enforcement on createTransaction", () => {
     await closeIntegrationDb();
   });
 
-  it("returns rate_limited when Arcjet denies the mutation", async () => {
+  it("returns rate_limited when the limiter denies the mutation", async () => {
     const { userA, accountA } = await createTwoHouseholds();
     setIntegrationSession({
       id: userA.id,
@@ -32,7 +32,7 @@ describe.skipIf(!dbAvailable)("Arcjet enforcement on createTransaction", () => {
       name: userA.name,
     });
 
-    vi.mocked(enforceActionRateLimit).mockRejectedValueOnce(
+    vi.mocked(enforceRateLimit).mockRejectedValueOnce(
       rateLimitedError("Too many requests. Please wait and try again."),
     );
 

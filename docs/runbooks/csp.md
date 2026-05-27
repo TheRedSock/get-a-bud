@@ -6,7 +6,7 @@ Configured in `next.config.ts`.
 
 - Production: `unsafe-eval` removed; `script-src` still includes `unsafe-inline` for Next.js and telemetry compatibility.
 - `style-src` includes `unsafe-inline` (Tailwind / Next).
-- Allowed connect hosts: Enable Banking API, Sentry, Neon, Inngest, Arcjet, Vercel Live.
+- Allowed connect hosts: Enable Banking API, Sentry, Neon, Inngest, Upstash Redis, Vercel Live.
 
 ## Phase B (planned)
 

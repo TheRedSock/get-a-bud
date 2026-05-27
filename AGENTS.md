@@ -19,7 +19,7 @@ src/lib/          Domain logic, integrations, cross-cutting concerns
   ingestion/      Provider-independent types + provider adapters
     enable-banking/
     imports/
-  security/       Arcjet presets, encryption
+  security/       Rate-limit presets (Upstash), encryption
   logger.ts       Structured logger
 ```
 

@@ -12,13 +12,11 @@ import {
   hashAuthorizationState,
   safeCompareStateHash,
 } from "@/lib/ingestion/enable-banking/state";
+import { isAppError } from "@/lib/errors/app-error";
 import { configurationError, providerError } from "@/lib/errors/catalog";
 import { logger } from "@/lib/logger";
 import { decryptSecret } from "@/lib/security/encryption";
-import {
-  integrationAuthRateLimit,
-  enforceActionRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 function getPrivateKey(connection: typeof ingestionConnections.$inferSelect) {
   if (
@@ -42,22 +40,14 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
 
   try {
-    // Rate limit: prevent abuse of the public callback endpoint
-    const ip =
-      request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
-      "127.0.0.1";
-    const rateLimitReq = new Request("http://localhost/api/callback", {
-      headers: request.headers,
-    });
-    Object.defineProperty(rateLimitReq, "ip", { value: ip });
-    const decision = await integrationAuthRateLimit.protect(rateLimitReq);
-    if (decision.isDenied()) {
+    await enforceRateLimit("integrationAuth", { headers: request.headers });
+  } catch (error) {
+    if (isAppError(error) && error.code === "rate_limited") {
       return NextResponse.redirect(
         new URL("/settings/integrations?enable_banking=rate_limited", url.origin),
       );
     }
-  } catch {
-    // Fail open on rate limit infrastructure errors (local dev, missing key)
+    // Fail open on rate limit infrastructure errors (local dev, missing Redis)
   }
 
   try {

@@ -61,7 +61,7 @@ Test behavior contracts and invariants, not implementation shape.
 - `src/lib/errors/*` — API envelope and client parsing
 - `src/lib/finance/*` — money, budgets, transactions queries/commands
 - `src/lib/classification/*` — parser, model, linking, recurring
-- `src/lib/security/*` — encryption, Arcjet
+- `src/lib/security/*` — encryption, rate limiting
 - `src/app/(app)/**/actions*.test.ts` — mocked household isolation (fast)
 - `src/**/*.integration.test.ts` — durable DB isolation and ingestion contracts
 - `src/inngest/functions/*` — job schemas and continuation behavior

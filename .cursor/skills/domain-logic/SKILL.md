@@ -70,7 +70,7 @@ contract up or introduce a coordination layer.
 
 **Keep public interfaces small.** Export only what is truly needed for reuse.
 
-**Isolate third-party SDKs.** Wrap external infrastructure (Arcjet, Sentry,
+**Isolate third-party SDKs.** Wrap external infrastructure (Upstash, Sentry,
 Inngest, banking providers) in adapter modules. SDK swap = one module change.
 
 **State flows down, events flow up.** React components receive data as props,

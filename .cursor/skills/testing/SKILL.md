@@ -60,7 +60,7 @@ These tests are **mandatory**, not optional hardening:
 - **Foreign key ownership tests.** When a server action accepts an ID parameter,
   test that supplying an ID from another household is rejected — not silently
   ignored, not partially processed.
-- **Rate limit tests.** Verify Arcjet rules engage on protected endpoints.
+- **Rate limit tests.** Verify rate limit presets engage on protected endpoints.
 - **Input validation tests.** Verify malformed, oversized, or malicious input
   is rejected by Zod schemas before reaching domain logic.
 

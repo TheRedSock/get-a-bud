@@ -16,10 +16,7 @@ import {
   createAssetSchema,
   createLiabilitySchema,
 } from "@/lib/finance/validation";
-import {
-  authenticatedMutationRateLimit,
-  enforceActionRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Envelope schemas
@@ -62,7 +59,7 @@ const updateLiabilitySchema = z.object({
 export const createAsset = authenticatedAction(
   "assets.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createAssetSchema,
@@ -105,7 +102,7 @@ export const createAsset = authenticatedAction(
 export const createLiability = authenticatedAction(
   "liabilities.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createLiabilitySchema,
@@ -150,7 +147,7 @@ export const createLiability = authenticatedAction(
 export const updateAsset = authenticatedAction(
   "assets.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       assetUpdateEnvelope,
@@ -209,7 +206,7 @@ export const updateAsset = authenticatedAction(
 export const updateLiability = authenticatedAction(
   "liabilities.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       liabilityUpdateEnvelope,

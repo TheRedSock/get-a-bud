@@ -33,12 +33,7 @@ import {
   incrementCorrectionsAndRetrain,
   learnFromCategoryCorrection,
 } from "@/lib/finance/transactions";
-import {
-  authenticatedMutationRateLimit,
-  bulkOperationRateLimit,
-  enforceActionRateLimit,
-  queueEnqueueRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import {
   createTransactionSchema,
   updateTransactionSchema,
@@ -78,7 +73,7 @@ type TransactionMetadata = Record<string, unknown> & {
 export const createTransaction = authenticatedAction(
   "transactions.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createTransactionSchema,
@@ -243,7 +238,7 @@ export const createTransaction = authenticatedAction(
 export const updateTransaction = authenticatedAction(
   "transactions.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       updateTransactionEnvelope,
@@ -495,7 +490,7 @@ export const updateTransaction = authenticatedAction(
 export const approveSuggestion = authenticatedAction(
   "transactions.approve-suggestion",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       transactionIdEnvelope,
@@ -603,7 +598,7 @@ export const approveSuggestion = authenticatedAction(
 export const rejectSuggestion = authenticatedAction(
   "transactions.reject-suggestion",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       transactionIdEnvelope,
@@ -662,7 +657,7 @@ export const rejectSuggestion = authenticatedAction(
 export const undoAutoLabel = authenticatedAction(
   "transactions.undo-auto-label",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       transactionIdEnvelope,
@@ -722,7 +717,7 @@ const BULK_APPROVE_BATCH_SIZE = 100;
 export const approveAllSuggestions = authenticatedAction(
   "transactions.approve-all-suggestions",
   async (ctx, _input: void) => {
-    await enforceActionRateLimit(bulkOperationRateLimit, ctx.user.id);
+    await enforceRateLimit("bulkOperation", { userId: ctx.user.id });
 
     // Fetch a bounded batch of transactions with pending suggestions
     const pending = await db
@@ -853,7 +848,7 @@ export const approveAllSuggestions = authenticatedAction(
 export const deleteTransaction = authenticatedAction(
   "transactions.delete",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       transactionIdEnvelope,
@@ -906,7 +901,7 @@ export const deleteTransaction = authenticatedAction(
 export const classifyTransactions = authenticatedAction(
   "transactions.classify",
   async (ctx, _input: void) => {
-    await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+    await enforceRateLimit("queueEnqueue", { userId: ctx.user.id });
 
     await sendInngestEvent(EVENT_NAMES.categorizeTransactions, {
       householdId: ctx.householdId,

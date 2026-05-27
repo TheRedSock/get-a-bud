@@ -147,8 +147,10 @@ Public exceptions are intentionally narrow: Auth.js endpoints, registration,
 Inngest webhooks and the Enable Banking callback. App pages redirect to
 `/sign-in`; API routes return the standard unauthenticated JSON shape.
 
-Arcjet rate limits protect registration, credentials auth, financial mutations,
-and queue enqueue actions. Step-up password confirmation (`confirmStepUp` action
+Application rate limits (Upstash Redis, named presets in `src/lib/security/rate-limit/`)
+protect registration, credentials auth, financial mutations, integration auth,
+and queue enqueue actions. Authenticated limits are keyed per `userId`; public
+endpoints per client IP. Step-up password confirmation (`confirmStepUp` action
 and `gab-step-up` cookie) guards provider connection, sync queue, and account
 deletion.
 

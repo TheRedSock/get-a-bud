@@ -20,11 +20,7 @@ import {
   rateLimitedError,
   validationError,
 } from "@/lib/errors/catalog";
-import {
-  enforceActionRateLimit,
-  integrationAuthRateLimit,
-  queueEnqueueRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 import { EnableBankingClient } from "@/lib/ingestion/enable-banking/client";
 import { resolvePipelineRunForSlot } from "@/lib/ingestion/pipeline/runs";
 import { resolveSyncRunForEnqueue } from "@/lib/ingestion/sync-runs";
@@ -70,7 +66,7 @@ const queueSyncSchema = z.object({
 export const createEnableBankingConnection = authenticatedAction(
   "enableBanking.connections.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
+    await enforceRateLimit("integrationAuth", { userId: ctx.user.id });
     // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(
@@ -111,7 +107,7 @@ export const createEnableBankingConnection = authenticatedAction(
 export const startEnableBankingAuth = authenticatedAction(
   "enableBanking.authorization.start",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(integrationAuthRateLimit, ctx.user.id);
+    await enforceRateLimit("integrationAuth", { userId: ctx.user.id });
     // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(
@@ -309,7 +305,7 @@ export const startEnableBankingAuth = authenticatedAction(
 export const queueEnableBankingSync = authenticatedAction(
   "enableBanking.sync.queue",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(queueEnqueueRateLimit, ctx.user.id);
+    await enforceRateLimit("queueEnqueue", { userId: ctx.user.id });
     // await requireStepUp(ctx.user.id); // Deferred: needs step-up confirmation dialog
 
     const validated = validateActionInput(

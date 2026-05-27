@@ -12,10 +12,7 @@ import {
 import { AuditAction, writeAuditEvent } from "@/lib/audit";
 import { notFoundError, validationError } from "@/lib/errors/catalog";
 import { createBudgetSchema } from "@/lib/finance/validation";
-import {
-  authenticatedMutationRateLimit,
-  enforceActionRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Envelope schemas
@@ -46,7 +43,7 @@ const updateBudgetSchema = z.object({
 export const createBudget = authenticatedAction(
   "budgets.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createBudgetSchema,
@@ -88,7 +85,7 @@ export const createBudget = authenticatedAction(
 export const updateBudget = authenticatedAction(
   "budgets.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       budgetUpdateEnvelope,
@@ -147,7 +144,7 @@ export const updateBudget = authenticatedAction(
 export const deleteBudget = authenticatedAction(
   "budgets.delete",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       budgetIdEnvelope,

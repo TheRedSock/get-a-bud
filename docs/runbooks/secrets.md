@@ -7,7 +7,8 @@
 | `DATABASE_URL` | App, Drizzle, Inngest jobs |
 | `NEXTAUTH_SECRET` / `AUTH_SECRET` | Auth.js session signing |
 | `FIELD_ENCRYPTION_KEY` | AES-256-GCM for provider PEM storage |
-| `ARCJET_KEY` | Rate limiting |
+| `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | Application rate limiting (when `RATE_LIMIT_PROVIDER=upstash`) |
+| `RATE_LIMIT_PROVIDER` | `upstash` (production default) or `noop` (tests) |
 | `SENTRY_DSN` | Error reporting (production) |
 | `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | Background jobs |
 | OAuth client secrets | Google/GitHub sign-in (optional) |

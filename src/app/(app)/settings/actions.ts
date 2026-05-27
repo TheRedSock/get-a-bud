@@ -12,10 +12,7 @@ import {
 import { AuditAction, writeAuditEvent } from "@/lib/audit";
 import { forbiddenError, notFoundError, validationError } from "@/lib/errors/catalog";
 import { createCategorySchema } from "@/lib/finance/validation";
-import {
-  authenticatedMutationRateLimit,
-  enforceActionRateLimit,
-} from "@/lib/security/arcjet";
+import { enforceRateLimit } from "@/lib/security/rate-limit";
 
 // ---------------------------------------------------------------------------
 // Envelope schemas
@@ -46,7 +43,7 @@ const updateCategorySchema = z.object({
 export const createCategory = authenticatedAction(
   "categories.create",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const validated = validateActionInput(
       createCategorySchema,
@@ -140,7 +137,7 @@ export const createCategory = authenticatedAction(
 export const updateCategory = authenticatedAction(
   "categories.update",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       categoryUpdateEnvelope,
@@ -238,7 +235,7 @@ export const updateCategory = authenticatedAction(
 export const deleteCategory = authenticatedAction(
   "categories.delete",
   async (ctx, input: unknown) => {
-    await enforceActionRateLimit(authenticatedMutationRateLimit, ctx.user.id);
+    await enforceRateLimit("authenticatedMutation", { userId: ctx.user.id });
 
     const envelope = validateActionInput(
       categoryIdEnvelope,

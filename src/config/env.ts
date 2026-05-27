@@ -40,9 +40,14 @@ const serverSchema = z.object({
   SENTRY_DSN: isProduction
     ? z.string().url("SENTRY_DSN must be a valid URL in production")
     : z.string().url().optional(),
-  ARCJET_KEY: isProduction
-    ? z.string().min(1, "ARCJET_KEY is required in production")
-    : z.string().optional(),
+
+  // Application rate limiting (Upstash Redis by default in production)
+  RATE_LIMIT_PROVIDER: z.enum(["upstash", "noop"]).optional(),
+  UPSTASH_REDIS_REST_URL: z.string().url().optional(),
+  UPSTASH_REDIS_REST_TOKEN: z.string().min(1).optional(),
+
+  /** Legacy — only if re-enabling Arcjet via a future provider adapter */
+  ARCJET_KEY: z.string().optional(),
 
   // OAuth providers — optional (conditionally enabled)
   GOOGLE_CLIENT_ID: z.string().optional(),
@@ -66,6 +71,30 @@ const serverSchema = z.object({
   // Enable Banking test-only values
   ENABLE_BANKING_TEST_APPLICATION_ID: z.string().optional(),
   ENABLE_BANKING_TEST_PEM_PATH: z.string().optional(),
+}).superRefine((data, ctx) => {
+  if (!isProduction) {
+    return;
+  }
+
+  const provider = data.RATE_LIMIT_PROVIDER ?? "upstash";
+  if (provider === "upstash") {
+    if (!data.UPSTASH_REDIS_REST_URL) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["UPSTASH_REDIS_REST_URL"],
+        message:
+          "UPSTASH_REDIS_REST_URL is required in production when RATE_LIMIT_PROVIDER is upstash",
+      });
+    }
+    if (!data.UPSTASH_REDIS_REST_TOKEN) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["UPSTASH_REDIS_REST_TOKEN"],
+        message:
+          "UPSTASH_REDIS_REST_TOKEN is required in production when RATE_LIMIT_PROVIDER is upstash",
+      });
+    }
+  }
 });
 
 // --- Public (client-safe) schema ---

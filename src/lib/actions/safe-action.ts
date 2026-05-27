@@ -103,7 +103,7 @@ function normalizeToActionError(
  *
  * It does NOT handle:
  * - Input validation (call `validateActionInput` explicitly for clarity)
- * - Rate limiting (call Arcjet explicitly when needed)
+ * - Rate limiting (call enforceRateLimit explicitly when needed)
  * - Authorization of specific resource IDs (do this in the handler)
  *
  * This keeps ownership checks visible and auditable in each action.
