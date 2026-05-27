@@ -1,4 +1,4 @@
-import { formatCents } from "@/lib/finance/money";
+import { formatCents, formatCentsParts } from "@/lib/finance/money";
 
 export type BillAmountDisplay = {
   expectedAmountCents: number | null;
@@ -18,17 +18,40 @@ export type BillScheduleInput = {
 
 const DISPLAY_LOCALE = "nb-NO";
 
+/** Locale for English schedule copy (due / ended labels). */
+export const BILL_SCHEDULE_LOCALE = "en-US";
+
 /**
  * Format a recurring bill's amount for UI: original currency when tracked,
  * otherwise household book currency (NOK).
  */
 export function formatBillAmount(bill: BillAmountDisplay): string {
+  const { amount, suffix } = formatBillAmountParts(bill);
+  return `${amount} ${suffix}`;
+}
+
+export function formatBillAmountParts(
+  bill: BillAmountDisplay,
+): { amount: string; suffix: string } {
+  const { cents, currency } = billAmountCentsAndCurrency(bill);
+  return formatCentsParts(cents, currency, DISPLAY_LOCALE);
+}
+
+export function billAmountCentsAndCurrency(bill: BillAmountDisplay): {
+  cents: number;
+  currency: string;
+} {
   if (bill.originalCurrency && bill.lastOriginalAmountCents != null) {
-    return formatCents(bill.lastOriginalAmountCents, bill.originalCurrency);
+    return {
+      cents: bill.lastOriginalAmountCents,
+      currency: bill.originalCurrency,
+    };
   }
 
-  const bookCents = bill.expectedAmountCents ?? bill.lastAmountCents ?? 0;
-  return formatCents(bookCents);
+  return {
+    cents: bill.expectedAmountCents ?? bill.lastAmountCents ?? 0,
+    currency: "NOK",
+  };
 }
 
 /**
@@ -41,14 +64,17 @@ export function billAmountCentsForEdit(bill: BillAmountDisplay): number {
 }
 
 /** Normalize timestamp or ISO date string for display. */
-export function formatEventDate(value: Date | string | null): string | null {
+export function formatEventDate(
+  value: Date | string | null,
+  locale: string = DISPLAY_LOCALE,
+): string | null {
   if (value == null) return null;
   const date =
     value instanceof Date
       ? value
       : new Date(`${String(value).slice(0, 10)}T12:00:00Z`);
   if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(DISPLAY_LOCALE, {
+  return date.toLocaleDateString(locale, {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -84,20 +110,19 @@ export function formatBillDueLabel(
     return `Past due by ${overdue} day${overdue === 1 ? "" : "s"}`;
   }
 
-  return `Due ${formatEventDate(nextDueDate) ?? nextDueDate}`;
+  return `Due ${formatEventDate(nextDueDate, BILL_SCHEDULE_LOCALE) ?? nextDueDate}`;
 }
 
 function formatEndedLabel(bill: BillScheduleInput): string {
-  const userEnded = formatEventDate(bill.userEndedAt);
+  const scheduleLocale = BILL_SCHEDULE_LOCALE;
+
+  const userEnded = formatEventDate(bill.userEndedAt, scheduleLocale);
   if (userEnded) return `You ended this on ${userEnded}`;
 
-  const autoEnded = formatEventDate(bill.autoEndedAt);
-  if (autoEnded) return `Ended automatically on ${autoEnded}`;
+  const lastPaid = formatEventDate(bill.lastPaymentDate, scheduleLocale);
+  if (lastPaid) return `Last payment on ${lastPaid}`;
 
-  const lastPaid = formatEventDate(bill.lastPaymentDate);
-  if (lastPaid) return `Last paid ${lastPaid}`;
-
-  const fallback = formatEventDate(bill.updatedAt);
+  const fallback = formatEventDate(bill.updatedAt, scheduleLocale);
   return fallback ? `Ended ${fallback}` : "Ended";
 }
 

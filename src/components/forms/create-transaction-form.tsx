@@ -11,8 +11,8 @@ import type { z } from "zod";
 import { createTransaction } from "@/app/(app)/transactions/actions";
 import { LiveRegion } from "@/components/feedback/live-region";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { FormSelectField } from "@/components/forms/form-select";
 import { MoneyField } from "@/components/forms/money-field";
-import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unwrapAction } from "@/lib/actions/client";
@@ -41,6 +41,7 @@ export function CreateTransactionForm({
     register,
     handleSubmit,
     reset,
+    control,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateTransactionFormValues>({
@@ -125,31 +126,17 @@ export function CreateTransactionForm({
         }
       />
 
-      <FormField
+      <FormSelectField
+        control={control}
+        name="accountId"
         id="transaction-account"
         label="Account"
         error={errors.accountId?.message}
-      >
-        <select
-          id="transaction-account"
-          className={cn(
-            formNativeSelectClassName,
-            errors.accountId && "border-destructive",
-          )}
-          aria-invalid={Boolean(errors.accountId)}
-          aria-describedby={formFieldDescribedBy(
-            "transaction-account",
-            Boolean(errors.accountId),
-          )}
-          {...register("accountId")}
-        >
-          {accounts.map((account) => (
-            <option key={account.id} value={account.id}>
-              {account.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
+        options={accounts.map((account) => ({
+          value: account.id,
+          label: account.name,
+        }))}
+      />
 
       <FormField
         id="transaction-currency"
@@ -195,20 +182,19 @@ export function CreateTransactionForm({
         />
       </FormField>
 
-      <FormField id="transaction-category" label="Category">
-        <select
-          id="transaction-category"
-          className={formNativeSelectClassName}
-          {...register("categoryId")}
-        >
-          <option value="">Uncategorized</option>
-          {categories.map((category) => (
-            <option key={category.id} value={category.id}>
-              {category.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <FormSelectField
+        control={control}
+        name="categoryId"
+        id="transaction-category"
+        label="Category"
+        options={[
+          { value: "", label: "Uncategorized" },
+          ...categories.map((category) => ({
+            value: category.id,
+            label: category.name,
+          })),
+        ]}
+      />
 
       <FormField id="transaction-notes" label="Notes">
         <Input

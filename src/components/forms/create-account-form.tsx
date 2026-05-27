@@ -11,8 +11,8 @@ import type { z } from "zod";
 import { createAccount } from "@/app/(app)/accounts/actions";
 import { LiveRegion } from "@/components/feedback/live-region";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
+import { FormSelectField } from "@/components/forms/form-select";
 import { MoneyField } from "@/components/forms/money-field";
-import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unwrapAction } from "@/lib/actions/client";
@@ -41,6 +41,7 @@ export function CreateAccountForm() {
     register,
     handleSubmit,
     reset,
+    control,
     setValue,
     formState: { errors, isSubmitting },
   } = useForm<CreateAccountFormValues>({
@@ -93,21 +94,17 @@ export function CreateAccountForm() {
         />
       </FormField>
 
-      <FormField id="account-kind" label="Type" error={errors.kind?.message}>
-        <select
-          id="account-kind"
-          aria-invalid={Boolean(errors.kind)}
-          aria-describedby={formFieldDescribedBy("account-kind", Boolean(errors.kind))}
-          className={cn(formNativeSelectClassName, errors.kind && "border-destructive")}
-          {...register("kind")}
-        >
-          {accountKinds.map((accountKind) => (
-            <option key={accountKind} value={accountKind}>
-              {accountKind.replace("_", " ")}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <FormSelectField
+        control={control}
+        name="kind"
+        id="account-kind"
+        label="Type"
+        error={errors.kind?.message}
+        options={accountKinds.map((accountKind) => ({
+          value: accountKind,
+          label: accountKind.replace("_", " "),
+        }))}
+      />
 
       <FormField
         id="account-currency"

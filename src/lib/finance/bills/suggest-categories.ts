@@ -78,8 +78,8 @@ export async function suggestCategoriesForHouseholdBills(
     .where(
       and(
         eq(recurringBills.householdId, householdId),
-        eq(recurringBills.isActive, true),
         isNull(recurringBills.categoryId),
+        isNull(recurringBills.userEndedAt),
       ),
     );
 

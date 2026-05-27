@@ -10,7 +10,7 @@ import type { z } from "zod";
 import { createAsset, createLiability } from "@/app/(app)/net-worth/actions";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
 import { MoneyField } from "@/components/forms/money-field";
-import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
+import { FormSelect } from "@/components/forms/form-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unwrapAction } from "@/lib/actions/client";
@@ -129,17 +129,17 @@ export function CreateNetWorthItemForm() {
       </FormField>
 
       <FormField id="nw-item-type" label="Type">
-        <select
+        <FormSelect
           id="nw-item-type"
-          className={formNativeSelectClassName}
           value={itemType}
-          onChange={(event) =>
-            handleTypeChange(event.target.value as "asset" | "liability")
+          onValueChange={(value) =>
+            handleTypeChange(value as "asset" | "liability")
           }
-        >
-          <option value="asset">Asset</option>
-          <option value="liability">Liability</option>
-        </select>
+          options={[
+            { value: "asset", label: "Asset" },
+            { value: "liability", label: "Liability" },
+          ]}
+        />
       </FormField>
 
       <FormField id="nw-item-kind" label="Kind">

@@ -103,3 +103,22 @@ export function DialogDescription({
     />
   );
 }
+
+/** Scrollable dialog shell: fixed header/footer, inset scrollbar on body. */
+export const dialogScrollableShellClass =
+  "flex max-h-[min(90vh,40rem)] flex-col gap-4 overflow-hidden sm:max-w-lg";
+
+export function DialogScrollBody({
+  className,
+  ...props
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "scrollbar-inset -mr-1 min-h-0 flex-1 overflow-y-auto pr-1",
+        className,
+      )}
+      {...props}
+    />
+  );
+}

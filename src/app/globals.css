@@ -279,3 +279,42 @@ h3,
   background-size: 4rem 4rem;
   mask-image: linear-gradient(to bottom, black, transparent 72%);
 }
+
+/* Thin inset scrollbar for rounded panels and dialogs */
+.scrollbar-inset {
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--muted-foreground), transparent 55%)
+    transparent;
+}
+
+.scrollbar-inset::-webkit-scrollbar {
+  width: 0.625rem;
+}
+
+.scrollbar-inset::-webkit-scrollbar-track {
+  background: transparent;
+  margin-block: 0.5rem;
+}
+
+.scrollbar-inset::-webkit-scrollbar-thumb {
+  border-radius: 9999px;
+  background-color: color-mix(in oklch, var(--muted-foreground), transparent 62%);
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+.scrollbar-inset::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in oklch, var(--muted-foreground), transparent 42%);
+  background-clip: content-box;
+}
+
+.scrollbar-inset::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/*
+ * Select dropdowns use a custom JS-driven scroll thumb (SelectScrollThumb in
+ * select.tsx). The native scrollbar is hidden via inline `scrollbarWidth: none`
+ * on the viewport. No CSS scrollbar rules are needed here.
+ */

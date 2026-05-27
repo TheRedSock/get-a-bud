@@ -11,7 +11,7 @@ import type { z } from "zod";
 import { createBudget } from "@/app/(app)/budgets/actions";
 import { LiveRegion } from "@/components/feedback/live-region";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
-import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
+import { FormSelectField } from "@/components/forms/form-select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unwrapAction } from "@/lib/actions/client";
@@ -30,6 +30,7 @@ export function CreateBudgetForm() {
     register,
     handleSubmit,
     reset,
+    control,
     formState: { errors, isSubmitting },
   } = useForm<CreateBudgetFormValues>({
     resolver: zodResolver(createBudgetSchema),
@@ -78,21 +79,17 @@ export function CreateBudgetForm() {
         />
       </FormField>
 
-      <FormField id="budget-type" label="Type" error={errors.type?.message}>
-        <select
-          id="budget-type"
-          aria-invalid={Boolean(errors.type)}
-          aria-describedby={formFieldDescribedBy("budget-type", Boolean(errors.type))}
-          className={cn(formNativeSelectClassName, errors.type && "border-destructive")}
-          {...register("type")}
-        >
-          {budgetTypes.map((budgetType) => (
-            <option key={budgetType} value={budgetType}>
-              {budgetType.replace("_", " ")}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <FormSelectField
+        control={control}
+        name="type"
+        id="budget-type"
+        label="Type"
+        error={errors.type?.message}
+        options={budgetTypes.map((budgetType) => ({
+          value: budgetType,
+          label: budgetType.replace("_", " "),
+        }))}
+      />
 
       <FormField
         id="budget-currency"

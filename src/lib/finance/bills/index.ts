@@ -29,6 +29,7 @@ export {
   daysOverdueVsDueDate,
   isBillPastEndThreshold,
 } from "./status";
+export { billNeedsApproval, type BillApprovalInput } from "./approval";
 export {
   nextDueDateAfterPayment,
   type BillSchedulingShape,

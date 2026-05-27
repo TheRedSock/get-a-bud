@@ -24,6 +24,7 @@ import { ClassificationIndicator } from "@/components/classification-indicator";
 import { SuggestionActions } from "@/components/suggestion-actions";
 import { FormField, formFieldDescribedBy } from "@/components/forms/form-field";
 import { MoneyField } from "@/components/forms/money-field";
+import { TableAmountCell } from "@/components/money/table-amount-cell";
 import { TransferLinkBadge } from "@/components/transfer-link-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -646,14 +647,9 @@ export function TransactionEditor({
         >
           <SelectTrigger
             id={`transaction-category-inline-${transaction.id}`}
+            variant="inline"
             aria-label={`Category: ${categoryTriggerLabel}`}
-            className={cn(
-              "h-auto min-h-0 w-full max-w-[14rem] gap-1 border-0 bg-transparent px-1.5 py-1 shadow-none",
-              "font-normal text-muted-foreground transition-colors",
-              "hover:bg-muted/50 hover:text-foreground",
-              "rounded-lg focus:ring-1 focus:ring-ring",
-              "[&>svg:last-child]:size-3.5 [&>svg:last-child]:opacity-40",
-            )}
+            className="w-full max-w-[14rem]"
             title="Click to change category"
           >
             <span className="line-clamp-2 flex-1 text-left text-sm">
@@ -670,8 +666,11 @@ export function TransactionEditor({
           </SelectContent>
         </Select>
       </td>
-      <td className="whitespace-nowrap px-4 py-3 text-right font-semibold">
-        {formatCents(transaction.amountCents, transaction.currency)}
+      <td className="whitespace-nowrap px-4 py-3 text-right">
+        <TableAmountCell
+          cents={transaction.amountCents}
+          currency={transaction.currency}
+        />
       </td>
       <td className="whitespace-nowrap px-4 py-3 text-right">
         <div className="inline-flex flex-nowrap items-center justify-end gap-1">

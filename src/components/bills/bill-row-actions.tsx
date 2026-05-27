@@ -28,7 +28,9 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogScrollBody,
   DialogTitle,
+  dialogScrollableShellClass,
 } from "@/components/ui/dialog";
 import {
   DropdownMenu,
@@ -51,6 +53,7 @@ import {
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { billNeedsApproval } from "@/lib/finance/bills/approval";
 import { DEFAULT_BILL_CATEGORY_NAME } from "@/lib/finance/bills/constants";
 import { showErrorToast } from "@/lib/toast-errors";
 
@@ -62,6 +65,7 @@ type BillRowActionsProps = {
     isActive: boolean;
     isPossiblyCancelled: boolean;
     categoryId: string | null;
+    userEndedAt: Date | null;
     suggestedCategoryId: string | null;
     expectedAmount: string | null;
     nextDueDate: string | null;
@@ -71,7 +75,7 @@ type BillRowActionsProps = {
 
 export function BillRowActions({ bill, categories }: BillRowActionsProps) {
   const router = useRouter();
-  const isPending = bill.categoryId == null && bill.isActive;
+  const isPending = billNeedsApproval(bill);
 
   const [approveOpen, setApproveOpen] = useState(false);
   const [changeCategoryOpen, setChangeCategoryOpen] = useState(false);
@@ -178,26 +182,31 @@ export function BillRowActions({ bill, categories }: BillRowActionsProps) {
       />
 
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className={dialogScrollableShellClass}>
           <DialogHeader>
             <DialogTitle>Edit bill</DialogTitle>
-            <DialogDescription>Update schedule and amounts.</DialogDescription>
+            <DialogDescription>Update schedule, category, and amounts.</DialogDescription>
           </DialogHeader>
-          <RecurringBillEditor
-            billId={bill.id}
-            cadence={bill.cadence}
-            embedded
-            expectedAmount={bill.expectedAmount}
-            isActive={bill.isActive}
-            isPossiblyCancelled={bill.isPossiblyCancelled}
-            name={bill.name}
-            nextDueDate={bill.nextDueDate}
-            showEndToggle={false}
-            onSaved={() => {
-              setEditOpen(false);
-              router.refresh();
-            }}
-          />
+          <DialogScrollBody>
+            <RecurringBillEditor
+              billId={bill.id}
+              cadence={bill.cadence}
+              categories={categories}
+              categoryId={bill.categoryId}
+              embedded
+              expectedAmount={bill.expectedAmount}
+              isActive={bill.isActive}
+              isPossiblyCancelled={bill.isPossiblyCancelled}
+              name={bill.name}
+              nextDueDate={bill.nextDueDate}
+              showEndToggle={false}
+              suggestedCategoryId={bill.suggestedCategoryId}
+              onSaved={() => {
+                setEditOpen(false);
+                router.refresh();
+              }}
+            />
+          </DialogScrollBody>
         </DialogContent>
       </Dialog>
 
@@ -207,18 +216,24 @@ export function BillRowActions({ bill, categories }: BillRowActionsProps) {
           setMatchesOpen(next);
         }}
       >
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className={dialogScrollableShellClass}>
           <DialogHeader>
             <DialogTitle>Matching transactions</DialogTitle>
+            <DialogDescription>
+              Payments linked to this recurring bill from your transaction
+              history.
+            </DialogDescription>
           </DialogHeader>
-          {matchesOpen ? (
-            <BillTransactionsViewer
-              billId={bill.id}
-              embedded
-              loadOnMount
-              onLinked={() => router.refresh()}
-            />
-          ) : null}
+          <DialogScrollBody>
+            {matchesOpen ? (
+              <BillTransactionsViewer
+                billId={bill.id}
+                embedded
+                loadOnMount
+                onLinked={() => router.refresh()}
+              />
+            ) : null}
+          </DialogScrollBody>
         </DialogContent>
       </Dialog>
     </>

@@ -152,6 +152,26 @@ symbols, decimal separators, or date orderings.
 - Disable submit while submitting, show spinner on button.
 - Reset form on successful submission.
 
+### Form controls (select, date)
+
+- **Enumerated choices:** Use [`FormSelect`](src/components/forms/form-select.tsx)
+  or Radix [`Select`](src/components/ui/select.tsx) — not native `<select>`.
+- **RHF:** Prefer `Controller` or [`FormSelectField`](src/components/forms/form-select.tsx)
+  (`FormField` + `Controller` + `FormSelect`). Raw `value` / `onValueChange` on
+  `FormSelect` for non-RHF forms.
+- **`SelectTrigger` variants** ([`select.tsx`](src/components/ui/select.tsx)):
+  - `default` — bordered form fields (`h-11`, `rounded-2xl`, symmetric chevron gutter)
+  - `inline` — table cells; supports custom children (not only `SelectValue`)
+- **Dropdown panel:** `SelectContent` uses `overflow-hidden` + rounded corners;
+  list scroll on native `SelectViewport` with
+  `max-h-[min(18rem,var(--radix-select-content-available-height))]`,
+  `overflow-y-auto`, and a post-viewport `<style>` override (thin scrollbar,
+  no WebKit arrow buttons) — do not nest `ScrollArea` inside `SelectViewport`
+  (breaks wheel scroll with `RemoveScroll`).
+- **Date fields:** [`Input`](src/components/ui/input.tsx) `type="date"` uses
+  `block` (not `flex`) and positions the WebKit calendar indicator at `right-4`
+  to match select chevron inset.
+
 ## Accessibility
 
 Non-negotiables (WCAG AA minimum):

@@ -414,6 +414,13 @@ async function upsertDetectionResults(
     .from(recurringBills)
     .where(eq(recurringBills.householdId, householdId));
 
+  // Track bill IDs updated or inserted in this run. If a later pattern from
+  // the same amount cluster resolves to a bill already processed (via the
+  // amount-signature fallback), skip schedule overwrite. This prevents
+  // billing-drift sub-patterns (e.g. a ghost "quarterly" peak from month-end
+  // spill-over) from corrupting a correct schedule set by a stronger pattern.
+  const updatedBillIds = new Set<string>();
+
   for (const result of results) {
     const lastTxn = lastTxnFromResult(result, txnById);
     const bookAmountCents = lastTxn ? Math.abs(lastTxn.amountCents) : null;
@@ -452,41 +459,51 @@ async function upsertDetectionResults(
 
     if (existing) {
       billId = existing.id;
-      await mergeSignatureConflicts(
-        billId,
-        result.merchant,
-        result.amountSignature,
-        householdBills,
-      );
 
-      // Only advance nextDueDate — never regress it. Detection may see only
-      // old unclaimed transactions while match already set a more recent date.
-      const shouldAdvanceNextDue =
-        result.predictedNextDate != null &&
-        (existing.nextDueDate == null ||
-          result.predictedNextDate > existing.nextDueDate);
+      // If this bill was already updated in this run by a stronger pattern,
+      // skip the schedule overwrite entirely — just insert history rows below.
+      if (updatedBillIds.has(existing.id)) {
+        // Skip to history insertion (billId is set).
+      } else {
+        await mergeSignatureConflicts(
+          billId,
+          result.merchant,
+          result.amountSignature,
+          householdBills,
+        );
 
-      await db
-        .update(recurringBills)
-        .set({
-          ...sharedFields,
-          // Don't regress nextDueDate; keep the existing one if it's more recent
-          nextDueDate: shouldAdvanceNextDue
-            ? result.predictedNextDate
-            : undefined,
-          // Detection should not override isActive or isPossiblyCancelled — those
-          // are managed by the match phase (reactivation on new transactions) and
-          // lifecycle (ending on overdue). Detection may only see old unclaimed
-          // transactions and shouldn't flip active state based on stale data.
-        })
-        .where(eq(recurringBills.id, existing.id));
+        // When cadence changes, the old nextDueDate was computed under a
+        // different (possibly wrong) schedule. Allow regression so the
+        // corrected schedule takes effect immediately.
+        const cadenceChanged = existing.cadence !== result.cadence;
+        const shouldUpdateNextDue = cadenceChanged ||
+          (result.predictedNextDate != null &&
+            (existing.nextDueDate == null ||
+              result.predictedNextDate > existing.nextDueDate));
 
-      syncInMemoryBillFromDetection(existing, {
-        cadence: sharedFields.cadence,
-        amountSignature: sharedFields.amountSignature,
-        typicalDayOfMonth: sharedFields.typicalDayOfMonth,
-        isDuplicateSubscription: sharedFields.isDuplicateSubscription,
-      });
+        await db
+          .update(recurringBills)
+          .set({
+            ...sharedFields,
+            nextDueDate: shouldUpdateNextDue
+              ? result.predictedNextDate
+              : undefined,
+            // Detection should not override isActive or isPossiblyCancelled —
+            // those are managed by the match phase (reactivation on new
+            // transactions) and lifecycle (ending on overdue). Detection may
+            // only see old unclaimed transactions and shouldn't flip active
+            // state based on stale data.
+          })
+          .where(eq(recurringBills.id, existing.id));
+
+        syncInMemoryBillFromDetection(existing, {
+          cadence: sharedFields.cadence,
+          amountSignature: sharedFields.amountSignature,
+          typicalDayOfMonth: sharedFields.typicalDayOfMonth,
+          isDuplicateSubscription: sharedFields.isDuplicateSubscription,
+        });
+        updatedBillIds.add(existing.id);
+      }
     } else {
       const preInsertConflict = findBillByAmountSignature(
         householdBills,
@@ -494,18 +511,22 @@ async function upsertDetectionResults(
         result.amountSignature,
       );
 
-      if (preInsertConflict) {
+      if (preInsertConflict && updatedBillIds.has(preInsertConflict.id)) {
+        // Bill was already processed this run — skip schedule overwrite.
         billId = preInsertConflict.id;
-        const shouldAdvanceNextDue =
-          result.predictedNextDate != null &&
-          (preInsertConflict.nextDueDate == null ||
-            result.predictedNextDate > preInsertConflict.nextDueDate);
+      } else if (preInsertConflict) {
+        billId = preInsertConflict.id;
+        const cadenceChanged = preInsertConflict.cadence !== result.cadence;
+        const shouldUpdateNextDue = cadenceChanged ||
+          (result.predictedNextDate != null &&
+            (preInsertConflict.nextDueDate == null ||
+              result.predictedNextDate > preInsertConflict.nextDueDate));
 
         await db
           .update(recurringBills)
           .set({
             ...sharedFields,
-            nextDueDate: shouldAdvanceNextDue
+            nextDueDate: shouldUpdateNextDue
               ? result.predictedNextDate
               : undefined,
           })
@@ -517,6 +538,7 @@ async function upsertDetectionResults(
           typicalDayOfMonth: sharedFields.typicalDayOfMonth,
           isDuplicateSubscription: sharedFields.isDuplicateSubscription,
         });
+        updatedBillIds.add(preInsertConflict.id);
       } else {
         const [inserted] = await db
           .insert(recurringBills)
@@ -543,6 +565,7 @@ async function upsertDetectionResults(
           nextDueDate: result.predictedNextDate,
           isActive: true,
         });
+        updatedBillIds.add(billId);
       }
     }
 

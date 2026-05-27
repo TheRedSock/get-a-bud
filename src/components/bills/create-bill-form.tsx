@@ -7,12 +7,12 @@ import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import { createBill } from "@/app/(app)/bills/actions";
 import { FormField } from "@/components/forms/form-field";
+import { FormSelectField } from "@/components/forms/form-select";
 import { MoneyField } from "@/components/forms/money-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { formNativeSelectClassName } from "@/components/forms/native-select-styles";
-import { createBill } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
 import { billCadenceSchema } from "@/lib/finance/validation";
 import { showErrorToast } from "@/lib/toast-errors";
@@ -48,6 +48,7 @@ export function CreateBillForm({
   const {
     register,
     handleSubmit,
+    control,
     setValue,
     getValues,
     formState: { errors, isSubmitting },
@@ -108,34 +109,27 @@ export function CreateBillForm({
         <Input id="create-bill-merchant" {...register("merchantPattern")} />
       </FormField>
 
-      <FormField id="create-bill-category" label="Category" error={errors.categoryId?.message}>
-        <select
-          id="create-bill-category"
-          className={formNativeSelectClassName}
-          {...register("categoryId")}
-        >
-          <option value="">Choose category</option>
-          {categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <FormSelectField
+        control={control}
+        name="categoryId"
+        id="create-bill-category"
+        label="Category"
+        error={errors.categoryId?.message}
+        placeholder="Choose category"
+        options={categories.map((c) => ({ value: c.id, label: c.name }))}
+      />
 
-      <FormField id="create-bill-cadence" label="Cadence" error={errors.cadence?.message}>
-        <select
-          id="create-bill-cadence"
-          className={formNativeSelectClassName}
-          {...register("cadence")}
-        >
-          {cadenceOptions.map((option) => (
-            <option key={option} value={option}>
-              {option.replaceAll("_", " ")}
-            </option>
-          ))}
-        </select>
-      </FormField>
+      <FormSelectField
+        control={control}
+        name="cadence"
+        id="create-bill-cadence"
+        label="Cadence"
+        error={errors.cadence?.message}
+        options={cadenceOptions.map((option) => ({
+          value: option,
+          label: option.replaceAll("_", " "),
+        }))}
+      />
 
       <MoneyField
         id="create-bill-amount"

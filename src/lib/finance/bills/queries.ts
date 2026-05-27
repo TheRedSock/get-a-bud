@@ -24,8 +24,8 @@ function statusCondition(status: BillStatusFilter): SQL | undefined {
       return eq(recurringBills.isActive, true);
     case "pending":
       return and(
-        eq(recurringBills.isActive, true),
         isNull(recurringBills.categoryId),
+        isNull(recurringBills.userEndedAt),
       );
     case "active":
       return and(
@@ -90,8 +90,6 @@ export async function getBillsForListing(
   const statusSql = statusCondition(status);
   if (statusSql) conditions.push(statusSql);
 
-  const includeLastPayment = status === "ended";
-
   const selectFields = {
     id: recurringBills.id,
     name: recurringBills.name,
@@ -113,9 +111,7 @@ export async function getBillsForListing(
     userEndedAt: recurringBills.userEndedAt,
     autoEndedAt: recurringBills.autoEndedAt,
     updatedAt: recurringBills.updatedAt,
-    ...(includeLastPayment
-      ? { lastPaymentDate: lastPaymentSubquery }
-      : { lastPaymentDate: sql<string | null>`NULL`.as("last_payment_date") }),
+    lastPaymentDate: lastPaymentSubquery,
   };
 
   const rows = await db
@@ -166,8 +162,8 @@ export async function getPendingBillCount(householdId: string): Promise<number> 
     .where(
       and(
         eq(recurringBills.householdId, householdId),
-        eq(recurringBills.isActive, true),
         isNull(recurringBills.categoryId),
+        isNull(recurringBills.userEndedAt),
       ),
     );
 

@@ -21,8 +21,8 @@ import {
   nextCadenceDate,
   norwegianHolidays,
 } from "./calendar";
-import { detectRecurring, groupByMerchant, recurringMerchantKey } from "./index";
-import type { RecurringTransactionInput } from "./types";
+import { detectRecurring, groupByMerchant, recurringMerchantKey, suppressBillingDriftPatterns } from "./index";
+import type { BillCadence, RecurringTransactionInput } from "./types";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1130,6 +1130,49 @@ describe("detectRecurring", () => {
     expect(monthly!.transactionIds.length).toBeGreaterThanOrEqual(10);
   });
 
+  it("suppresses quarterly drift pattern when monthly dominates (Music League scenario)", () => {
+    // Music League: $2.00 charged mostly on ~day 30, with occasional early-month
+    // charges (day 1-3) from settlement drift. The early-month charges should NOT
+    // produce a separate quarterly pattern.
+    const merchant = "music league";
+    const dates = [
+      // Day-30 group (strong monthly signal):
+      "2024-05-30",
+      "2024-06-30",
+      "2024-07-30",
+      "2024-08-30",
+      "2024-09-30",
+      "2024-10-30",
+      "2024-11-29",
+      "2024-12-30",
+      "2025-01-30",
+      "2025-02-28",
+      "2025-03-30",
+      // Day-1/2/3 group (billing drift — sparse, ~quarterly gaps):
+      "2024-06-02",
+      "2024-09-01",
+      "2024-12-02",
+      "2025-03-02",
+    ];
+    const txns = dates.map((date) =>
+      makeTxn({
+        date,
+        amountCents: -200,
+        normalizedMerchantName: merchant,
+      }),
+    );
+
+    const results = detectRecurring(txns);
+    const musicLeague = results.filter((r) => r.merchant === merchant);
+
+    // Exactly one pattern should survive — the monthly one.
+    expect(musicLeague).toHaveLength(1);
+    expect(musicLeague[0].cadence).toBe("monthly");
+    // Anchor should be in the high-20s or 30 range, not 1-3.
+    expect(musicLeague[0].typicalDayOfMonth).toBeGreaterThanOrEqual(28);
+    expect(musicLeague[0].isDuplicateSubscription).toBe(false);
+  });
+
   it("detects duplicate subscriptions through full pipeline", () => {
     // Two Netflix subs: one on 5th, other on 20th
     const txns: RecurringTransactionInput[] = [];
@@ -1215,6 +1258,95 @@ describe("detectRecurring", () => {
     // Different signatures
     const sigs = new Set(netflix.map((r) => r.amountSignature));
     expect(sigs.size).toBe(netflix.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// suppressBillingDriftPatterns
+// ---------------------------------------------------------------------------
+
+describe("suppressBillingDriftPatterns", () => {
+  function makePattern(
+    overrides: Partial<{
+      cadence: BillCadence;
+      transactionCount: number;
+      merchant: string;
+      typicalDayOfMonth: number | null;
+    }>,
+  ) {
+    return {
+      isRecurring: true,
+      merchant: overrides.merchant ?? "test merchant",
+      cadence: overrides.cadence ?? "monthly",
+      confidence: 0.8,
+      pattern: "day_of_month" as const,
+      predictedNextDate: "2025-06-30",
+      typicalDayOfMonth: overrides.typicalDayOfMonth ?? 30,
+      amountTrend: "stable" as const,
+      lastAmounts: [],
+      priceChangeDetected: false,
+      transactionCount: overrides.transactionCount ?? 10,
+      originalCurrency: null,
+      lastOriginalAmount: null,
+      amountSignature: "NOK~200",
+      transactionIds: [],
+      delayedTransactionIds: [],
+      missingPeriods: [],
+      isDuplicateSubscription: false,
+    };
+  }
+
+  it("returns single pattern unchanged", () => {
+    const patterns = [makePattern({ cadence: "monthly", transactionCount: 10 })];
+    expect(suppressBillingDriftPatterns(patterns)).toHaveLength(1);
+  });
+
+  it("returns patterns unchanged when all share the same cadence", () => {
+    const patterns = [
+      makePattern({ cadence: "monthly", transactionCount: 8, typicalDayOfMonth: 5 }),
+      makePattern({ cadence: "monthly", transactionCount: 6, typicalDayOfMonth: 20 }),
+    ];
+    expect(suppressBillingDriftPatterns(patterns)).toHaveLength(2);
+  });
+
+  it("suppresses quarterly when monthly has 2x+ transaction count", () => {
+    const patterns = [
+      makePattern({ cadence: "monthly", transactionCount: 14 }),
+      makePattern({ cadence: "quarterly", transactionCount: 5, typicalDayOfMonth: 1 }),
+    ];
+    const result = suppressBillingDriftPatterns(patterns);
+    expect(result).toHaveLength(1);
+    expect(result[0].cadence).toBe("monthly");
+  });
+
+  it("suppresses semi-annual when monthly dominates", () => {
+    const patterns = [
+      makePattern({ cadence: "monthly", transactionCount: 12 }),
+      makePattern({ cadence: "semi_annual", transactionCount: 3, typicalDayOfMonth: 2 }),
+    ];
+    const result = suppressBillingDriftPatterns(patterns);
+    expect(result).toHaveLength(1);
+    expect(result[0].cadence).toBe("monthly");
+  });
+
+  it("keeps quarterly when monthly does not dominate", () => {
+    // If monthly only has 4 transactions and quarterly has 4, neither dominates
+    const patterns = [
+      makePattern({ cadence: "monthly", transactionCount: 4 }),
+      makePattern({ cadence: "quarterly", transactionCount: 4, typicalDayOfMonth: 1 }),
+    ];
+    const result = suppressBillingDriftPatterns(patterns);
+    expect(result).toHaveLength(2);
+  });
+
+  it("handles order independence — quarterly listed first still gets suppressed", () => {
+    const patterns = [
+      makePattern({ cadence: "quarterly", transactionCount: 5, typicalDayOfMonth: 1 }),
+      makePattern({ cadence: "monthly", transactionCount: 14 }),
+    ];
+    const result = suppressBillingDriftPatterns(patterns);
+    expect(result).toHaveLength(1);
+    expect(result[0].cadence).toBe("monthly");
   });
 });
 

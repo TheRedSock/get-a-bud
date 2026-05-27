@@ -12,7 +12,9 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogScrollBody,
   DialogTitle,
+  dialogScrollableShellClass,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,8 +22,8 @@ import {
   getUnlinkedTransactionsForBill,
   linkTransactionToBill,
 } from "@/app/(app)/bills/actions";
+import { TableAmountCell } from "@/components/money/table-amount-cell";
 import { unwrapAction } from "@/lib/actions/client";
-import { formatCents } from "@/lib/finance/money";
 import { showErrorToast } from "@/lib/toast-errors";
 import { cn } from "@/lib/utils";
 
@@ -74,9 +76,7 @@ function TransactionCandidateButton({
           </p>
           <p className="text-xs text-muted-foreground">{row.date}</p>
         </div>
-        <p className="font-semibold">
-          {formatCents(row.amountCents, row.currency)}
-        </p>
+        <TableAmountCell cents={row.amountCents} currency={row.currency} />
       </div>
     </button>
   );
@@ -112,9 +112,7 @@ function BillCandidateButton({
           </p>
         </div>
         {row.expectedAmountCents != null ? (
-          <p className="font-semibold">
-            {formatCents(row.expectedAmountCents)}
-          </p>
+          <TableAmountCell cents={row.expectedAmountCents} />
         ) : null}
       </div>
     </button>
@@ -274,7 +272,7 @@ export function LinkTransactionForBillDialog({
           Link transaction
         </Button>
       )}
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className={dialogScrollableShellClass}>
         <DialogHeader>
           <DialogTitle>Link transaction to bill</DialogTitle>
           <DialogDescription>
@@ -290,7 +288,7 @@ export function LinkTransactionForBillDialog({
           onChange={(event) => handleSearchChange(event.target.value)}
         />
 
-        <div aria-live="polite" className="grid gap-3">
+        <DialogScrollBody aria-live="polite" className="grid gap-3">
           {loadState === "loading" ? (
             <p className="text-sm text-muted-foreground">
               Loading transactions…
@@ -329,7 +327,7 @@ export function LinkTransactionForBillDialog({
               )}
             </>
           ) : null}
-        </div>
+        </DialogScrollBody>
 
         <DialogFooter>
           <Button
@@ -463,7 +461,7 @@ export function LinkTransactionToBillDialog({
         <Link2 className="size-4" aria-hidden />
         <span className="sr-only">Link to recurring bill</span>
       </Button>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className={dialogScrollableShellClass}>
         <DialogHeader>
           <DialogTitle>Link to recurring bill</DialogTitle>
           <DialogDescription>
@@ -478,7 +476,7 @@ export function LinkTransactionToBillDialog({
           onChange={(event) => handleSearchChange(event.target.value)}
         />
 
-        <div aria-live="polite" className="grid gap-3">
+        <DialogScrollBody aria-live="polite" className="grid gap-3">
           {loadState === "loading" ? (
             <p className="text-sm text-muted-foreground">Loading bills…</p>
           ) : loadState === "error" ? (
@@ -516,7 +514,7 @@ export function LinkTransactionToBillDialog({
               )}
             </>
           ) : null}
-        </div>
+        </DialogScrollBody>
 
         <DialogFooter>
           <Button

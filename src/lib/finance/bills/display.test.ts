@@ -4,6 +4,7 @@ import {
   billAmountCentsForEdit,
   formatAmountSignature,
   formatBillAmount,
+  formatBillAmountParts,
   formatBillDueLabel,
   formatBillScheduleLabel,
   formatBillPatternSummary,
@@ -17,8 +18,7 @@ describe("formatBillAmount", () => {
       originalCurrency: "EUR",
       lastOriginalAmountCents: 2199,
     });
-    expect(formatted).toContain("21");
-    expect(formatted).not.toMatch(/kr\b/i);
+    expect(formatted).toBe("21,99 €");
   });
 
   it("formats book currency when no original", () => {
@@ -29,6 +29,30 @@ describe("formatBillAmount", () => {
       lastOriginalAmountCents: null,
     });
     expect(formatted).toMatch(/kr/i);
+  });
+});
+
+describe("formatBillAmountParts", () => {
+  it("returns book currency parts when no original", () => {
+    expect(
+      formatBillAmountParts({
+        expectedAmountCents: 19_900,
+        lastAmountCents: 19_900,
+        originalCurrency: null,
+        lastOriginalAmountCents: null,
+      }),
+    ).toEqual({ amount: "199,00", suffix: "kr" });
+  });
+
+  it("returns original currency parts when present", () => {
+    expect(
+      formatBillAmountParts({
+        expectedAmountCents: 25_000,
+        lastAmountCents: 25_500,
+        originalCurrency: "EUR",
+        lastOriginalAmountCents: 2199,
+      }),
+    ).toEqual({ amount: "21,99", suffix: "€" });
   });
 });
 
@@ -88,16 +112,30 @@ describe("formatBillScheduleLabel", () => {
     expect(label).not.toMatch(/Due today/i);
   });
 
-  it("shows auto-ended copy", () => {
+  it("shows last payment on en-US date for auto-ended bills", () => {
     const label = formatBillScheduleLabel({
       isActive: false,
       nextDueDate: null,
       userEndedAt: null,
-      autoEndedAt: new Date("2026-03-15"),
-      lastPaymentDate: null,
+      autoEndedAt: new Date("2026-05-26"),
+      lastPaymentDate: "2026-03-30",
       updatedAt: asOf,
     });
-    expect(label).toContain("Ended automatically");
+    expect(label).toBe("Last payment on Mar 30, 2026");
+    expect(label).not.toContain("automatically");
+    expect(label).not.toContain("mai");
+  });
+
+  it("prefers last payment over autoEndedAt", () => {
+    const label = formatBillScheduleLabel({
+      isActive: false,
+      nextDueDate: null,
+      userEndedAt: null,
+      autoEndedAt: new Date("2026-05-26"),
+      lastPaymentDate: "2026-03-30",
+      updatedAt: asOf,
+    });
+    expect(label).not.toContain("May 26");
   });
 });
 

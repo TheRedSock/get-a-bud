@@ -30,8 +30,8 @@ import {
   updateBillCategory,
 } from "@/app/(app)/bills/actions";
 import { unwrapAction } from "@/lib/actions/client";
+import { TableAmountCell } from "@/components/money/table-amount-cell";
 import { formatBillPatternSummary } from "@/lib/finance/bills/display";
-import { formatCents } from "@/lib/finance/money";
 import {
   updateBillFormSchema,
   updateBillSchema,
@@ -202,6 +202,9 @@ export function RecurringBillEditor({
   isPossiblyCancelled,
   name,
   nextDueDate,
+  categories,
+  categoryId = null,
+  suggestedCategoryId = null,
   embedded = false,
   showEndToggle = true,
   onSaved,
@@ -213,12 +216,22 @@ export function RecurringBillEditor({
   isPossiblyCancelled: boolean;
   name: string;
   nextDueDate: string | null;
+  categories?: BillCategoryOption[];
+  categoryId?: string | null;
+  suggestedCategoryId?: string | null;
   embedded?: boolean;
   showEndToggle?: boolean;
   onSaved?: () => void;
 }) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(embedded);
+  const [editCategoryId, setEditCategoryId] = useState(
+    categoryId ?? suggestedCategoryId ?? "",
+  );
+
+  useEffect(() => {
+    setEditCategoryId(categoryId ?? suggestedCategoryId ?? "");
+  }, [billId, categoryId, suggestedCategoryId]);
 
   const {
     register,
@@ -256,6 +269,7 @@ export function RecurringBillEditor({
           isActive,
           isPossiblyCancelled,
         });
+        setEditCategoryId(categoryId ?? suggestedCategoryId ?? "");
       }
       return next;
     });
@@ -263,6 +277,25 @@ export function RecurringBillEditor({
 
   const saveBill = handleSubmit(async (values) => {
     try {
+      if (categories?.length) {
+        if (!editCategoryId) {
+          toast.error("Choose a category for this bill.");
+          return;
+        }
+        if (editCategoryId !== (categoryId ?? "")) {
+          await unwrapAction(
+            updateBillCategory({
+              billId,
+              data: {
+                categoryId: editCategoryId,
+                applyToTransactions: true,
+              },
+            }),
+            "Could not update bill category",
+          );
+        }
+      }
+
       const data = updateBillSchema.parse({
         name: values.name,
         cadence: values.cadence,
@@ -319,6 +352,26 @@ export function RecurringBillEditor({
               {...register("name")}
             />
           </FormField>
+
+          {categories?.length ? (
+            <FormField id={`bill-category-${billId}`} label="Category">
+              <Select
+                value={editCategoryId || undefined}
+                onValueChange={setEditCategoryId}
+              >
+                <SelectTrigger id={`bill-category-${billId}`}>
+                  <SelectValue placeholder="Choose category" />
+                </SelectTrigger>
+                <SelectContent>
+                  {categories.map((category) => (
+                    <SelectItem key={category.id} value={category.id}>
+                      {category.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+          ) : null}
 
           <div className="grid gap-3 sm:grid-cols-3">
             <FormField id={`bill-cadence-${billId}`} label="Cadence" error={errors.cadence?.message}>
@@ -622,17 +675,18 @@ export function BillTransactionsViewer({
                         {row.accountName ? ` · ${row.accountName}` : ""}
                       </p>
                     </div>
-                    <p className="font-semibold">
-                      {row.originalCurrency && row.originalAmountCents
-                        ? formatCents(
-                            row.originalAmountCents,
-                            row.originalCurrency,
-                          )
-                        : formatCents(
-                            row.amountCents,
-                            row.currency ?? undefined,
-                          )}
-                    </p>
+                    <TableAmountCell
+                      cents={
+                        row.originalCurrency && row.originalAmountCents
+                          ? row.originalAmountCents
+                          : row.amountCents
+                      }
+                      currency={
+                        row.originalCurrency && row.originalAmountCents
+                          ? row.originalCurrency
+                          : (row.currency ?? "NOK")
+                      }
+                    />
                   </div>
                   {row.excludedFromBudget || row.transactionType ? (
                     <p className="mt-2 text-xs text-muted-foreground">

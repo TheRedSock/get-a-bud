@@ -2,7 +2,7 @@ import {
   parseMoneyToCents,
   decimalStringToCents,
   formatCents,
-  formatCentsDecimal,
+  formatCentsParts,
   centsToDecimalString,
   addCents,
   negateCents,
@@ -157,35 +157,52 @@ describe("decimalStringToCents", () => {
 });
 
 describe("formatCents", () => {
-  it("formats positive cents to NOK", () => {
+  it("formats positive cents to NOK with kr suffix", () => {
     const result = formatCents(123456, "NOK", "nb-NO");
     expect(result).toMatch(/1[\s\u00a0.]?234,56/);
+    expect(result).toMatch(/kr$/);
   });
 
   it("formats zero", () => {
     const result = formatCents(0, "NOK", "nb-NO");
-    expect(result).toMatch(/0/);
+    expect(result).toMatch(/0,00 kr$/);
   });
 
   it("formats negative cents", () => {
     const result = formatCents(-5000, "NOK", "nb-NO");
-    expect(result).toMatch(/50/);
-    // Norwegian locale uses Unicode minus (U+2212) not ASCII hyphen
+    expect(result).toMatch(/50,00 kr$/);
     expect(result).toMatch(/[-\u2212]/);
   });
 
-  it("uses different currencies", () => {
+  it("uses symbol suffix for USD in nb-NO locale", () => {
+    const result = formatCents(2000, "USD", "nb-NO");
+    expect(result).toBe("20,00 $");
+  });
+
+  it("uses symbol suffix for USD in en-US locale", () => {
     const result = formatCents(1000, "USD", "en-US");
-    expect(result).toContain("$");
-    expect(result).toMatch(/10/);
+    expect(result).toBe("10.00 $");
+  });
+
+  it("falls back to ISO code for unmapped currencies", () => {
+    const result = formatCents(1000, "XYZ", "nb-NO");
+    expect(result).toBe("10,00 XYZ");
   });
 });
 
-describe("formatCentsDecimal", () => {
-  it("formats with decimal places", () => {
-    const result = formatCentsDecimal(12345, "NOK", "nb-NO");
-    // Should show 123.45 or 123,45 depending on locale
-    expect(result).toMatch(/123[.,]45/);
+describe("formatCentsParts", () => {
+  it("returns amount and suffix separately", () => {
+    expect(formatCentsParts(2000, "USD", "nb-NO")).toEqual({
+      amount: "20,00",
+      suffix: "$",
+    });
+  });
+
+  it("formatCents equals joined parts", () => {
+    const parts = formatCentsParts(19900, "NOK", "nb-NO");
+    expect(formatCents(19900, "NOK", "nb-NO")).toBe(
+      `${parts.amount} ${parts.suffix}`,
+    );
   });
 });
 

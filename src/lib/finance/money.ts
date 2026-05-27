@@ -16,8 +16,70 @@
  *   should not use this module.
  */
 
-/** Formatter cache keyed by currency code. */
+/** Formatter cache keyed by locale/currency/purpose. */
 const formatterCache = new Map<string, Intl.NumberFormat>();
+
+/**
+ * Colloquial currency suffixes — consistent placement after the amount.
+ *
+ * We intentionally avoid `Intl.NumberFormat` with `style: "currency"` for
+ * tabular contexts because the Intl API places symbols inconsistently across
+ * locales (prefix in en-US, suffix in nb-NO, narrow vs. standard variants).
+ * In financial tables where amounts must align in columns, we need a
+ * predictable "amount + suffix" layout. Unmapped currencies fall back to the
+ * ISO 4217 code (e.g. "XYZ"), which is always safe.
+ *
+ * Chart axis ticks (`formatChartAxisTick`) still use native Intl formatting
+ * because they need compact notation and don't require column alignment.
+ */
+const CURRENCY_DISPLAY: Record<string, string> = {
+  NOK: "kr",
+  SEK: "kr",
+  DKK: "kr",
+  USD: "$",
+  EUR: "€",
+  GBP: "£",
+  JPY: "¥",
+  CHF: "CHF",
+  PLN: "zł",
+  CZK: "Kč",
+  AUD: "A$",
+  CAD: "C$",
+  NZD: "NZ$",
+};
+
+function getDecimalFormatter(locale: string): Intl.NumberFormat {
+  const key = `${locale}:decimal`;
+  let formatter = formatterCache.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    formatterCache.set(key, formatter);
+  }
+  return formatter;
+}
+
+export function formatCentsParts(
+  cents: number,
+  currency = "NOK",
+  locale = "nb-NO",
+): { amount: string; suffix: string } {
+  return {
+    amount: getDecimalFormatter(locale).format(cents / 100),
+    suffix: CURRENCY_DISPLAY[currency] ?? currency,
+  };
+}
+
+function formatCentsWithSuffix(
+  cents: number,
+  currency: string,
+  locale: string,
+): string {
+  const { amount, suffix } = formatCentsParts(cents, currency, locale);
+  return `${amount} ${suffix}`;
+}
 
 /**
  * Parse a localized decimal string (user input or provider value) into integer
@@ -150,18 +212,7 @@ export function formatCents(
   currency = "NOK",
   locale = "nb-NO",
 ): string {
-  const key = `${locale}:${currency}`;
-  let formatter = formatterCache.get(key);
-  if (!formatter) {
-    formatter = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    });
-    formatterCache.set(key, formatter);
-  }
-  return formatter.format(cents / 100);
+  return formatCentsWithSuffix(cents, currency, locale);
 }
 
 /** Compact currency labels for chart Y-axis ticks (values are integer cents). */
@@ -185,27 +236,7 @@ export function formatChartAxisTick(
   return formatter.format(cents / 100);
 }
 
-/**
- * Format integer cents for display with decimal places (e.g., for editing).
- */
-export function formatCentsDecimal(
-  cents: number,
-  currency = "NOK",
-  locale = "nb-NO",
-): string {
-  const key = `${locale}:${currency}:dec`;
-  let formatter = formatterCache.get(key);
-  if (!formatter) {
-    formatter = new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency,
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    });
-    formatterCache.set(key, formatter);
-  }
-  return formatter.format(cents / 100);
-}
+
 
 /**
  * Convert cents to a plain decimal string suitable for form input fields.
