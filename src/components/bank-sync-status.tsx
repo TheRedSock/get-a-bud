@@ -13,6 +13,7 @@ import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { parseApiResponse } from "@/lib/api-client";
+import { formatAppDateTime } from "@/lib/datetime";
 import { showErrorToast } from "@/lib/toast-errors";
 import { queueEnableBankingSync } from "@/app/(app)/settings/integrations/actions";
 import { usePipelineLiveOptional } from "@/components/pipeline/pipeline-live-context";
@@ -61,7 +62,7 @@ function terminalMessage(run: SyncRun) {
 
   if (run.status === "rate_limited") {
     const retryAt = run.progress?.rateLimitedUntil
-      ? new Date(run.progress.rateLimitedUntil).toLocaleString()
+      ? formatAppDateTime(run.progress.rateLimitedUntil)
       : "later";
 
     return `The bank asked us to slow down. Sync will resume ${retryAt}.`;

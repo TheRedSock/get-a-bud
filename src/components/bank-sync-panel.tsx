@@ -8,6 +8,7 @@ import { SyncRunStatus, useBankSyncRuns } from "@/components/bank-sync-status";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatAppDateTime } from "@/lib/datetime";
 import type { ConnectionSummary } from "@/lib/ingestion/enable-banking/queries";
 
 export function BankSyncPanel({
@@ -59,9 +60,7 @@ export function BankSyncPanel({
                   <p className="font-semibold">{connection.displayName}</p>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {connection.lastSyncedAt
-                      ? `Last synced ${new Date(
-                          connection.lastSyncedAt,
-                        ).toLocaleString()}`
+                      ? `Last synced ${formatAppDateTime(connection.lastSyncedAt)}`
                       : "Connected, not synced yet"}
                   </p>
                 </div>

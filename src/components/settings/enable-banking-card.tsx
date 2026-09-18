@@ -20,6 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { formatAppDate } from "@/lib/datetime";
 import { showErrorToast } from "@/lib/toast-errors";
 import {
   createEnableBankingConnection,
@@ -357,7 +358,7 @@ export function EnableBankingCard({
                   {connection.consentExpiresAt ? (
                     <span>
                       Consent expires{" "}
-                      {new Date(connection.consentExpiresAt).toLocaleDateString()}
+                      {formatAppDate(connection.consentExpiresAt)}
                     </span>
                   ) : null}
                 </div>

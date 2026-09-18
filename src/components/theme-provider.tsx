@@ -1,43 +1,69 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
-type Theme = "light" | "dark";
+import {
+  readThemeFromDocument,
+  THEME_STORAGE_KEY,
+  writeThemeCookie,
+  type Theme,
+} from "@/lib/theme";
 
 type DesignContextValue = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
+  /** False until client theme has been read (avoids SSR/client icon mismatches). */
+  mounted: boolean;
 };
 
 const DesignContext = createContext<DesignContextValue | null>(null);
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setThemeState] = useState<Theme>("dark");
+export function ThemeProvider({
+  children,
+  initialTheme = "dark",
+}: {
+  children: ReactNode;
+  initialTheme?: Theme;
+}) {
+  const [theme, setThemeState] = useState<Theme>(initialTheme);
+  const [mounted, setMounted] = useState(false);
 
-  useEffect(() => {
-    const frame = window.requestAnimationFrame(() => {
-      const storedTheme = localStorage.getItem("get-a-bud-theme") as Theme | null;
-      const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-      setThemeState(storedTheme ?? (prefersDark ? "dark" : "light"));
-    });
-
-    return () => window.cancelAnimationFrame(frame);
+  // Hydration correction: must synchronously read actual DOM theme class after
+  // hydration to prevent flash of wrong theme. This is the documented pattern
+  // for useLayoutEffect-based SSR mismatch fixes.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useLayoutEffect(() => {
+    setThemeState(readThemeFromDocument());
+    setMounted(true);
   }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!mounted) {
+      return;
+    }
     document.documentElement.classList.toggle("dark", theme === "dark");
-  }, [theme]);
+  }, [theme, mounted]);
 
   const value = useMemo<DesignContextValue>(
     () => ({
       theme,
+      mounted,
       setTheme(nextTheme) {
-        localStorage.setItem("get-a-bud-theme", nextTheme);
+        localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+        writeThemeCookie(nextTheme);
+        document.documentElement.classList.toggle("dark", nextTheme === "dark");
         setThemeState(nextTheme);
       },
     }),
-    [theme],
+    [theme, mounted],
   );
 
   return (

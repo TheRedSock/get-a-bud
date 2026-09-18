@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useDesign } from "@/components/theme-provider";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useDesign();
+  const { theme, setTheme, mounted } = useDesign();
   const isDark = theme === "dark";
 
   return (
@@ -16,7 +16,15 @@ export function ThemeToggle() {
       variant="outline"
       onClick={() => setTheme(isDark ? "light" : "dark")}
     >
-      {isDark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+      {mounted ? (
+        isDark ? (
+          <Sun className="size-4" />
+        ) : (
+          <Moon className="size-4" />
+        )
+      ) : (
+        <span className="inline-block size-4" aria-hidden />
+      )}
     </Button>
   );
 }
