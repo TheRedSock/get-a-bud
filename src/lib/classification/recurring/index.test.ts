@@ -232,6 +232,31 @@ describe("merchant identity grouping", () => {
     const groups = groupByMerchant(txns);
     expect(groups.get("merchant:merchant-kiwi")).toHaveLength(2);
   });
+
+  it("strips trailing PayPal reference codes from normalized merchant keys", () => {
+    const p3 = makeTxn({
+      date: "2026-01-09",
+      normalizedMerchantName: "paypal spotify p3",
+    });
+    const p4 = makeTxn({
+      date: "2026-02-09",
+      normalizedMerchantName: "paypal spotify p4",
+    });
+
+    // Both should resolve to the same recurring merchant key
+    expect(recurringMerchantKey(p3)).toBe("paypal spotify");
+    expect(recurringMerchantKey(p4)).toBe("paypal spotify");
+    expect(recurringMerchantKey(p3)).toBe(recurringMerchantKey(p4));
+  });
+
+  it("does not strip non-PayPal trailing tokens", () => {
+    const txn = makeTxn({
+      date: "2026-01-09",
+      normalizedMerchantName: "spotify p3",
+    });
+    // Without "paypal" prefix, the p3 suffix is kept (could be meaningful)
+    expect(recurringMerchantKey(txn)).toBe("spotify p3");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -1127,7 +1152,21 @@ describe("detectRecurring", () => {
     expect(disney.every((r) => !r.isDuplicateSubscription)).toBe(true);
     const monthly = disney.find((r) => r.cadence === "monthly");
     expect(monthly).toBeDefined();
-    expect(monthly!.transactionIds.length).toBeGreaterThanOrEqual(10);
+
+    // All 18 transactions should be captured in the monthly pattern — including
+    // early-month "bleed-over" dates (Dec 2, Mar 3, Dec 1, Mar 2) that are late
+    // payments crossing month boundaries from a day-29 anchor.
+    expect(monthly!.transactionIds.length).toBe(18);
+
+    // Verify the specific early-month transactions are included (not left
+    // orphaned as a separate quarterly artifact).
+    const earlyMonthDates = ["2024-12-02", "2025-03-03", "2025-12-01", "2026-03-02"];
+    const matchedDates = monthly!.transactionIds.map(
+      (id) => txns.find((t) => t.id === id)!.date,
+    );
+    for (const date of earlyMonthDates) {
+      expect(matchedDates).toContain(date);
+    }
   });
 
   it("suppresses quarterly drift pattern when monthly dominates (Music League scenario)", () => {
@@ -1258,6 +1297,33 @@ describe("detectRecurring", () => {
     // Different signatures
     const sigs = new Set(netflix.map((r) => r.amountSignature));
     expect(sigs.size).toBe(netflix.length);
+  });
+
+  it("groups PayPal transactions with rotating reference codes into one bill", () => {
+    // Spotify via PayPal: reference rotated from P3 → P4 mid-stream.
+    // Both should be detected as one monthly pattern.
+    const dates = [
+      "2025-06-10", "2025-07-09", "2025-08-11", "2025-09-09",
+      "2025-10-09", "2025-11-10", "2025-12-09", "2026-01-09",
+      "2026-02-09", "2026-03-09", "2026-04-09", "2026-05-11",
+    ];
+    const txns = dates.map((date, i) =>
+      makeTxn({
+        date,
+        amountCents: -18900,
+        // First 8 transactions have "p3", last 4 have "p4"
+        normalizedMerchantName: i < 8 ? "paypal spotify p3" : "paypal spotify p4",
+      }),
+    );
+
+    const results = detectRecurring(txns);
+
+    // Should produce exactly one monthly pattern (not two split by reference code)
+    expect(results).toHaveLength(1);
+    expect(results[0].cadence).toBe("monthly");
+    expect(results[0].transactionIds.length).toBe(12);
+    // The unified merchant key should be "paypal spotify" (reference stripped)
+    expect(results[0].merchant).toBe("paypal spotify");
   });
 });
 

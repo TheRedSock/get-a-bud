@@ -34,7 +34,23 @@ const CADENCE_RANK: Record<BillCadence, number> = {
 };
 
 export function recurringMerchantKey(txn: RecurringTransactionInput) {
-  return txn.merchantId ? `merchant:${txn.merchantId}` : txn.normalizedMerchantName;
+  if (txn.merchantId) return `merchant:${txn.merchantId}`;
+  const name = txn.normalizedMerchantName;
+  if (!name) return name;
+  // Strip trailing PayPal reference tokens (e.g., "paypal spotify p3" → "paypal spotify")
+  // so that reference rotations (P3 → P4) don't split the same merchant into
+  // separate groups during recurring detection.
+  return stripNormalizedPaypalRef(name);
+}
+
+/**
+ * Strip trailing "p\d+" tokens from normalized merchant names that appear to
+ * be PayPal transactions. These are internal PayPal reference identifiers that
+ * rotate over time for the same underlying merchant.
+ */
+function stripNormalizedPaypalRef(normalized: string): string {
+  if (!normalized.startsWith("paypal ")) return normalized;
+  return normalized.replace(/\s+p\d+$/, "");
 }
 
 /**

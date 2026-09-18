@@ -98,7 +98,10 @@ export function dateMatchesBillCadence(
   if (!bill.nextDueDate) {
     if (bill.typicalDayOfMonth == null) return true;
     const dom = dateDayOfMonth(row.date);
-    return Math.abs(dom - bill.typicalDayOfMonth) <= 2;
+    return (
+      Math.abs(dom - bill.typicalDayOfMonth) <= 2 ||
+      isLatePaymentForAnchor(dom, bill.typicalDayOfMonth)
+    );
   }
 
   const anchorDay = bill.typicalDayOfMonth ?? dateDayOfMonth(bill.nextDueDate);
@@ -112,28 +115,77 @@ export function dateMatchesBillCadence(
 
   if (Math.abs(daysBetween(expected, row.date)) <= 2) return true;
 
+  // Month-based cadence fallback: check if the transaction's month aligns
+  // with the bill's cadence relative to the nextDueDate (not the forward-
+  // walked position which may be unreliable for past transactions).
   const monthStep = monthCadenceStep(bill.cadence);
   if (monthStep == null || bill.typicalDayOfMonth == null) return false;
 
-  const expectedDate = new Date(expected + "T12:00:00Z");
+  const nextDueD = new Date(bill.nextDueDate + "T12:00:00Z");
   const rowDate = new Date(row.date + "T12:00:00Z");
-  const monthGap =
-    (rowDate.getUTCFullYear() - expectedDate.getUTCFullYear()) * 12 +
-    (rowDate.getUTCMonth() - expectedDate.getUTCMonth());
-
-  if (monthGap < 0 || monthGap % monthStep !== 0) return false;
-
   const rowDom = rowDate.getUTCDate();
-  const rowMonthLastDay = new Date(
-    Date.UTC(rowDate.getUTCFullYear(), rowDate.getUTCMonth() + 1, 0),
-  ).getUTCDate();
 
-  return (
-    Math.abs(rowDom - bill.typicalDayOfMonth) <= 2 ||
-    (bill.typicalDayOfMonth >= 29 &&
-      rowDom === rowMonthLastDay &&
-      rowMonthLastDay < bill.typicalDayOfMonth)
-  );
+  // Month offset from nextDueDate to the row's month
+  const monthOffset =
+    (rowDate.getUTCFullYear() - nextDueD.getUTCFullYear()) * 12 +
+    (rowDate.getUTCMonth() - nextDueD.getUTCMonth());
+
+  // Standard slot: the row's month aligns with the cadence
+  if (monthAligns(monthOffset, monthStep)) {
+    const rowMonthLastDay = new Date(
+      Date.UTC(rowDate.getUTCFullYear(), rowDate.getUTCMonth() + 1, 0),
+    ).getUTCDate();
+
+    if (
+      Math.abs(rowDom - bill.typicalDayOfMonth) <= 2 ||
+      (bill.typicalDayOfMonth >= 29 &&
+        rowDom === rowMonthLastDay &&
+        rowMonthLastDay < bill.typicalDayOfMonth)
+    ) {
+      return true;
+    }
+  }
+
+  // Late-payment recognition: a transaction on day 1–4 of month N may be a
+  // delayed payment for the slot in month N-1 when the anchor is day 28–31.
+  // Example: anchor day 29, bill due Feb 28 → transaction on Mar 2 (3 days
+  // late across month boundary) should still match.
+  if (bill.typicalDayOfMonth >= 28 && rowDom <= 4) {
+    const prevSlotOffset = monthOffset - 1;
+    if (monthAligns(prevSlotOffset, monthStep)) {
+      // Verify the delay is reasonable: at most 6 days from the anchor in
+      // the previous month.
+      const prevMonthLastDay = new Date(
+        Date.UTC(rowDate.getUTCFullYear(), rowDate.getUTCMonth(), 0),
+      ).getUTCDate();
+      const anchorInPrevMonth = Math.min(
+        bill.typicalDayOfMonth,
+        prevMonthLastDay,
+      );
+      const daysLate = prevMonthLastDay - anchorInPrevMonth + rowDom;
+      return daysLate <= 6;
+    }
+  }
+
+  return false;
+}
+
+/** Check if a month offset from the bill's nextDueDate aligns with the cadence. */
+function monthAligns(monthOffset: number, monthStep: number): boolean {
+  // JavaScript % can return negative remainders; normalize to [0, monthStep).
+  const rem = ((monthOffset % monthStep) + monthStep) % monthStep;
+  return rem === 0;
+}
+
+/** Late-payment heuristic: day 1–4 is a plausible late payment for anchor 28–31. */
+function isLatePaymentForAnchor(
+  rowDom: number,
+  typicalDayOfMonth: number,
+): boolean {
+  if (typicalDayOfMonth < 28 || rowDom > 4) return false;
+  // Day distance from anchor (assuming 30/31-day month crossing):
+  // e.g., anchor 29 → day 2 = ~3 days late, anchor 31 → day 4 = ~4 days late
+  return true;
 }
 
 /** Book-currency cents for amount tolerance checks (expectedAmountCents is NOK). */

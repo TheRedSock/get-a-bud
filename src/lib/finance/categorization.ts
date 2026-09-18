@@ -13,6 +13,20 @@ export function normalizeMerchant(value: string) {
 }
 
 /**
+ * Strip PayPal internal reference suffixes (e.g., ":P3", ":P4") from a raw
+ * merchant name. These are rotating PayPal payment identifiers that do not
+ * represent distinct merchants — "Spotify:P3" and "Spotify:P4" are the same
+ * subscription.
+ *
+ * Applied before normalization so that the normalized merchant key stabilizes
+ * across reference rotations.
+ */
+export function stripPaypalReferenceSuffix(raw: string): string {
+  // Match trailing :P followed by 1+ digits, optionally preceded by whitespace
+  return raw.replace(/\s*:P\d+$/i, "").trim();
+}
+
+/**
  * Enhanced category detection with field-scoped matching.
  *
  * Rules match against specific fields (merchant, description, counterparty)

@@ -5,7 +5,7 @@ import { transactions } from "@/db/schema";
 import { parseDescription } from "@/lib/classification/parser";
 import type { ParserResult } from "@/lib/classification/parser/types";
 import { parseNorwegianDecimal } from "@/lib/classification/parser/norwegian";
-import { normalizeMerchant } from "@/lib/finance/categorization";
+import { normalizeMerchant, stripPaypalReferenceSuffix } from "@/lib/finance/categorization";
 import { parseMoneyToCents } from "@/lib/finance/money";
 import {
   EnableBankingClient,
@@ -38,9 +38,12 @@ export function buildProviderTransactionInsertValues(input: {
   transaction: NormalizedTransaction;
   merchantName: string | null;
   parsed: ParserResult | null;
+  /** Override for normalization — use when PayPal reference codes are stripped. */
+  normalizedMerchantSource?: string | null;
 }): typeof transactions.$inferInsert {
   const { transaction, merchantName, parsed, householdId, financialAccountId } =
     input;
+  const normSource = input.normalizedMerchantSource ?? merchantName;
 
   const values: typeof transactions.$inferInsert = {
     householdId,
@@ -52,7 +55,7 @@ export function buildProviderTransactionInsertValues(input: {
     date: transaction.date,
     merchantName,
     normalizedMerchantName: normalizeMerchant(
-      merchantName ?? transaction.description,
+      normSource ?? transaction.description,
     ),
     description: transaction.description,
     searchText: `${transaction.description} ${merchantName ?? ""}`,
@@ -82,6 +85,8 @@ export function buildExistingTransactionSyncPatch(input: {
   merchantName: string | null;
   parsed: ParserResult | null;
   parsedExchangeRate?: string | number;
+  /** Override for normalization — use when PayPal reference codes are stripped. */
+  normalizedMerchantSource?: string | null;
 }): Partial<typeof transactions.$inferInsert> {
   const { existing, transaction, merchantName, parsed, parsedExchangeRate } =
     input;
@@ -95,11 +100,14 @@ export function buildExistingTransactionSyncPatch(input: {
   const resolvedMerchant = existingMetadata.userEdits?.merchantNameEdited
     ? existing.merchantName
     : merchantName;
+  const normSource = existingMetadata.userEdits?.merchantNameEdited
+    ? existing.merchantName
+    : (input.normalizedMerchantSource ?? merchantName);
 
   const patch: Partial<typeof transactions.$inferInsert> = {
     description,
     merchantName: resolvedMerchant,
-    normalizedMerchantName: normalizeMerchant(resolvedMerchant ?? description),
+    normalizedMerchantName: normalizeMerchant(normSource ?? description),
     searchText: `${description} ${resolvedMerchant ?? ""}`,
     transactionType: parsed?.transactionType ?? null,
     paymentChannel: parsed?.paymentChannel ?? null,
@@ -206,6 +214,15 @@ export async function syncEnableBankingTransactionPage(input: {
       );
       const merchantName =
         transaction.merchantName ?? parsed?.merchantName ?? null;
+      // For PayPal transactions, strip rotating reference codes (":P3", ":P4")
+      // from the normalized merchant name so that the same subscription always
+      // resolves to a single merchant identity regardless of reference rotation.
+      const isPaypal = parsed?.paymentChannel === "paypal" ||
+        /paypal\s*:/i.test(merchantName ?? "") ||
+        /paypal\s*:/i.test(transaction.description);
+      const normalizedSource = isPaypal
+        ? stripPaypalReferenceSuffix(merchantName ?? transaction.description)
+        : merchantName;
       const parsedExchangeRate = parsed?.metadata?.exchangeRate
         ? parseNorwegianDecimal(String(parsed.metadata.exchangeRate))
         : undefined;
@@ -219,6 +236,7 @@ export async function syncEnableBankingTransactionPage(input: {
           merchantName,
           parsed,
           parsedExchangeRate,
+          normalizedMerchantSource: normalizedSource,
         });
 
         await db
@@ -232,6 +250,7 @@ export async function syncEnableBankingTransactionPage(input: {
           transaction,
           merchantName,
           parsed,
+          normalizedMerchantSource: normalizedSource,
         });
 
         toInsert.push({

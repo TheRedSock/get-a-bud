@@ -382,6 +382,27 @@ describe("parseVisa", () => {
     expect(result!.merchantName).toBe("AnotherStore");
   });
 
+  it("8d: strips PayPal reference suffix from merchant name", () => {
+    const p3 = parseVisa("Visa, Paypal :Spotify:P3");
+    const p4 = parseVisa("Visa, Paypal :Spotify:P4");
+    expect(p3!.merchantName).toBe("Spotify");
+    expect(p4!.merchantName).toBe("Spotify");
+    // Both resolve to the same merchant regardless of PayPal ref rotation
+    expect(p3!.merchantName).toBe(p4!.merchantName);
+  });
+
+  it("8d: strips PayPal reference suffix with Pp: prefix", () => {
+    const result = parseVisa("Visa, Pp:SomeService:P12");
+    expect(result!.merchantName).toBe("SomeService");
+    expect(result!.paymentChannel).toBe("paypal");
+  });
+
+  it("8d: preserves merchant names without PayPal reference suffix", () => {
+    // Colons that aren't PayPal reference codes should be preserved
+    const result = parseVisa("Visa, Paypal :Some:Merchant");
+    expect(result!.merchantName).toBe("Some:Merchant");
+  });
+
   it("8e: parses Zettle purchase", () => {
     const result = parseVisa("Visa, Zettle_:Coffee Shop");
     expect(result).not.toBeNull();

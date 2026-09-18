@@ -105,7 +105,11 @@ export function tokenOverlapScore(left: string, right: string): number {
   const rightTokens = new Set(right.split(" ").filter((token) => token.length >= 2));
   if (leftTokens.size === 0 || rightTokens.size === 0) return 0;
 
-  let overlap = 0;
+  // Character-length weighted scoring: longer tokens contribute more to the
+  // score than short ones. This prevents short noise tokens (e.g., PayPal
+  // reference codes like "p3" vs "p4") from disproportionately penalizing
+  // what is clearly the same merchant based on the bulk of the text.
+  let matchedChars = 0;
   for (const token of leftTokens) {
     if (
       rightTokens.has(token) ||
@@ -114,11 +118,14 @@ export function tokenOverlapScore(left: string, right: string): number {
           candidate.startsWith(token) || token.startsWith(candidate),
       )
     ) {
-      overlap += 1;
+      matchedChars += token.length;
     }
   }
 
-  return overlap / Math.max(leftTokens.size, rightTokens.size);
+  const leftTotal = [...leftTokens].reduce((sum, t) => sum + t.length, 0);
+  const rightTotal = [...rightTokens].reduce((sum, t) => sum + t.length, 0);
+
+  return matchedChars / Math.max(leftTotal, rightTotal);
 }
 
 export function isHighConfidenceAliasMatch(input: {

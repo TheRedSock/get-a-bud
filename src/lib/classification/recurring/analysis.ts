@@ -588,9 +588,14 @@ export function reconcileDelayedPayments(
           ? 3
           : 1;
 
-  // Build list of expected months between first and last observed payment
+  // Build list of expected months between first and last observed payment.
+  // Also check one cadence step before the first observed month — a late
+  // payment for that prior slot may appear in the first observed month
+  // (e.g., a day-29 subscription with Dec 30 as the first peak transaction
+  // may have a Dec 2 late payment belonging to the November slot).
   const expectedMonths: number[] = [];
-  for (let m = firstMonth; m <= lastMonth; m += cadenceMonths) {
+  const rangeStart = firstMonth - cadenceMonths;
+  for (let m = rangeStart; m <= lastMonth; m += cadenceMonths) {
     expectedMonths.push(m);
   }
 
@@ -613,7 +618,9 @@ export function reconcileDelayedPayments(
     if (candidate) {
       delayed.push(candidate);
       claimed.add(candidate.id);
-    } else {
+    } else if (expectedMonth >= firstMonth) {
+      // Only report missing periods within the observed range — pre-range
+      // slots are speculative lookups for possible late payments, not gaps.
       missingPeriods.push(yearMonthToLabel(expectedMonth));
     }
   }
@@ -767,14 +774,23 @@ export function extractPatterns(
     passedPeaks.length = 0;
   }
 
-  // Claim transactions from all passed peaks before reconciliation
-  // so delayed-payment searches don't grab another peak's core data.
-  for (const { peak } of passedPeaks) {
-    for (const t of peak.transactions) claimed.add(t.id);
-  }
+  // Sort peaks by transaction count descending (dominant peak first).
+  // Process each peak sequentially: claim its core transactions, then
+  // reconcile delayed payments. This gives the dominant peak priority
+  // over borderline transactions (e.g., billing-day drift where day-29
+  // subscriptions occasionally post on day 1–4 of the following month).
+  // Without this ordering, secondary peaks would claim those early-month
+  // transactions first, preventing reconciliation from absorbing them.
+  passedPeaks.sort(
+    (a, b) => b.peak.transactions.length - a.peak.transactions.length,
+  );
 
-  // Second pass: reconcile delayed payments and build results
+  // Second pass: claim and reconcile each peak in priority order
   for (const { peak, cadenceResult, peakSorted } of passedPeaks) {
+    // Claim this peak's core transactions before reconciling so that
+    // subsequent peaks cannot grab them during their own reconciliation.
+    for (const t of peak.transactions) claimed.add(t.id);
+
     const { delayed, missingPeriods } = reconcileDelayedPayments(
       peakSorted,
       sorted,

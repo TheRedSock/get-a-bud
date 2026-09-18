@@ -511,10 +511,15 @@ export function parseVisaPaypal(desc: string): ParsedDescription | null {
   const match = desc.match(/^Visa,\s+(?:Paypal\s*:|Pp:)\s*(.+)$/i);
   if (!match) return null;
 
+  // Strip PayPal internal reference suffixes (e.g., ":P3", ":P4") that
+  // rotate over time for the same merchant subscription.
+  const rawMerchant = match[1].trim();
+  const merchantName = rawMerchant.replace(/\s*:P\d+$/i, "").trim();
+
   return {
     transactionType: "online_purchase",
     paymentChannel: "paypal",
-    merchantName: match[1].trim(),
+    merchantName,
     merchantAddress: null,
     counterparty: null,
     purpose: null,

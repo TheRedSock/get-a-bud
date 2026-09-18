@@ -2,6 +2,7 @@ import {
   getCategoryLearningTarget,
   getSourceObservedMerchantName,
   isHighConfidenceAliasMatch,
+  tokenOverlapScore,
 } from "@/lib/finance/merchants";
 
 describe("merchant source-observed alias selection", () => {
@@ -55,5 +56,40 @@ describe("merchant fuzzy alias confidence", () => {
         similarity: 0.7,
       }),
     ).toBe(false);
+  });
+});
+
+describe("tokenOverlapScore (character-weighted)", () => {
+  it("gives high score when bulk of text matches despite short token mismatch", () => {
+    // "paypal spotify p3" vs "paypal spotify p4" — only the 2-char token differs
+    const score = tokenOverlapScore("paypal spotify p3", "paypal spotify p4");
+    // Matched chars: "paypal"(6) + "spotify"(7) = 13
+    // Total chars: max(6+7+2, 6+7+2) = 15
+    // Score: 13/15 = 0.867
+    expect(score).toBeGreaterThan(0.8);
+    expect(score).toBeGreaterThanOrEqual(0.67); // passes the threshold
+  });
+
+  it("gives low score when strings share only one short token", () => {
+    const score = tokenOverlapScore("abc longmerchantname", "xyz longmerchantname");
+    // "longmerchantname" (16 chars) matches, "abc" (3) doesn't
+    // Score: 16/max(19, 19) = 0.84
+    expect(score).toBeGreaterThan(0.67);
+  });
+
+  it("returns 0 when no tokens match", () => {
+    const score = tokenOverlapScore("alpha beta", "gamma delta");
+    expect(score).toBe(0);
+  });
+
+  it("returns 1 when all tokens match exactly", () => {
+    const score = tokenOverlapScore("spotify premium", "spotify premium");
+    expect(score).toBe(1);
+  });
+
+  it("handles prefix matching with character weighting", () => {
+    // "rødtve" is prefix of "rødtvet" — should count as matched
+    const score = tokenOverlapScore("kiwi 425 rødtve", "kiwi 425 rødtvet");
+    expect(score).toBeGreaterThan(0.9);
   });
 });
