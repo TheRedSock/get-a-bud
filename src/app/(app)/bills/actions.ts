@@ -20,6 +20,12 @@ import {
 import { AuditAction, writeAuditEventAsync } from "@/lib/audit";
 import { ensureDefaultBillCategory } from "@/lib/finance/bills/default-category";
 import { nextDueDateAfterPayment } from "@/lib/finance/bills/scheduling";
+import {
+  buildBillCategoryTransactionPatch,
+  buildBillDescriptionTransactionPatch,
+  mergeBillTransactionPatches,
+  type BillLinkedTransactionRow,
+} from "@/lib/finance/bills/transaction-enrichment";
 import { suggestCategoryForBill } from "@/lib/finance/bills/suggest-categories";
 import {
   buildBillMatchesTransactionCondition,
@@ -379,6 +385,46 @@ export const rejectBill = authenticatedAction(
   },
 );
 
+async function applyBillEnrichmentToMatchedTransactions({
+  householdId,
+  billName,
+  billCategoryId,
+  rows,
+}: {
+  householdId: string;
+  billName: string;
+  billCategoryId: string;
+  rows: BillLinkedTransactionRow[];
+}): Promise<number> {
+  let applied = 0;
+
+  for (const row of rows) {
+    const patch = mergeBillTransactionPatches(
+      buildBillCategoryTransactionPatch(billCategoryId, row),
+      buildBillDescriptionTransactionPatch(billName, row),
+    );
+
+    if (!patch) {
+      continue;
+    }
+
+    const updated = await db
+      .update(transactions)
+      .set(patch)
+      .where(
+        and(
+          eq(transactions.id, row.id),
+          eq(transactions.householdId, householdId),
+        ),
+      )
+      .returning({ id: transactions.id });
+
+    applied += updated.length;
+  }
+
+  return applied;
+}
+
 // ---------------------------------------------------------------------------
 // updateBillCategory
 // ---------------------------------------------------------------------------
@@ -461,7 +507,13 @@ export const updateBillCategory = authenticatedAction(
       const matchedRows = await db
         .select({
           id: transactions.id,
+          categoryId: transactions.categoryId,
           categorySource: transactions.categorySource,
+          suggestedCategoryId: transactions.suggestedCategoryId,
+          description: transactions.description,
+          suggestedDescription: transactions.suggestedDescription,
+          merchantName: transactions.merchantName,
+          metadata: transactions.metadata,
         })
         .from(recurringBillHistory)
         .innerJoin(
@@ -475,31 +527,12 @@ export const updateBillCategory = authenticatedAction(
           ),
         );
 
-      const applicableIds = matchedRows
-        .filter((row) => row.categorySource !== "user")
-        .map((row) => row.id);
-
-      if (applicableIds.length > 0) {
-        const updatedRows = await db
-          .update(transactions)
-          .set({
-            categoryId: categoryInput.categoryId,
-            categorySource: "user",
-            categoryConfidence: "1.00",
-            suggestedCategoryId: null,
-            suggestedDescription: null,
-            suggestedMerchantName: null,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              inArray(transactions.id, applicableIds),
-              eq(transactions.householdId, ctx.householdId),
-            ),
-          )
-          .returning({ id: transactions.id });
-        applied = updatedRows.length;
-      }
+      applied = await applyBillEnrichmentToMatchedTransactions({
+        householdId: ctx.householdId,
+        billName: bill.name,
+        billCategoryId: categoryInput.categoryId,
+        rows: matchedRows,
+      });
     }
 
     if (applied > 0) {

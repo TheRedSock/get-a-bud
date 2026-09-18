@@ -105,11 +105,25 @@ describe("formatBillScheduleLabel", () => {
       nextDueDate: "2026-05-24",
       userEndedAt: new Date("2026-04-01"),
       autoEndedAt: null,
-      lastPaymentDate: null,
+      lastPaymentDate: "2026-03-15",
       updatedAt: asOf,
     });
-    expect(label).toContain("You ended");
+    expect(label).toBe("Last payment on Mar 15, 2026");
     expect(label).not.toMatch(/Due today/i);
+    expect(label).not.toContain("You ended");
+  });
+
+  it("prefers last payment over userEndedAt for manually ended bills", () => {
+    const label = formatBillScheduleLabel({
+      isActive: false,
+      nextDueDate: null,
+      userEndedAt: new Date("2026-04-01"),
+      autoEndedAt: null,
+      lastPaymentDate: "2026-03-30",
+      updatedAt: asOf,
+    });
+    expect(label).toBe("Last payment on Mar 30, 2026");
+    expect(label).not.toContain("You ended");
   });
 
   it("shows last payment on en-US date for auto-ended bills", () => {

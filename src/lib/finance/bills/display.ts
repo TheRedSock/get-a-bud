@@ -116,9 +116,6 @@ export function formatBillDueLabel(
 function formatEndedLabel(bill: BillScheduleInput): string {
   const scheduleLocale = BILL_SCHEDULE_LOCALE;
 
-  const userEnded = formatEventDate(bill.userEndedAt, scheduleLocale);
-  if (userEnded) return `You ended this on ${userEnded}`;
-
   const lastPaid = formatEventDate(bill.lastPaymentDate, scheduleLocale);
   if (lastPaid) return `Last payment on ${lastPaid}`;
 
