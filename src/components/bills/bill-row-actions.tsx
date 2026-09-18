@@ -187,7 +187,7 @@ export function BillRowActions({ bill, categories }: BillRowActionsProps) {
             <DialogTitle>Edit bill</DialogTitle>
             <DialogDescription>Update schedule, category, and amounts.</DialogDescription>
           </DialogHeader>
-          <DialogScrollBody>
+          <DialogScrollBody className="pb-1">
             <RecurringBillEditor
               billId={bill.id}
               cadence={bill.cadence}
@@ -199,7 +199,6 @@ export function BillRowActions({ bill, categories }: BillRowActionsProps) {
               isPossiblyCancelled={bill.isPossiblyCancelled}
               name={bill.name}
               nextDueDate={bill.nextDueDate}
-              showEndToggle={false}
               suggestedCategoryId={bill.suggestedCategoryId}
               onSaved={() => {
                 setEditOpen(false);

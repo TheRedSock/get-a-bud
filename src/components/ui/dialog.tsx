@@ -59,7 +59,10 @@ export function DialogHeader({
 }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      className={cn(
+        "flex shrink-0 flex-col gap-2 text-center sm:text-left",
+        className,
+      )}
       {...props}
     />
   );
@@ -104,9 +107,11 @@ export function DialogDescription({
   );
 }
 
-/** Scrollable dialog shell: fixed header/footer, inset scrollbar on body. */
+/**
+ * Scrollable dialog shell: grows with content up to the viewport, then scrolls the body.
+ */
 export const dialogScrollableShellClass =
-  "flex max-h-[min(90vh,40rem)] flex-col gap-4 overflow-hidden sm:max-w-lg";
+  "flex max-h-[min(90dvh,calc(100%-2rem))] flex-col gap-4 overflow-hidden sm:max-w-lg";
 
 export function DialogScrollBody({
   className,
@@ -115,7 +120,7 @@ export function DialogScrollBody({
   return (
     <div
       className={cn(
-        "scrollbar-inset -mr-1 min-h-0 flex-1 overflow-y-auto pr-1",
+        "scrollbar-inset -mr-1 min-h-0 min-w-0 flex-auto overflow-x-hidden overflow-y-auto px-1",
         className,
       )}
       {...props}

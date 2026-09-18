@@ -140,7 +140,7 @@ export function BillsList({ bills, categories, filters }: BillsListProps) {
                   </div>
                 ) : null}
               </div>
-              {bill.detectedCadenceConfidence ? (
+              {isPending && bill.detectedCadenceConfidence ? (
                 <p className="mt-1 text-xs text-muted-foreground">
                   Confidence:{" "}
                   {formatConfidencePercent(bill.detectedCadenceConfidence)}

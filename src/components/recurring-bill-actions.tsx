@@ -302,7 +302,9 @@ export function RecurringBillEditor({
         expectedAmountCents: values.expectedAmountCents?.trim() || null,
         nextDueDate: values.nextDueDate?.trim() || null,
         isActive: values.isActive,
-        isPossiblyCancelled: values.isPossiblyCancelled,
+        isPossiblyCancelled: values.isActive
+          ? values.isPossiblyCancelled
+          : false,
       });
 
       await unwrapAction(
@@ -373,7 +375,12 @@ export function RecurringBillEditor({
             </FormField>
           ) : null}
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div
+            className={cn(
+              "grid min-w-0 gap-3",
+              embedded ? "grid-cols-1" : "sm:grid-cols-3",
+            )}
+          >
             <FormField id={`bill-cadence-${billId}`} label="Cadence" error={errors.cadence?.message}>
               <Select
                 value={formCadence}
@@ -434,47 +441,82 @@ export function RecurringBillEditor({
             </FormField>
           </div>
 
-          {showEndToggle ? (
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                type="button"
-                variant={formIsActive ? "default" : "outline"}
-                onClick={() => setValue("isActive", true)}
-              >
-                Active
-              </Button>
-              <Button
-                size="sm"
-                type="button"
-                variant={!formIsActive ? "default" : "outline"}
-                onClick={() => setValue("isActive", false)}
-              >
-                Ended
-              </Button>
-            </div>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
+          <fieldset className="grid min-w-0 gap-2 rounded-2xl border bg-muted/20 p-3">
+            <legend className="px-1 text-sm font-medium">Bill status</legend>
+            {showEndToggle ? (
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Mark a bill as ended when you have cancelled the subscription or
+                  no longer expect charges.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant={formIsActive ? "default" : "outline"}
+                    onClick={() => {
+                      setValue("isActive", true);
+                    }}
+                  >
+                    Active
+                  </Button>
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant={!formIsActive ? "default" : "outline"}
+                    onClick={() => {
+                      setValue("isActive", false);
+                      setValue("isPossiblyCancelled", false);
+                    }}
+                  >
+                    Ended
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {formIsActive ? (
+              <div className="grid gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {formNeedsCheck
+                    ? "Flagged because a payment is overdue — clear this if the bill is still active."
+                    : "Turn on if you suspect the subscription stopped but are not sure yet."}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    size="sm"
+                    type="button"
+                    variant={formNeedsCheck ? "default" : "outline"}
+                    onClick={() =>
+                      setValue("isPossiblyCancelled", !formNeedsCheck)
+                    }
+                  >
+                    Possibly cancelled
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </fieldset>
+
+          <div
+            className={cn(
+              embedded &&
+                "sticky bottom-0 z-10 -mx-1 border-t border-border/60 bg-popover px-1 pt-3 backdrop-blur-sm",
+            )}
+          >
             <Button
-              size="sm"
-              type="button"
-              variant={formNeedsCheck ? "default" : "outline"}
-              onClick={() =>
-                setValue("isPossiblyCancelled", !formNeedsCheck)
-              }
+              className={embedded ? "w-full" : undefined}
+              disabled={isSubmitting}
+              size={embedded ? "default" : "sm"}
+              type="submit"
             >
-              Possibly cancelled
+              {isSubmitting ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : (
+                <Save className="size-4" aria-hidden />
+              )}
+              Save bill
             </Button>
           </div>
-
-          <Button disabled={isSubmitting} size="sm" type="submit">
-            {isSubmitting ? (
-              <Loader2 className="size-4 animate-spin" aria-hidden />
-            ) : (
-              <Save className="size-4" aria-hidden />
-            )}
-            Save bill
-          </Button>
         </form>
       ) : null}
     </div>
